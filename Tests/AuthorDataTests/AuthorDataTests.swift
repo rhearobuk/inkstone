@@ -111,10 +111,12 @@ final class AuthorDataTests: XCTestCase {
         let statusCount = try store.statusDefinitions.count()
         let sectionTypeCount = try store.sectionTypeDefinitions.count()
         XCTAssertGreaterThan(characterProfileCount, 10)
+        aidan.firstName = "Edited Aidan"
         let second = try importer.importProject(xmlURL: xmlURL, filesURL: filesURL)
         XCTAssertEqual(try store.documents.count(), documentCount)
         XCTAssertEqual(try store.resources.count(), resourceCount)
         XCTAssertEqual(try store.characterProfiles.count(), characterProfileCount)
+        XCTAssertEqual(aidan.firstName, "Edited Aidan")
         XCTAssertEqual(try store.labelDefinitions.count(), labelCount)
         XCTAssertEqual(try store.statusDefinitions.count(), statusCount)
         XCTAssertEqual(try store.sectionTypeDefinitions.count(), sectionTypeCount)

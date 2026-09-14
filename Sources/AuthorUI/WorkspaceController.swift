@@ -386,21 +386,21 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
         return definition
     }
 
     public func renameSectionType(_ definition: SectionTypeDefinition, title: String) {
         definition.title = title
         definition.project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func deleteSectionType(_ definition: SectionTypeDefinition) {
         let project = definition.project
         store.context.delete(definition)
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     @discardableResult
@@ -417,7 +417,7 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
         return definition
     }
 
@@ -431,14 +431,14 @@ public final class WorkspaceController: ObservableObject {
         definition.colorGreen = color.map { NSNumber(value: $0.green) }
         definition.colorBlue = color.map { NSNumber(value: $0.blue) }
         definition.project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func deleteLabel(_ definition: LabelDefinition) {
         let project = definition.project
         store.context.delete(definition)
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     @discardableResult
@@ -452,21 +452,21 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
         return definition
     }
 
     public func renameStatus(_ definition: StatusDefinition, title: String) {
         definition.title = title
         definition.project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func deleteStatus(_ definition: StatusDefinition) {
         let project = definition.project
         store.context.delete(definition)
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     @discardableResult
@@ -483,7 +483,7 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
         return field
     }
 
@@ -491,14 +491,14 @@ public final class WorkspaceController: ObservableObject {
         field.displayName = displayName
         field.valueType = valueType
         field.project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func deleteCustomMetadataField(_ field: MetadataField) {
         let project = field.project
         store.context.delete(field)
         project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func updateDocument(title: String, synopsis: String?, plainText: String?) {
@@ -508,7 +508,7 @@ public final class WorkspaceController: ObservableObject {
         document.plainText = plainText
         document.modifiedAt = Date()
         document.project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func updateDocumentRichText(rtfData: Data, plainText: String) {
@@ -525,7 +525,7 @@ public final class WorkspaceController: ObservableObject {
         resource.textContent = plainText
         resource.byteCount = Int64(rtfData.count)
         resource.sha256 = SHA256.hash(data: rtfData).map { String(format: "%02x", $0) }.joined()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func updateSemanticEntity(name: String, summary: String?) {
@@ -534,7 +534,7 @@ public final class WorkspaceController: ObservableObject {
         entity.summary = summary?.nilIfBlank
         entity.modifiedAt = Date()
         entity.project.modifiedAt = Date()
-        saveAndRefresh(rebuild: false)
+        saveAndRefresh()
     }
 
     public func saveCharacterProfile(_ profile: CharacterProfile) {
@@ -548,15 +548,88 @@ public final class WorkspaceController: ObservableObject {
             profile.age = nil
         }
         profile.semanticEntity.modifiedAt = Date()
+        profile.semanticEntity.source = ProvenanceAgent.human.rawValue
         profile.modifiedAt = Date()
+        profile.source = ProvenanceAgent.human.rawValue
         profile.project.modifiedAt = Date()
+        scheduleCharacterSave()
+    }
+
+    public func saveAlias(_ alias: EntityAlias, for profile: CharacterProfile) {
+        alias.normalizedName = alias.name.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        markCharacterEdited(profile)
+        scheduleCharacterSave()
+    }
+
+    public func saveMeasurement(_ measurement: CharacterMeasurement) {
+        markCharacterEdited(measurement.characterProfile)
+        scheduleCharacterSave()
+    }
+
+    public func saveCharacterNote(_ note: CharacterNote) {
+        note.source = ProvenanceAgent.human.rawValue
+        note.modifiedAt = Date()
+        markCharacterEdited(note.characterProfile)
+        scheduleCharacterSave()
+    }
+
+    public func saveCharacterRelationship(_ relationship: CharacterRelationship) {
+        relationship.source = ProvenanceAgent.human.rawValue
+        relationship.modifiedAt = Date()
+        markCharacterEdited(relationship.sourceCharacter)
+        scheduleCharacterSave()
+    }
+
+    public func saveCharacterConflict(_ conflict: CharacterConflict) {
+        conflict.source = ProvenanceAgent.human.rawValue
+        conflict.modifiedAt = Date()
+        markCharacterEdited(conflict.characterProfile)
+        scheduleCharacterSave()
+    }
+
+    public func deleteAlias(_ alias: EntityAlias) {
+        store.context.delete(alias)
+        saveAndRefresh()
+    }
+
+    public func deleteMeasurement(_ measurement: CharacterMeasurement) {
+        store.context.delete(measurement)
+        saveAndRefresh()
+    }
+
+    public func deleteCharacterNote(_ note: CharacterNote) {
+        store.context.delete(note)
+        saveAndRefresh()
+    }
+
+    public func deleteCharacterRelationship(_ relationship: CharacterRelationship) {
+        store.context.delete(relationship)
+        saveAndRefresh()
+    }
+
+    public func deleteCharacterConflict(_ conflict: CharacterConflict) {
+        store.context.delete(conflict)
+        saveAndRefresh()
+    }
+
+    private func markCharacterEdited(_ profile: CharacterProfile) {
+        profile.source = ProvenanceAgent.human.rawValue
+        profile.semanticEntity.source = ProvenanceAgent.human.rawValue
+        profile.modifiedAt = Date()
+        profile.semanticEntity.modifiedAt = Date()
+        profile.project.modifiedAt = Date()
+    }
+
+    private func scheduleCharacterSave() {
         pendingCharacterSave?.cancel()
         pendingCharacterSave = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(400))
                 guard !Task.isCancelled, let self else { return }
                 try self.store.save()
-                self.refresh()
             } catch is CancellationError {
                 return
             } catch {

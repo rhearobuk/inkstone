@@ -490,7 +490,7 @@ public final class ScrivenerImporter {
             return false
         }
 
-        var imported: [(profile: CharacterProfile, card: CharacterCard)] = []
+        var imported: [(profile: CharacterProfile, card: CharacterCard, isNew: Bool)] = []
         for item in items where belongsToCharacters(item) {
             guard let document = documents[item.identifier],
                   let sourceText = document.plainText,
@@ -502,18 +502,25 @@ public final class ScrivenerImporter {
                 namespace: project.id,
                 name: "character-entity:\(item.identifier)"
             )
+            let profileID = DeterministicID.make(
+                namespace: project.id,
+                name: "character-profile:\(item.identifier)"
+            )
+            let shouldMapSource = try store.characterProfiles.fetch(id: profileID) == nil
             let entity = try store.semanticEntities.upsert(id: entityID) { entity, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
-                entity.canonicalName = card.fullName
-                entity.kind = SemanticEntityKind.character.rawValue
-                entity.summary = card.sections["Role in Story"]
-                entity.source = ProvenanceAgent.sourceImport.rawValue
-                if isNew { entity.createdAt = document.createdAt ?? Date() }
-                entity.modifiedAt = document.modifiedAt ?? Date()
+                if shouldMapSource {
+                    entity.canonicalName = card.fullName
+                    entity.kind = SemanticEntityKind.character.rawValue
+                    entity.summary = card.sections["Role in Story"]
+                    entity.source = ProvenanceAgent.sourceImport.rawValue
+                    entity.createdAt = document.createdAt ?? Date()
+                    entity.modifiedAt = document.modifiedAt ?? Date()
+                }
                 entity.project = project
             }
 
-            for aliasName in card.aliases {
+            for aliasName in shouldMapSource ? card.aliases : [] {
                 let normalizedName = Self.normalizedName(aliasName)
                 let aliasID = DeterministicID.make(
                     namespace: entityID,
@@ -527,49 +534,49 @@ public final class ScrivenerImporter {
                 }
             }
 
-            let profileID = DeterministicID.make(
-                namespace: project.id,
-                name: "character-profile:\(item.identifier)"
-            )
             let profile = try store.characterProfiles.upsert(id: profileID) { profile, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
-                profile.firstName = card.firstName
-                profile.middleName = card.middleName
-                profile.lastName = card.lastName
-                profile.age = card.age.map(NSNumber.init(value:))
-                profile.ageText = card.ageText
-                profile.location = card.location
-                profile.height = card.height
-                profile.weight = card.weight
-                profile.physicalDescription = card.sections["Physical Description"]
-                profile.biography = card.sections["Background"]
-                profile.source = ProvenanceAgent.sourceImport.rawValue
-                if isNew { profile.createdAt = document.createdAt ?? Date() }
-                profile.modifiedAt = document.modifiedAt ?? Date()
+                if shouldMapSource {
+                    profile.firstName = card.firstName
+                    profile.middleName = card.middleName
+                    profile.lastName = card.lastName
+                    profile.age = card.age.map(NSNumber.init(value:))
+                    profile.ageText = card.ageText
+                    profile.location = card.location
+                    profile.height = card.height
+                    profile.weight = card.weight
+                    profile.physicalDescription = card.sections["Physical Description"]
+                    profile.biography = card.sections["Background"]
+                    profile.source = ProvenanceAgent.sourceImport.rawValue
+                    profile.createdAt = document.createdAt ?? Date()
+                    profile.modifiedAt = document.modifiedAt ?? Date()
+                }
                 profile.project = project
                 profile.semanticEntity = entity
                 profile.sourceDocument = document
             }
 
-            try upsertCharacterNotes(
-                card: card,
-                profile: profile,
-                inserted: &inserted,
-                updated: &updated
-            )
-            try upsertCharacterMeasurements(
-                card: card,
-                profile: profile,
-                inserted: &inserted,
-                updated: &updated
-            )
-            try upsertCharacterConflicts(
-                card: card,
-                profile: profile,
-                inserted: &inserted,
-                updated: &updated
-            )
-            imported.append((profile, card))
+            if shouldMapSource {
+                try upsertCharacterNotes(
+                    card: card,
+                    profile: profile,
+                    inserted: &inserted,
+                    updated: &updated
+                )
+                try upsertCharacterMeasurements(
+                    card: card,
+                    profile: profile,
+                    inserted: &inserted,
+                    updated: &updated
+                )
+                try upsertCharacterConflicts(
+                    card: card,
+                    profile: profile,
+                    inserted: &inserted,
+                    updated: &updated
+                )
+            }
+            imported.append((profile, card, shouldMapSource))
         }
 
         try upsertCharacterRelationships(
@@ -675,11 +682,11 @@ public final class ScrivenerImporter {
     }
 
     private func upsertCharacterRelationships(
-        _ imported: [(profile: CharacterProfile, card: CharacterCard)],
+        _ imported: [(profile: CharacterProfile, card: CharacterCard, isNew: Bool)],
         inserted: inout Int,
         updated: inout Int
     ) throws {
-        for source in imported {
+        for source in imported where source.isNew {
             let relationshipText = [
                 source.card.sections["Role in Story"],
                 source.card.sections["Key Relationships"]
@@ -718,9 +725,9 @@ public final class ScrivenerImporter {
     }
 
     private func resolveConflictParticipants(
-        _ imported: [(profile: CharacterProfile, card: CharacterCard)]
+        _ imported: [(profile: CharacterProfile, card: CharacterCard, isNew: Bool)]
     ) {
-        for source in imported {
+        for source in imported where source.isNew {
             for conflict in source.profile.conflicts {
                 guard let text = conflict.summary else { continue }
                 conflict.relatedCharacters = Set(imported.compactMap { target in

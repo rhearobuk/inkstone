@@ -18,7 +18,19 @@ struct CharacterDossierView: View {
 
                 Section("Aliases") {
                     ForEach(sortedAliases(profile), id: \.id) { alias in
-                        Text(alias.name)
+                        HStack {
+                            TextField(
+                                "Alias",
+                                text: Binding(
+                                    get: { alias.name },
+                                    set: {
+                                        alias.name = $0
+                                        controller.saveAlias(alias, for: profile)
+                                    }
+                                )
+                            )
+                            deleteButton { controller.deleteAlias(alias) }
+                        }
                     }
                     Button("Add Alias") { editor = .alias }
                 }
@@ -32,8 +44,51 @@ struct CharacterDossierView: View {
                         axis: .vertical
                     )
                     ForEach(sortedMeasurements(profile), id: \.id) { measurement in
-                        LabeledContent(measurement.name) {
-                            Text([measurement.value, measurement.unit].compactMap { $0 }.joined(separator: " "))
+                        VStack(alignment: .leading) {
+                            HStack {
+                                TextField(
+                                    "Measurement",
+                                    text: Binding(
+                                        get: { measurement.name },
+                                        set: {
+                                            measurement.name = $0
+                                            controller.saveMeasurement(measurement)
+                                        }
+                                    )
+                                )
+                                TextField(
+                                    "Value",
+                                    text: Binding(
+                                        get: { measurement.value },
+                                        set: {
+                                            measurement.value = $0
+                                            controller.saveMeasurement(measurement)
+                                        }
+                                    )
+                                )
+                                TextField(
+                                    "Unit",
+                                    text: Binding(
+                                        get: { measurement.unit ?? "" },
+                                        set: {
+                                            measurement.unit = $0
+                                            controller.saveMeasurement(measurement)
+                                        }
+                                    )
+                                )
+                                deleteButton { controller.deleteMeasurement(measurement) }
+                            }
+                            TextField(
+                                "Measurement notes",
+                                text: Binding(
+                                    get: { measurement.notes ?? "" },
+                                    set: {
+                                        measurement.notes = $0
+                                        controller.saveMeasurement(measurement)
+                                    }
+                                ),
+                                axis: .vertical
+                            )
                         }
                     }
                     Button("Add Measurement") { editor = .measurement }
@@ -50,10 +105,31 @@ struct CharacterDossierView: View {
                 Section("Notes") {
                     ForEach(sortedNotes(profile), id: \.id) { note in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(note.title ?? note.kind.capitalized)
+                            HStack {
+                                TextField(
+                                    "Note title",
+                                    text: Binding(
+                                        get: { note.title ?? "" },
+                                        set: {
+                                            note.title = $0
+                                            controller.saveCharacterNote(note)
+                                        }
+                                    )
+                                )
                                 .font(.headline)
-                            Text(note.body)
-                                .foregroundStyle(.secondary)
+                                deleteButton { controller.deleteCharacterNote(note) }
+                            }
+                            TextField(
+                                "Note",
+                                text: Binding(
+                                    get: { note.body },
+                                    set: {
+                                        note.body = $0
+                                        controller.saveCharacterNote(note)
+                                    }
+                                ),
+                                axis: .vertical
+                            )
                         }
                     }
                     Button("Add Note") { editor = .note }
@@ -61,13 +137,42 @@ struct CharacterDossierView: View {
 
                 Section("Key Relationships") {
                     ForEach(sortedRelationships(profile), id: \.id) { relationship in
-                        LabeledContent(relationship.targetCharacter.semanticEntity.canonicalName) {
-                            Text(relationship.kind.capitalized)
-                        }
-                        if let notes = relationship.notes, !notes.isEmpty {
-                            Text(notes)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Picker(
+                                    "Character",
+                                    selection: relationshipTargetBinding(relationship)
+                                ) {
+                                    ForEach(controller.otherCharacterProfiles, id: \.id) { character in
+                                        Text(character.semanticEntity.canonicalName)
+                                            .tag(character.id)
+                                    }
+                                }
+                                TextField(
+                                    "Type",
+                                    text: Binding(
+                                        get: { relationship.kind },
+                                        set: {
+                                            relationship.kind = $0
+                                            controller.saveCharacterRelationship(relationship)
+                                        }
+                                    )
+                                )
+                                deleteButton {
+                                    controller.deleteCharacterRelationship(relationship)
+                                }
+                            }
+                            TextField(
+                                "Relationship notes",
+                                text: Binding(
+                                    get: { relationship.notes ?? "" },
+                                    set: {
+                                        relationship.notes = $0
+                                        controller.saveCharacterRelationship(relationship)
+                                    }
+                                ),
+                                axis: .vertical
+                            )
                         }
                     }
                     Button("Add Relationship") { editor = .relationship }
@@ -78,14 +183,52 @@ struct CharacterDossierView: View {
                     ForEach(sortedConflicts(profile), id: \.id) { conflict in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(conflict.title)
-                                    .font(.headline)
-                                Spacer()
-                                Text(conflict.kind.capitalized)
-                                    .foregroundStyle(.secondary)
+                                TextField(
+                                    "Conflict title",
+                                    text: Binding(
+                                        get: { conflict.title },
+                                        set: {
+                                            conflict.title = $0
+                                            controller.saveCharacterConflict(conflict)
+                                        }
+                                    )
+                                )
+                                .font(.headline)
+                                Picker(
+                                    "Type",
+                                    selection: Binding(
+                                        get: { conflict.kind },
+                                        set: {
+                                            conflict.kind = $0
+                                            controller.saveCharacterConflict(conflict)
+                                        }
+                                    )
+                                ) {
+                                    Text("Internal").tag("internal")
+                                    Text("External").tag("external")
+                                    Text("Other").tag("other")
+                                }
+                                .labelsHidden()
+                                deleteButton { controller.deleteCharacterConflict(conflict) }
                             }
-                            if let summary = conflict.summary, !summary.isEmpty {
-                                Text(summary)
+                            TextField(
+                                "Summary",
+                                text: Binding(
+                                    get: { conflict.summary ?? "" },
+                                    set: {
+                                        conflict.summary = $0
+                                        controller.saveCharacterConflict(conflict)
+                                    }
+                                ),
+                                axis: .vertical
+                            )
+                            Menu("Related Characters") {
+                                ForEach(controller.otherCharacterProfiles, id: \.id) { character in
+                                    Toggle(
+                                        character.semanticEntity.canonicalName,
+                                        isOn: conflictParticipantBinding(conflict, character: character)
+                                    )
+                                }
                             }
                             let related = conflict.relatedCharacters
                                 .map(\.semanticEntity.canonicalName)
@@ -177,6 +320,45 @@ struct CharacterDossierView: View {
         profile.conflicts.sorted {
             $0.createdAt < $1.createdAt
         }
+    }
+
+    private func relationshipTargetBinding(
+        _ relationship: CharacterRelationship
+    ) -> Binding<UUID> {
+        Binding(
+            get: { relationship.targetCharacter.id },
+            set: { id in
+                guard let character = controller.otherCharacterProfiles.first(where: { $0.id == id }) else {
+                    return
+                }
+                relationship.targetCharacter = character
+                controller.saveCharacterRelationship(relationship)
+            }
+        )
+    }
+
+    private func conflictParticipantBinding(
+        _ conflict: CharacterConflict,
+        character: CharacterProfile
+    ) -> Binding<Bool> {
+        Binding(
+            get: { conflict.relatedCharacters.contains(character) },
+            set: { isIncluded in
+                if isIncluded {
+                    conflict.relatedCharacters.insert(character)
+                } else {
+                    conflict.relatedCharacters.remove(character)
+                }
+                controller.saveCharacterConflict(conflict)
+            }
+        )
+    }
+
+    private func deleteButton(action: @escaping () -> Void) -> some View {
+        Button(role: .destructive, action: action) {
+            Image(systemName: "trash")
+        }
+        .buttonStyle(.borderless)
     }
 }
 
