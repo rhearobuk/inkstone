@@ -12,7 +12,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(project.title, "The Long Road")
         XCTAssertEqual(project.author, "Ada")
         XCTAssertEqual(controller.binderItems.map(\.title), [
-            "Project Definition", "Story Bible", "Gallery", "Narrative"
+            "Project Definition", "Story Bible", "Gallery", "Narrative", "Trash"
         ])
         XCTAssertEqual(project.documents.count, 3)
         XCTAssertEqual(
@@ -20,6 +20,220 @@ final class WorkspaceControllerTests: XCTestCase {
                 .orderedChildren.first?.title,
             "Untitled Novel"
         )
+    }
+
+    func testPinsAndUnpinsProjectsBeforeUnpinnedProjects() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let first = try controller.createProject(title: "First")
+        _ = try controller.createProject(title: "Second")
+
+        controller.setProjectPinned(first.id, pinned: true)
+
+        XCTAssertEqual(controller.projects.first?.id, first.id)
+        XCTAssertTrue(controller.isProjectPinned(first.id))
+        controller.setProjectPinned(first.id, pinned: false)
+        XCTAssertFalse(controller.isProjectPinned(first.id))
+    }
+
+    func testHidesAndRestoresProjects() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let project = try controller.createProject(title: "Hidden")
+
+        controller.setProjectHidden(project.id, hidden: true)
+
+        XCTAssertTrue(controller.projects.isEmpty)
+        XCTAssertTrue(controller.isProjectHidden(project.id))
+        controller.showsHiddenProjects = true
+        controller.refresh()
+        XCTAssertEqual(controller.projects.map(\.id), [project.id])
+        controller.setProjectHidden(project.id, hidden: false)
+        XCTAssertFalse(controller.isProjectHidden(project.id))
+    }
+
+    func testSoftDeletesAndRestoresProjects() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let project = try controller.createProject(title: "Trash Project")
+        let projectID = project.id
+
+        // Soft delete moves to trash
+        controller.trashProject(projectID)
+        XCTAssertTrue(controller.isProjectTrashed(projectID))
+        XCTAssertTrue(controller.projects.isEmpty)
+        XCTAssertEqual(controller.trashedProjects.map(\.id), [projectID])
+
+        // When showsTrashedProjects is enabled, it appears
+        controller.showsTrashedProjects = true
+        controller.refresh()
+        XCTAssertEqual(controller.projects.map(\.id), [projectID])
+
+        // Restore project
+        controller.restoreProject(projectID)
+        XCTAssertFalse(controller.isProjectTrashed(projectID))
+        controller.showsTrashedProjects = false
+        controller.refresh()
+        XCTAssertEqual(controller.projects.map(\.id), [projectID])
+    }
+
+    func testPermanentlyDeletesProjectAndItsDocuments() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Delete Me")
+        let projectID = project.id
+
+        try controller.deleteProjectPermanently(projectID)
+
+        XCTAssertNil(try controller.store.projects.fetch(id: projectID))
+        XCTAssertEqual(try controller.store.documents.count(), 0)
+        XCTAssertTrue(controller.projects.isEmpty)
+    }
+
+    func testEmptyProjectTrashPermanentlyDeletesAllTrashedProjects() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let active = try controller.createProject(title: "Active")
+        let trashed1 = try controller.createProject(title: "Trash 1")
+        let trashed2 = try controller.createProject(title: "Trash 2")
+        let trashed1ID = trashed1.id
+        let trashed2ID = trashed2.id
+
+        controller.trashProject(trashed1ID)
+        controller.trashProject(trashed2ID)
+
+        XCTAssertEqual(controller.trashedProjects.count, 2)
+        try controller.emptyProjectTrash()
+
+        XCTAssertEqual(controller.trashedProjects.count, 0)
+        XCTAssertEqual(controller.projects.map(\.id), [active.id])
+        XCTAssertNil(try controller.store.projects.fetch(id: trashed1ID))
+        XCTAssertNil(try controller.store.projects.fetch(id: trashed2ID))
+        XCTAssertNotNil(try controller.store.projects.fetch(id: active.id))
+    }
+
+    func testSoftDeletesAndRestoresSceneToExactLocation() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let project = try controller.createProject(title: "Novel")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let script = try XCTUnwrap(narrative.orderedChildren.first)
+
+        _ = try XCTUnwrap(script.orderedChildren.first) // Opening Scene (order 0)
+        let scene2 = try controller.addDocument(title: "Scene Two", kind: .text, parentID: script.id)
+        _ = try controller.addDocument(title: "Scene Three", kind: .text, parentID: script.id)
+
+        XCTAssertEqual(script.orderedChildren.map(\.title), ["Opening Scene", "Scene Two", "Scene Three"])
+
+        // Soft delete scene2
+        controller.trashDocument(scene2.id)
+        XCTAssertTrue(controller.isDocumentTrashed(scene2.id))
+        XCTAssertEqual(controller.trashedDocuments(in: project).map(\.id), [scene2.id])
+
+        // Binder items for narrative should now only show scene1 and scene3
+        let narrativeItem = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+        let novelItem = try XCTUnwrap(narrativeItem.children?.first)
+        XCTAssertEqual(novelItem.children?.map(\.title), ["Opening Scene", "Scene Three"])
+
+        // Trash binder item should show scene2
+        let trashItem = try XCTUnwrap(controller.binderItems.first { $0.kind == .trash })
+        XCTAssertEqual(trashItem.title, "Trash (1)")
+        XCTAssertEqual(trashItem.children?.map(\.title), ["Scene Two"])
+
+        // Restore scene2 -> it must return to its EXACT location (between Scene 1 and Scene 3)
+        controller.restoreDocument(scene2.id)
+        XCTAssertFalse(controller.isDocumentTrashed(scene2.id))
+        XCTAssertEqual(controller.trashedDocuments(in: project).count, 0)
+
+        controller.refresh()
+        let refreshedNarrative = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+        let refreshedNovel = try XCTUnwrap(refreshedNarrative.children?.first)
+        XCTAssertEqual(refreshedNovel.children?.map(\.title), ["Opening Scene", "Scene Two", "Scene Three"])
+    }
+
+    func testHidesAndShowsScenesInBinder() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let project = try controller.createProject(title: "Novel")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let script = try XCTUnwrap(narrative.orderedChildren.first)
+
+        _ = try XCTUnwrap(script.orderedChildren.first)
+        let scene2 = try controller.addDocument(title: "Scene Two", kind: .text, parentID: script.id)
+
+        controller.setDocumentHidden(scene2.id, hidden: true)
+        XCTAssertTrue(controller.isDocumentHidden(scene2.id))
+
+        // When showsHiddenDocuments is false, scene2 is omitted from binder
+        let narrativeItem = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+        let novelItem = try XCTUnwrap(narrativeItem.children?.first)
+        XCTAssertEqual(novelItem.children?.map(\.title), ["Opening Scene"])
+
+        // When showsHiddenDocuments is true, scene2 appears with isHidden = true
+        controller.showsHiddenDocuments = true
+        controller.refresh()
+        let visibleNarrative = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+        let visibleNovel = try XCTUnwrap(visibleNarrative.children?.first)
+        XCTAssertEqual(visibleNovel.children?.map(\.title), ["Opening Scene", "Scene Two"])
+        XCTAssertEqual(visibleNovel.children?.last?.isHidden, true)
+
+        controller.setDocumentHidden(scene2.id, hidden: false)
+        XCTAssertFalse(controller.isDocumentHidden(scene2.id))
+    }
+
+    func testEmptyDocumentTrashPermanentlyRemovesTrashedDocuments() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let project = try controller.createProject(title: "Novel")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let script = try XCTUnwrap(narrative.orderedChildren.first)
+
+        let scene1 = try XCTUnwrap(script.orderedChildren.first)
+        let scene2 = try controller.addDocument(title: "Scene Two", kind: .text, parentID: script.id)
+        let scene1ID = scene1.id
+        let scene2ID = scene2.id
+
+        controller.trashDocument(scene2ID)
+        XCTAssertEqual(controller.trashedDocuments(in: project).count, 1)
+
+        try controller.emptyTrash(for: project.id)
+
+        XCTAssertEqual(controller.trashedDocuments(in: project).count, 0)
+        XCTAssertNil(try controller.store.documents.fetch(id: scene2ID))
+        XCTAssertNotNil(try controller.store.documents.fetch(id: scene1ID))
+    }
+
+    func testPermanentlyDeletesDocument() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let scene = try XCTUnwrap(
+            project.documents.first { $0.kind == DocumentKind.text.rawValue }
+        )
+        let sceneID = scene.id
+
+        try controller.deleteDocumentPermanently(sceneID)
+
+        XCTAssertNil(try controller.store.documents.fetch(id: sceneID))
     }
 
     func testGroupsStoryBibleEntriesUsingContractOntology() throws {
@@ -164,6 +378,85 @@ final class WorkspaceControllerTests: XCTestCase {
         let narrative = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
         XCTAssertEqual(people.children?.map(\.title), ["Characters"])
         XCTAssertEqual(narrative.children?.map(\.title), ["Novel"])
+    }
+
+    func testRearrangeNarrativeScenesBeforeAndAfter() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Narrative Flow")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let script = try XCTUnwrap(narrative.orderedChildren.first)
+
+        let scene1 = try XCTUnwrap(script.orderedChildren.first) // "Opening Scene"
+        let scene2 = try controller.addDocument(title: "Middle Scene", kind: .text, parentID: script.id)
+        let scene3 = try controller.addDocument(title: "Climax Scene", kind: .text, parentID: script.id)
+        let scene4 = try controller.addDocument(title: "Ending Scene", kind: .text, parentID: script.id)
+
+        XCTAssertEqual(
+            script.orderedChildren.map(\.title),
+            ["Opening Scene", "Middle Scene", "Climax Scene", "Ending Scene"]
+        )
+
+        // Move scene4 BEFORE scene2: [Opening Scene, Ending Scene, Middle Scene, Climax Scene]
+        try controller.moveDocument(scene4.id, relativeTo: scene2.id, position: .before)
+        XCTAssertEqual(
+            script.orderedChildren.map(\.title),
+            ["Opening Scene", "Ending Scene", "Middle Scene", "Climax Scene"]
+        )
+
+        // Move scene1 AFTER scene3 (to the end): [Ending Scene, Middle Scene, Climax Scene, Opening Scene]
+        try controller.moveDocument(scene1.id, relativeTo: scene3.id, position: .after)
+        XCTAssertEqual(
+            script.orderedChildren.map(\.title),
+            ["Ending Scene", "Middle Scene", "Climax Scene", "Opening Scene"]
+        )
+
+        // Move scene3 BEFORE scene1: [Ending Scene, Middle Scene, Scene3, Opening Scene] -> same order
+        // Move scene3 BEFORE scene2: [Ending Scene, Climax Scene, Middle Scene, Opening Scene]
+        try controller.moveDocument(scene3.id, relativeTo: scene2.id, position: .before)
+        XCTAssertEqual(
+            script.orderedChildren.map(\.title),
+            ["Ending Scene", "Climax Scene", "Middle Scene", "Opening Scene"]
+        )
+    }
+
+    func testMoveScenesBetweenNarrativeChapters() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Multi Chapter")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let script = try XCTUnwrap(narrative.orderedChildren.first)
+
+        let chapter1 = try controller.addDocument(title: "Chapter 1", kind: .folder, parentID: script.id)
+        let chapter2 = try controller.addDocument(title: "Chapter 2", kind: .folder, parentID: script.id)
+
+        let c1Scene1 = try controller.addDocument(title: "Ch1 Scene 1", kind: .text, parentID: chapter1.id)
+        let c1Scene2 = try controller.addDocument(title: "Ch1 Scene 2", kind: .text, parentID: chapter1.id)
+        let c2Scene1 = try controller.addDocument(title: "Ch2 Scene 1", kind: .text, parentID: chapter2.id)
+
+        // Move c1Scene2 into chapter 2 at end
+        try controller.moveDocument(c1Scene2.id, relativeTo: chapter2.id, position: .inside)
+        XCTAssertEqual(chapter1.orderedChildren.map(\.title), ["Ch1 Scene 1"])
+        XCTAssertEqual(chapter2.orderedChildren.map(\.title), ["Ch2 Scene 1", "Ch1 Scene 2"])
+
+        // Move c1Scene1 before c2Scene1 in chapter 2
+        try controller.moveDocument(c1Scene1.id, relativeTo: c2Scene1.id, position: .before)
+        XCTAssertEqual(chapter1.orderedChildren.map(\.title), [])
+        XCTAssertEqual(chapter2.orderedChildren.map(\.title), ["Ch1 Scene 1", "Ch2 Scene 1", "Ch1 Scene 2"])
+    }
+
+    func testMoveSceneToNarrativeRoot() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Root Test")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let script = try XCTUnwrap(narrative.orderedChildren.first)
+        let scene = try XCTUnwrap(script.orderedChildren.first)
+
+        let narrativeBinderItem = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+        XCTAssertEqual(narrativeBinderItem.documentID, narrative.id)
+        XCTAssertTrue(narrativeBinderItem.isContainer)
+
+        // Drop scene onto Narrative folder
+        try controller.moveDocument(scene.id, relativeTo: narrative.id, position: .inside)
+        XCTAssertEqual(scene.parent?.id, narrative.id)
     }
 
     private func makeController() throws -> WorkspaceController {

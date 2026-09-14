@@ -102,7 +102,10 @@ public final class AuthorDataStore {
     }
 
     public func save() throws {
-        if context.hasChanges { try context.save() }
+        if context.hasChanges {
+            try context.save()
+            context.processPendingChanges()
+        }
     }
 
     public func rollback() {

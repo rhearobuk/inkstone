@@ -6,8 +6,14 @@ import SwiftUI
 @MainActor
 struct AuthorApp: App {
     @StateObject private var controller: WorkspaceController
+    @StateObject private var aiSettings = AISettingsStore()
 
     init() {
+        #if os(macOS)
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        #endif
+
         do {
             let storeURL = try Self.storeURL()
             let store = try AuthorDataStore(storeURL: storeURL)
@@ -24,8 +30,15 @@ struct AuthorApp: App {
     var body: some Scene {
         WindowGroup {
             AuthorWorkspaceView(controller: controller)
+                .environmentObject(aiSettings)
                 .frame(minWidth: 900, minHeight: 600)
         }
+
+        #if os(macOS)
+        Settings {
+            AppPreferencesView(settings: aiSettings)
+        }
+        #endif
     }
 
     private static func storeURL() throws -> URL {

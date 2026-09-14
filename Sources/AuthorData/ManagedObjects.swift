@@ -69,7 +69,7 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     @NSManaged public var sourceGalleryItems: Set<GalleryItem>
 
     public var orderedChildren: [Document] {
-        children.sorted { ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString) }
+        children.filter { !$0.isDeleted }.sorted { ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString) }
     }
 }
 

@@ -4,6 +4,7 @@ import CoreData
 import CryptoKit
 import Foundation
 import ImageIO
+import SwiftUI
 import UniformTypeIdentifiers
 
 public enum WorkspaceSelection: Hashable, Sendable {
@@ -16,6 +17,7 @@ public enum WorkspaceSelection: Hashable, Sendable {
     case characterProfile(UUID)
     case semanticEntity(UUID)
     case document(UUID)
+    case trash(UUID)
 }
 
 public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
@@ -73,13 +75,19 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum DropPosition: String, Sendable {
+    case before
+    case inside
+    case after
+}
+
 public enum ScrivenerImportDestination: Equatable, Sendable {
     case existing(UUID)
     case newProject(title: String)
 }
 
 public struct BinderItem: Identifiable {
-    public enum Kind {
+    public enum Kind: Equatable, Sendable {
         case projectDefinition
         case storyBible
         case storyBibleCategory(StoryBibleCategory)
@@ -89,6 +97,7 @@ public struct BinderItem: Identifiable {
         case characterProfile
         case semanticEntity
         case document
+        case trash
     }
 
     public let id: String
@@ -97,6 +106,15 @@ public struct BinderItem: Identifiable {
     public let selection: WorkspaceSelection
     public let kind: Kind
     public let documentID: UUID?
+    public let isContainer: Bool
+    public let isHidden: Bool
+    public let isTrashed: Bool
+    public let labelIdentifier: String?
+    public let statusIdentifier: String?
+    public let labelColor: Color?
+    public let labelTitle: String?
+    public let statusTitle: String?
+    public let sectionTypeTitle: String?
     public var children: [BinderItem]?
 
     public init(
@@ -106,6 +124,15 @@ public struct BinderItem: Identifiable {
         selection: WorkspaceSelection,
         kind: Kind,
         documentID: UUID? = nil,
+        isContainer: Bool = false,
+        isHidden: Bool = false,
+        isTrashed: Bool = false,
+        labelIdentifier: String? = nil,
+        statusIdentifier: String? = nil,
+        labelColor: Color? = nil,
+        labelTitle: String? = nil,
+        statusTitle: String? = nil,
+        sectionTypeTitle: String? = nil,
         children: [BinderItem]? = nil
     ) {
         self.id = id
@@ -114,6 +141,15 @@ public struct BinderItem: Identifiable {
         self.selection = selection
         self.kind = kind
         self.documentID = documentID
+        self.isContainer = isContainer
+        self.isHidden = isHidden
+        self.isTrashed = isTrashed
+        self.labelIdentifier = labelIdentifier
+        self.statusIdentifier = statusIdentifier
+        self.labelColor = labelColor
+        self.labelTitle = labelTitle
+        self.statusTitle = statusTitle
+        self.sectionTypeTitle = sectionTypeTitle
         self.children = children
     }
 }
@@ -144,18 +180,34 @@ public enum WorkspaceError: LocalizedError {
 @MainActor
 public final class WorkspaceController: ObservableObject {
     public let store: AuthorDataStore
+    private let projectListPreferences: UserDefaults
     private var pendingCharacterSave: Task<Void, Never>?
+    private var labelLookup: [String: LabelDefinition] = [:]
+    private var statusLookup: [String: StatusDefinition] = [:]
+    private var sectionTypeLookup: [String: SectionTypeDefinition] = [:]
 
     @Published public private(set) var projects: [WritingProject] = []
+    @Published public var showsHiddenProjects = false
+    @Published public var showsTrashedProjects = false
+    @Published public var showsHiddenDocuments = false
+    @Published public var projectToTrash: UUID?
+    @Published public var projectToDeletePermanently: UUID?
+    @Published public var showsEmptyProjectTrashAlert = false
+    @Published public var documentToTrash: UUID?
+    @Published public var documentToDeletePermanently: UUID?
+    @Published public var showsEmptyTrashAlert = false
     @Published public var selectedProjectID: UUID?
     @Published public var selection: WorkspaceSelection?
     @Published public private(set) var binderItems: [BinderItem] = []
+    @Published public var labelFilter: String?
+    @Published public var statusFilter: String?
     @Published public private(set) var lastError: String?
     @Published public private(set) var importSummary: String?
     @Published public private(set) var isImporting = false
 
-    public init(store: AuthorDataStore) {
+    public init(store: AuthorDataStore, projectListPreferences: UserDefaults = .standard) {
         self.store = store
+        self.projectListPreferences = projectListPreferences
         refresh()
     }
 
@@ -312,17 +364,289 @@ public final class WorkspaceController: ObservableObject {
 
     public func refresh() {
         do {
-            projects = try store.projects.fetchAll(
+            let allProjects = try store.projects.fetchAll(
                 sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
             )
+            projects = allProjects
+                .filter {
+                    let trashed = isProjectTrashed($0.id)
+                    let hidden = isProjectHidden($0.id)
+                    if trashed {
+                        return showsTrashedProjects
+                    }
+                    return showsHiddenProjects || !hidden
+                }
+                .sorted { lhs, rhs in
+                    let lhsTrashed = isProjectTrashed(lhs.id)
+                    let rhsTrashed = isProjectTrashed(rhs.id)
+                    if lhsTrashed != rhsTrashed { return !lhsTrashed }
+                    let lhsPinned = isProjectPinned(lhs.id)
+                    let rhsPinned = isProjectPinned(rhs.id)
+                    if lhsPinned != rhsPinned { return lhsPinned }
+                    if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt > rhs.modifiedAt }
+                    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
             if selectedProjectID == nil || !projects.contains(where: { $0.id == selectedProjectID }) {
-                selectedProjectID = projects.first?.id
+                selectedProjectID = projects.first(where: { !isProjectTrashed($0.id) })?.id ?? projects.first?.id
             }
             rebuildBinder()
             lastError = nil
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    public var trashedProjects: [WritingProject] {
+        (try? store.projects.fetchAll(sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]))?
+            .filter { isProjectTrashed($0.id) } ?? []
+    }
+
+    public func isProjectPinned(_ projectID: UUID) -> Bool {
+        projectListPreferences.stringArray(forKey: "pinnedProjectIDs")?.contains(projectID.uuidString) ?? false
+    }
+
+    public func isProjectHidden(_ projectID: UUID) -> Bool {
+        projectListPreferences.stringArray(forKey: "hiddenProjectIDs")?.contains(projectID.uuidString) ?? false
+    }
+
+    public func isProjectTrashed(_ projectID: UUID) -> Bool {
+        projectListPreferences.stringArray(forKey: "trashedProjectIDs")?.contains(projectID.uuidString) ?? false
+    }
+
+    public func setProjectPinned(_ projectID: UUID, pinned: Bool) {
+        var projectIDs = Set(projectListPreferences.stringArray(forKey: "pinnedProjectIDs") ?? [])
+        if pinned {
+            projectIDs.insert(projectID.uuidString)
+        } else {
+            projectIDs.remove(projectID.uuidString)
+        }
+        projectListPreferences.set(Array(projectIDs), forKey: "pinnedProjectIDs")
+        refresh()
+    }
+
+    public func setProjectHidden(_ projectID: UUID, hidden: Bool) {
+        var projectIDs = Set(projectListPreferences.stringArray(forKey: "hiddenProjectIDs") ?? [])
+        if hidden {
+            projectIDs.insert(projectID.uuidString)
+        } else {
+            projectIDs.remove(projectID.uuidString)
+        }
+        projectListPreferences.set(Array(projectIDs), forKey: "hiddenProjectIDs")
+        if hidden && selectedProjectID == projectID {
+            selectedProjectID = nil
+            selection = nil
+        }
+        refresh()
+    }
+
+    public func trashProject(_ projectID: UUID) {
+        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedProjectIDs") ?? [])
+        trashedIDs.insert(projectID.uuidString)
+        projectListPreferences.set(Array(trashedIDs), forKey: "trashedProjectIDs")
+        if selectedProjectID == projectID {
+            selectedProjectID = nil
+            selection = nil
+        }
+        refresh()
+    }
+
+    public func restoreProject(_ projectID: UUID) {
+        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedProjectIDs") ?? [])
+        trashedIDs.remove(projectID.uuidString)
+        projectListPreferences.set(Array(trashedIDs), forKey: "trashedProjectIDs")
+        selectedProjectID = projectID
+        selection = .projectDefinition(projectID)
+        refresh()
+    }
+
+    public func deleteProjectPermanently(_ projectID: UUID) throws {
+        guard let project = try store.projects.fetch(id: projectID) else {
+            throw WorkspaceError.missingProject(projectID)
+        }
+        store.context.delete(project)
+        setProjectPinned(projectID, pinned: false)
+        setProjectHidden(projectID, hidden: false)
+        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedProjectIDs") ?? [])
+        trashedIDs.remove(projectID.uuidString)
+        projectListPreferences.set(Array(trashedIDs), forKey: "trashedProjectIDs")
+        if selectedProjectID == projectID {
+            selectedProjectID = nil
+            selection = nil
+        }
+        try store.save()
+        refresh()
+    }
+
+    public func emptyProjectTrash() throws {
+        let projects = trashedProjects
+        let projectIDs = projects.map(\.id)
+        for project in projects {
+            store.context.delete(project)
+        }
+        for id in projectIDs {
+            setProjectPinned(id, pinned: false)
+            setProjectHidden(id, hidden: false)
+        }
+        try store.save()
+        projectListPreferences.set([String](), forKey: "trashedProjectIDs")
+        refresh()
+    }
+
+    public func deleteProject(_ projectID: UUID) throws {
+        trashProject(projectID)
+    }
+
+    public func isDocumentTrashed(_ document: Document) -> Bool {
+        guard !document.isDeleted else { return false }
+        let trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
+        if trashedIDs.contains(document.id.uuidString) { return true }
+        var curr = document.parent
+        while let p = curr, !p.isDeleted {
+            if trashedIDs.contains(p.id.uuidString) { return true }
+            curr = p.parent
+        }
+        return false
+    }
+
+    public func isDocumentTrashed(_ documentID: UUID) -> Bool {
+        let trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
+        if trashedIDs.contains(documentID.uuidString) { return true }
+        if let doc = try? store.documents.fetch(id: documentID), !doc.isDeleted {
+            return isDocumentTrashed(doc)
+        }
+        return false
+    }
+
+    public func isDocumentDirectlyTrashed(_ documentID: UUID) -> Bool {
+        let trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
+        return trashedIDs.contains(documentID.uuidString)
+    }
+
+    public func isDocumentHidden(_ document: Document) -> Bool {
+        guard !document.isDeleted else { return false }
+        let hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
+        if hiddenIDs.contains(document.id.uuidString) { return true }
+        var curr = document.parent
+        while let p = curr, !p.isDeleted {
+            if hiddenIDs.contains(p.id.uuidString) { return true }
+            curr = p.parent
+        }
+        return false
+    }
+
+    public func isDocumentHidden(_ documentID: UUID) -> Bool {
+        let hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
+        if hiddenIDs.contains(documentID.uuidString) { return true }
+        if let doc = try? store.documents.fetch(id: documentID), !doc.isDeleted {
+            return isDocumentHidden(doc)
+        }
+        return false
+    }
+
+    public func setDocumentHidden(_ documentID: UUID, hidden: Bool) {
+        var hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
+        if hidden {
+            hiddenIDs.insert(documentID.uuidString)
+        } else {
+            hiddenIDs.remove(documentID.uuidString)
+        }
+        projectListPreferences.set(Array(hiddenIDs), forKey: "hiddenDocumentIDs")
+        refresh()
+    }
+
+    public func trashDocument(_ documentID: UUID) {
+        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
+        trashedIDs.insert(documentID.uuidString)
+        projectListPreferences.set(Array(trashedIDs), forKey: "trashedDocumentIDs")
+        if let doc = try? store.documents.fetch(id: documentID), !doc.isDeleted {
+            doc.modifiedAt = Date()
+            doc.project.modifiedAt = Date()
+            try? store.save()
+        }
+        refresh()
+    }
+
+    public func restoreDocument(_ documentID: UUID) {
+        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
+        trashedIDs.remove(documentID.uuidString)
+        projectListPreferences.set(Array(trashedIDs), forKey: "trashedDocumentIDs")
+        if let doc = try? store.documents.fetch(id: documentID), !doc.isDeleted {
+            if let parent = doc.parent, !parent.isDeleted, isDocumentTrashed(parent) {
+                let narrative = doc.project.documents.first { $0.title == "Narrative" && $0.parent == nil && !$0.isDeleted }
+                doc.parent = narrative
+            }
+            doc.modifiedAt = Date()
+            doc.project.modifiedAt = Date()
+            try? store.save()
+        }
+        selection = .document(documentID)
+        refresh()
+    }
+
+    public func deleteDocument(_ documentID: UUID) {
+        trashDocument(documentID)
+    }
+
+    public func documentTitle(for id: UUID) -> String {
+        (try? store.documents.fetch(id: id))?.title ?? "this scene"
+    }
+
+    public func projectTitle(for id: UUID) -> String {
+        projects.first(where: { $0.id == id })?.title ??
+            (try? store.projects.fetch(id: id))?.title ?? "this project"
+    }
+
+    public func deleteDocumentPermanently(_ documentID: UUID) throws {
+        guard let document = try store.documents.fetch(id: documentID) else {
+            throw WorkspaceError.missingDocument(documentID)
+        }
+        let project = document.project
+        document.parent = nil
+        store.context.delete(document)
+        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
+        trashedIDs.remove(documentID.uuidString)
+        projectListPreferences.set(Array(trashedIDs), forKey: "trashedDocumentIDs")
+        var hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
+        hiddenIDs.remove(documentID.uuidString)
+        projectListPreferences.set(Array(hiddenIDs), forKey: "hiddenDocumentIDs")
+        if case .document(let id) = selection, id == documentID {
+            selection = .trash(project.id)
+        }
+        project.modifiedAt = Date()
+        try store.save()
+        refresh()
+    }
+
+    public func emptyTrash(for projectID: UUID) throws {
+        guard let project = try store.projects.fetch(id: projectID) else {
+            throw WorkspaceError.missingProject(projectID)
+        }
+        let trashed = trashedDocuments(in: project)
+        let docIDs = trashed.map(\.id)
+        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
+        var hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
+        for doc in trashed {
+            doc.parent = nil
+            store.context.delete(doc)
+        }
+        for docID in docIDs {
+            trashedIDs.remove(docID.uuidString)
+            hiddenIDs.remove(docID.uuidString)
+        }
+        projectListPreferences.set(Array(trashedIDs), forKey: "trashedDocumentIDs")
+        projectListPreferences.set(Array(hiddenIDs), forKey: "hiddenDocumentIDs")
+        if case .document = selection {
+            selection = .trash(project.id)
+        }
+        project.modifiedAt = Date()
+        try store.save()
+        refresh()
+    }
+
+    public func trashedDocuments(in project: WritingProject) -> [Document] {
+        documents(in: project)
+            .filter { !($0.isDeleted) && isDocumentDirectlyTrashed($0.id) }
+            .sorted(by: documentOrder)
     }
 
     @discardableResult
@@ -909,7 +1233,11 @@ public final class WorkspaceController: ObservableObject {
         refresh()
     }
 
-    public func moveDocument(_ documentID: UUID, onto targetID: UUID) throws {
+    public func moveDocument(
+        _ documentID: UUID,
+        relativeTo targetID: UUID,
+        position: DropPosition = .inside
+    ) throws {
         guard let document = try store.documents.fetch(id: documentID) else {
             throw WorkspaceError.missingDocument(documentID)
         }
@@ -925,14 +1253,44 @@ public final class WorkspaceController: ObservableObject {
         let oldParent = document.parent
         let targetIsContainer = target.kind == DocumentKind.folder.rawValue ||
             target.kind == DocumentKind.draftFolder.rawValue
-        let newParent = targetIsContainer ? target : target.parent
-        let insertionIndex = targetIsContainer ? Int.max : Int(target.orderIndex)
+
+        let newParent: Document?
+        let insertionIndex: Int
+
+        switch position {
+        case .inside:
+            if targetIsContainer {
+                newParent = target
+                insertionIndex = Int.max
+            } else {
+                newParent = target.parent
+                let siblings = documents(in: document.project)
+                    .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
+                    .sorted(by: documentOrder)
+                let targetIdx = siblings.firstIndex(where: { $0.id == target.id }) ?? (siblings.count - 1)
+                insertionIndex = targetIdx + 1
+            }
+        case .before:
+            newParent = target.parent
+            let siblings = documents(in: document.project)
+                .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
+                .sorted(by: documentOrder)
+            let targetIdx = siblings.firstIndex(where: { $0.id == target.id }) ?? 0
+            insertionIndex = targetIdx
+        case .after:
+            newParent = target.parent
+            let siblings = documents(in: document.project)
+                .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
+                .sorted(by: documentOrder)
+            let targetIdx = siblings.firstIndex(where: { $0.id == target.id }) ?? (siblings.count - 1)
+            insertionIndex = targetIdx + 1
+        }
 
         document.parent = newParent
         let newSiblings = documents(in: document.project)
             .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
             .sorted(by: documentOrder)
-        let safeIndex = min(insertionIndex, newSiblings.count)
+        let safeIndex = max(0, min(insertionIndex, newSiblings.count))
         var ordered = newSiblings
         ordered.insert(document, at: safeIndex)
         reindex(ordered)
@@ -950,10 +1308,42 @@ public final class WorkspaceController: ObservableObject {
         refresh()
     }
 
+    public func moveDocument(_ documentID: UUID, onto targetID: UUID) throws {
+        try moveDocument(documentID, relativeTo: targetID, position: .inside)
+    }
+
     public func selectProject(_ projectID: UUID) {
         selectedProjectID = projectID
         selection = .projectDefinition(projectID)
+        labelFilter = nil
+        statusFilter = nil
         rebuildBinder()
+    }
+
+    /// The binder tree narrowed to `labelFilter`/`statusFilter`, if either is set. Organizational
+    /// nodes (Project Definition, Story Bible, Gallery, Narrative, and their categories) always
+    /// remain visible so the tree stays navigable; only actual binder documents (folders and
+    /// scenes) are matched against the active filters, with ancestors of a match kept so context
+    /// is preserved.
+    public var displayedBinderItems: [BinderItem] {
+        guard labelFilter != nil || statusFilter != nil else { return binderItems }
+        return binderItems.compactMap(filteredBinderItem)
+    }
+
+    private func filteredBinderItem(_ item: BinderItem) -> BinderItem? {
+        var item = item
+        let filteredChildren = item.children?.compactMap(filteredBinderItem)
+        item.children = filteredChildren
+        let matchesSelf: Bool
+        if item.documentID != nil {
+            let labelOK = labelFilter == nil || item.labelIdentifier == labelFilter
+            let statusOK = statusFilter == nil || item.statusIdentifier == statusFilter
+            matchesSelf = labelOK && statusOK
+        } else {
+            matchesSelf = true
+        }
+        let hasMatchingChildren = !(filteredChildren?.isEmpty ?? true)
+        return (matchesSelf || hasMatchingChildren) ? item : nil
     }
 
     public func storyBibleDocuments(in category: StoryBibleCategory) -> [Document] {
@@ -1012,9 +1402,22 @@ public final class WorkspaceController: ObservableObject {
     private func rebuildBinder() {
         guard let project = selectedProject else {
             binderItems = []
+            labelLookup = [:]
+            statusLookup = [:]
+            sectionTypeLookup = [:]
             selection = nil
             return
         }
+
+        labelLookup = Dictionary(
+            uniqueKeysWithValues: project.labelDefinitions.map { ($0.sourceIdentifier, $0) }
+        )
+        statusLookup = Dictionary(
+            uniqueKeysWithValues: project.statusDefinitions.map { ($0.sourceIdentifier, $0) }
+        )
+        sectionTypeLookup = Dictionary(
+            uniqueKeysWithValues: project.sectionTypeDefinitions.map { ($0.sourceIdentifier, $0) }
+        )
 
         let entities = project.semanticEntities.filter {
             $0.characterProfile?.sourceDocument == nil
@@ -1042,19 +1445,36 @@ public final class WorkspaceController: ObservableObject {
             )
         }
         let documents = documents(in: project)
-        let roots = documents.filter { $0.parent == nil }.sorted(by: documentOrder)
+        let activeDocuments = documents.filter { !isDocumentTrashed($0) }
+        let binderDocuments = showsHiddenDocuments ? activeDocuments : activeDocuments.filter { !isDocumentHidden($0) }
+        let roots = binderDocuments.filter { $0.parent == nil }.sorted(by: documentOrder)
         let storyBibleRoots = Dictionary(grouping: roots.compactMap { document in
             storyBibleCategory(for: document).map { ($0, document) }
         }, by: \.0)
         let narrativeRoots = roots.filter { storyBibleCategory(for: $0) == nil }
         let visibleNarrativeRoots: [Document]
+        let narrativeDocumentID: UUID?
         if narrativeRoots.count == 1,
            let root = narrativeRoots.first,
            root.sourceIdentifier.hasPrefix("native.narrative.") {
-            visibleNarrativeRoots = root.orderedChildren
+            visibleNarrativeRoots = root.orderedChildren.filter { !isDocumentTrashed($0) && (showsHiddenDocuments || !isDocumentHidden($0)) }
+            narrativeDocumentID = root.id
         } else {
             visibleNarrativeRoots = narrativeRoots
+            narrativeDocumentID = narrativeRoots.first?.id
         }
+
+        let trashedDocs = trashedDocuments(in: project)
+        let trashItem = BinderItem(
+            id: "trash",
+            title: trashedDocs.isEmpty ? "Trash" : "Trash (\(trashedDocs.count))",
+            systemImage: trashedDocs.isEmpty ? "trash" : "trash.fill",
+            selection: .trash(project.id),
+            kind: .trash,
+            isContainer: true,
+            isTrashed: true,
+            children: trashedDocs.isEmpty ? nil : trashedDocs.map { makeDocumentItem($0, isTrashed: true) }
+        )
 
         binderItems = [
             BinderItem(
@@ -1074,7 +1494,7 @@ public final class WorkspaceController: ObservableObject {
                     let documentItems = (storyBibleRoots[category] ?? [])
                         .map(\.1)
                         .sorted(by: documentOrder)
-                        .map(makeDocumentItem)
+                        .map { makeDocumentItem($0) }
                     let semanticItems = categories.first {
                         $0.id == "story-bible.\(category.id)"
                     }?.children ?? []
@@ -1110,13 +1530,26 @@ public final class WorkspaceController: ObservableObject {
                 systemImage: "text.book.closed",
                 selection: .narrative(project.id),
                 kind: .narrative,
-                children: visibleNarrativeRoots.map(makeDocumentItem)
-            )
+                documentID: narrativeDocumentID,
+                isContainer: true,
+                children: visibleNarrativeRoots.map { makeDocumentItem($0) }
+            ),
+            trashItem
         ]
     }
 
-    private func makeDocumentItem(_ document: Document) -> BinderItem {
+    private func makeDocumentItem(_ document: Document, isTrashed: Bool = false) -> BinderItem {
         let profile = document.sourceCharacterProfiles.first
+        let label = document.labelIdentifier.flatMap { labelLookup[$0] }
+        let status = document.statusIdentifier.flatMap { statusLookup[$0] }
+        let sectionType = document.sectionTypeIdentifier.flatMap { sectionTypeLookup[$0] }
+        let isContainer = document.kind == DocumentKind.folder.rawValue ||
+            document.kind == DocumentKind.draftFolder.rawValue
+        let isHidden = isDocumentHidden(document)
+        let validChildren = document.orderedChildren.filter {
+            if isTrashed { return true }
+            return !isDocumentTrashed($0) && (showsHiddenDocuments || !isDocumentHidden($0))
+        }
         return BinderItem(
             id: document.id.uuidString,
             title: document.title,
@@ -1124,14 +1557,23 @@ public final class WorkspaceController: ObservableObject {
             selection: profile.map { .characterProfile($0.id) } ?? .document(document.id),
             kind: profile == nil ? .document : .characterProfile,
             documentID: document.id,
-            children: document.orderedChildren.isEmpty
+            isContainer: isContainer,
+            isHidden: isHidden,
+            isTrashed: isTrashed,
+            labelIdentifier: document.labelIdentifier,
+            statusIdentifier: document.statusIdentifier,
+            labelColor: label?.swiftUIColor,
+            labelTitle: label?.title,
+            statusTitle: status?.title,
+            sectionTypeTitle: sectionType?.title,
+            children: validChildren.isEmpty
                 ? nil
-                : document.orderedChildren.map(makeDocumentItem)
+                : validChildren.map { makeDocumentItem($0, isTrashed: isTrashed) }
         )
     }
 
     private func documents(in project: WritingProject) -> [Document] {
-        project.documents.map { $0 }
+        project.documents.filter { !$0.isDeleted }
     }
 
     private func isDescendant(_ candidate: Document, of ancestor: Document) -> Bool {
@@ -1168,7 +1610,8 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func documentOrder(_ lhs: Document, _ rhs: Document) -> Bool {
-        (lhs.orderIndex, lhs.id.uuidString) < (rhs.orderIndex, rhs.id.uuidString)
+        guard !lhs.isDeleted, !rhs.isDeleted else { return false }
+        return (lhs.orderIndex, lhs.id.uuidString) < (rhs.orderIndex, rhs.id.uuidString)
     }
 
     private func documentSystemImage(_ document: Document) -> String {
