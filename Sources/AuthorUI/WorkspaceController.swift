@@ -101,12 +101,18 @@ public enum WorkspaceError: LocalizedError {
     case missingProject(UUID)
     case missingDocument(UUID)
     case invalidMove
+    case noScrivenerProject(URL)
+    case multipleScrivenerProjects(URL)
 
     public var errorDescription: String? {
         switch self {
         case .missingProject(let id): "Project \(id) no longer exists."
         case .missingDocument(let id): "Document \(id) no longer exists."
         case .invalidMove: "A binder item cannot be moved inside itself or one of its descendants."
+        case .noScrivenerProject(let url):
+            "No Scrivener project XML and Files folder were found in \(url.path)."
+        case .multipleScrivenerProjects(let url):
+            "More than one XML file exists in \(url.path). Select a folder containing one Scrivener project."
         }
     }
 }
@@ -120,6 +126,8 @@ public final class WorkspaceController: ObservableObject {
     @Published public var selection: WorkspaceSelection?
     @Published public private(set) var binderItems: [BinderItem] = []
     @Published public private(set) var lastError: String?
+    @Published public private(set) var importSummary: String?
+    @Published public private(set) var isImporting = false
 
     public init(store: AuthorDataStore) {
         self.store = store
@@ -154,6 +162,27 @@ public final class WorkspaceController: ObservableObject {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    @discardableResult
+    public func importScrivenerProject(from selectedURL: URL) throws -> ScrivenerImportResult {
+        isImporting = true
+        importSummary = nil
+        defer { isImporting = false }
+
+        let source = try scrivenerSource(from: selectedURL)
+        let result = try ScrivenerImporter(store: store).importProject(
+            xmlURL: source.xml,
+            filesURL: source.files
+        )
+        selectedProjectID = result.projectID
+        selection = .projectDefinition(result.projectID)
+        refresh()
+        importSummary = """
+        Imported \(result.documentCount) binder items and \(result.resourceCount) resources \
+        with \(result.warnings.count) warning\(result.warnings.count == 1 ? "" : "s").
+        """
+        return result
     }
 
     @discardableResult
@@ -342,6 +371,10 @@ public final class WorkspaceController: ObservableObject {
         lastError = error.localizedDescription
     }
 
+    public func clearImportSummary() {
+        importSummary = nil
+    }
+
     private func saveAndRefresh(rebuild: Bool = true) {
         do {
             try store.save()
@@ -350,6 +383,33 @@ public final class WorkspaceController: ObservableObject {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    private func scrivenerSource(from selectedURL: URL) throws -> (xml: URL, files: URL) {
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: selectedURL.path, isDirectory: &isDirectory)
+        let directory = isDirectory.boolValue
+            ? selectedURL
+            : selectedURL.deletingLastPathComponent()
+        let filesURL = directory.appendingPathComponent("Files", isDirectory: true)
+
+        if !isDirectory.boolValue, selectedURL.pathExtension.lowercased() == "xml" {
+            return (selectedURL, filesURL)
+        }
+
+        let xmlFiles = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension.lowercased() == "xml" }
+
+        guard !xmlFiles.isEmpty else {
+            throw WorkspaceError.noScrivenerProject(directory)
+        }
+        guard xmlFiles.count == 1 else {
+            throw WorkspaceError.multipleScrivenerProjects(directory)
+        }
+        return (xmlFiles[0], filesURL)
     }
 
     private func rebuildBinder() {

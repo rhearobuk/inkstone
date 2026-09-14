@@ -2,6 +2,7 @@
 .swiftpm/
 DerivedData*/
 *.xcuserstate
+xcuserdata/
 .DS_Store
 
 # Supplied Scrivener source project; imported by tests but not owned by this repository.

@@ -17,6 +17,11 @@
 Open `AuthorApp.xcodeproj` in Xcode, select the `AuthorApp` scheme and a Mac,
 iPad, or Apple Vision Pro destination, then press Run.
 
+To load the supplied test project, click **Import Scrivener Project** in the
+Projects toolbar and select the repository folder (`Author Tool`). The importer
+finds the single project XML and its sibling `Files` folder, preserves the full
+binder hierarchy, and selects the imported project when complete.
+
 The command-line equivalent for the macOS prototype is:
 
 ```sh

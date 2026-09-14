@@ -1,9 +1,11 @@
 import AuthorData
 import SwiftUI
+import UniformTypeIdentifiers
 
 public struct AuthorWorkspaceView: View {
     @ObservedObject private var controller: WorkspaceController
     @State private var showsNewProject = false
+    @State private var showsImporter = false
     @State private var newProjectTitle = ""
 
     public init(controller: WorkspaceController) {
@@ -19,6 +21,13 @@ public struct AuthorWorkspaceView: View {
             WorkspaceDetailView(controller: controller)
         }
         .navigationSplitViewStyle(.balanced)
+        .fileImporter(
+            isPresented: $showsImporter,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            importProject(result)
+        }
         .alert("New Project", isPresented: $showsNewProject) {
             TextField("Project title", text: $newProjectTitle)
             Button("Cancel", role: .cancel) { newProjectTitle = "" }
@@ -33,8 +42,24 @@ public struct AuthorWorkspaceView: View {
                 newProjectTitle = ""
             }
         }
+        .alert(
+            "Import Complete",
+            isPresented: Binding(
+                get: { controller.importSummary != nil },
+                set: { if !$0 { controller.clearImportSummary() } }
+            )
+        ) {
+            Button("OK") { controller.clearImportSummary() }
+        } message: {
+            Text(controller.importSummary ?? "")
+        }
         .overlay(alignment: .bottom) {
-            if let error = controller.lastError {
+            if controller.isImporting {
+                ProgressView("Importing Scrivener project…")
+                    .padding(10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding()
+            } else if let error = controller.lastError {
                 Text(error)
                     .font(.caption)
                     .padding(8)
@@ -57,13 +82,33 @@ public struct AuthorWorkspaceView: View {
         }
         .navigationTitle("Projects")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showsImporter = true
+                } label: {
+                    Label("Import Scrivener Project", systemImage: "square.and.arrow.down")
+                }
+                .disabled(controller.isImporting)
+
                 Button {
                     showsNewProject = true
                 } label: {
                     Label("New Project", systemImage: "plus")
                 }
             }
+        }
+    }
+
+    private func importProject(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            _ = try controller.importScrivenerProject(from: url)
+        } catch {
+            controller.report(error)
         }
     }
 
