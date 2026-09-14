@@ -84,6 +84,11 @@ private struct RichTextEditor: NSViewRepresentable {
         textView.isRichText = true
         textView.allowsImageEditing = true
         textView.importsGraphics = true
+        textView.drawsBackground = true
+        textView.backgroundColor = .textBackgroundColor
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.usesAdaptiveColorMappingForDarkAppearance = true
         textView.textContainerInset = NSSize(width: 24, height: 24)
         textView.delegate = context.coordinator
         textView.textStorage?.setAttributedString(attributedText)
@@ -97,6 +102,10 @@ private struct RichTextEditor: NSViewRepresentable {
               textView.attributedString() != attributedText else {
             return
         }
+        textView.backgroundColor = .textBackgroundColor
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.usesAdaptiveColorMappingForDarkAppearance = true
         context.coordinator.isUpdating = true
         textView.textStorage?.setAttributedString(attributedText)
         context.coordinator.isUpdating = false
@@ -147,6 +156,9 @@ private struct RichTextEditor: UIViewRepresentable {
         let textView = UITextView()
         textView.isEditable = true
         textView.allowsEditingTextAttributes = true
+        textView.backgroundColor = .systemBackground
+        textView.textColor = .label
+        textView.tintColor = .tintColor
         textView.textContainerInset = UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
         textView.delegate = context.coordinator
         textView.attributedText = attributedText
@@ -155,6 +167,9 @@ private struct RichTextEditor: UIViewRepresentable {
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.onChange = onChange
+        textView.backgroundColor = .systemBackground
+        textView.textColor = .label
+        textView.tintColor = .tintColor
         guard textView.markedTextRange == nil, textView.attributedText != attributedText else {
             return
         }
