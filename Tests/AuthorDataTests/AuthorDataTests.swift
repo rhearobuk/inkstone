@@ -25,6 +25,18 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertEqual(project.sourceIdentifier, "935D19E3-65EB-4002-8F1E-95BB314D0B47")
         XCTAssertEqual(project.author, "Evan Blackwood")
         XCTAssertFalse(project.styles.isEmpty)
+        XCTAssertGreaterThan(project.galleryItems.count, 13)
+        XCTAssertTrue(project.galleryItems.allSatisfy {
+            $0.resource.mediaType.hasPrefix("image/") && $0.resource.data?.isEmpty == false
+        })
+        XCTAssertTrue(project.galleryItems.contains {
+            $0.resource.role == "cardImage" && $0.sourceDocument != nil
+        })
+        XCTAssertTrue(project.galleryItems.contains {
+            $0.resource.role == "embeddedImage" &&
+                !$0.resource.isSourcePreserved &&
+                $0.sourceDocument?.id == UUID(uuidString: "FBD567AB-8642-42E6-84B3-0E213E1FC4DC")
+        })
 
         let draft = try store.documents.require(id: UUID(uuidString: "4A1D6B18-0952-42EB-A487-D17915DD3BA1")!)
         XCTAssertEqual(draft.kind, "DraftFolder")
@@ -110,8 +122,11 @@ final class AuthorDataTests: XCTestCase {
         let labelCount = try store.labelDefinitions.count()
         let statusCount = try store.statusDefinitions.count()
         let sectionTypeCount = try store.sectionTypeDefinitions.count()
+        let galleryItemCount = try store.galleryItems.count()
         XCTAssertGreaterThan(characterProfileCount, 10)
         aidan.firstName = "Edited Aidan"
+        let editedGalleryItem = try XCTUnwrap(project.galleryItems.first)
+        editedGalleryItem.title = "Edited image title"
         let second = try importer.importProject(xmlURL: xmlURL, filesURL: filesURL)
         XCTAssertEqual(try store.documents.count(), documentCount)
         XCTAssertEqual(try store.resources.count(), resourceCount)
@@ -120,6 +135,8 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertEqual(try store.labelDefinitions.count(), labelCount)
         XCTAssertEqual(try store.statusDefinitions.count(), statusCount)
         XCTAssertEqual(try store.sectionTypeDefinitions.count(), sectionTypeCount)
+        XCTAssertEqual(try store.galleryItems.count(), galleryItemCount)
+        XCTAssertEqual(editedGalleryItem.title, "Edited image title")
         XCTAssertEqual(second.projectID, first.projectID)
         XCTAssertGreaterThan(second.updatedCount, 0)
         XCTAssertEqual(try store.importRuns.count(), 2)
@@ -146,7 +163,7 @@ final class AuthorDataTests: XCTestCase {
             $0.project = project
         }
         let resourceID = UUID()
-        _ = store.resources.create(id: resourceID) {
+        let resource = store.resources.create(id: resourceID) {
             $0.sourcePath = "content.rtf"
             $0.role = "content"
             $0.mediaType = "application/rtf"
@@ -155,6 +172,17 @@ final class AuthorDataTests: XCTestCase {
             $0.isSourcePreserved = true
             $0.project = project
             $0.document = document
+        }
+        let galleryItemID = UUID()
+        _ = store.galleryItems.create(id: galleryItemID) {
+            $0.title = "Reference image"
+            $0.source = ProvenanceAgent.human.rawValue
+            $0.orderIndex = 0
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.project = project
+            $0.resource = resource
+            $0.sourceDocument = document
         }
         let fieldID = UUID()
         let field = store.metadataFields.create(id: fieldID) {
@@ -249,6 +277,9 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertEqual(try store.projects.require(id: projectID).title, "Project")
         XCTAssertEqual(try store.documents.require(id: documentID).title, "Document")
         XCTAssertNotNil(try store.resources.fetch(id: resourceID))
+        XCTAssertNotNil(try store.galleryItems.fetch(id: galleryItemID))
+        XCTAssertTrue(project.galleryItems.contains { $0.id == galleryItemID })
+        XCTAssertTrue(document.sourceGalleryItems.contains { $0.id == galleryItemID })
         XCTAssertNotNil(try store.metadataFields.fetch(id: fieldID))
         XCTAssertNotNil(try store.metadataValues.fetch(id: valueID))
         XCTAssertNotNil(try store.semanticEntities.fetch(id: entityID))
@@ -273,6 +304,7 @@ final class AuthorDataTests: XCTestCase {
         try store.revisions.delete(id: revisionID)
         try store.links.delete(id: linkID)
         try store.metadataValues.delete(id: valueID)
+        try store.galleryItems.delete(id: galleryItemID)
         try store.resources.delete(id: resourceID)
         try store.styles.delete(id: styleID)
         try store.importRuns.delete(id: runID)

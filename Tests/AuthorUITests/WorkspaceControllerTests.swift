@@ -12,7 +12,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(project.title, "The Long Road")
         XCTAssertEqual(project.author, "Ada")
         XCTAssertEqual(controller.binderItems.map(\.title), [
-            "Project Definition", "Story Bible", "Narrative"
+            "Project Definition", "Story Bible", "Gallery", "Narrative"
         ])
         XCTAssertEqual(project.documents.count, 3)
         XCTAssertEqual(

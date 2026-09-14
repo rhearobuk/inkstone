@@ -197,4 +197,58 @@ final class CharacterDossierTests: XCTestCase {
         XCTAssertEqual(try migratedStore.projects.count(), 1)
         XCTAssertEqual(try migratedStore.characterProfiles.count(), 0)
     }
+
+    func testV2StoreMigratesToV3() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let modelDirectory = root.appendingPathComponent(
+            "Sources/AuthorData/Resources/AuthorData.momd"
+        )
+        let v2URL = modelDirectory.appendingPathComponent("AuthorDataV2.mom")
+        let v3URL = modelDirectory.appendingPathComponent("AuthorDataV3.mom")
+        XCTAssertNotNil(NSManagedObjectModel(contentsOf: v3URL))
+        let v2Model = try XCTUnwrap(NSManagedObjectModel(contentsOf: v2URL))
+
+        let storeDirectory = root.appendingPathComponent(".build/CharacterDossierTests")
+        try FileManager.default.createDirectory(
+            at: storeDirectory,
+            withIntermediateDirectories: true
+        )
+        let storeURL = storeDirectory.appendingPathComponent("\(UUID().uuidString).sqlite")
+        defer {
+            for suffix in ["", "-shm", "-wal"] {
+                try? FileManager.default.removeItem(
+                    at: URL(fileURLWithPath: storeURL.path + suffix)
+                )
+            }
+        }
+
+        let oldContainer = NSPersistentContainer(name: "AuthorData", managedObjectModel: v2Model)
+        let description = NSPersistentStoreDescription(url: storeURL)
+        oldContainer.persistentStoreDescriptions = [description]
+        var loadError: Error?
+        oldContainer.loadPersistentStores { _, error in loadError = error }
+        XCTAssertNil(loadError)
+
+        let project = NSEntityDescription.insertNewObject(
+            forEntityName: WritingProject.entityName,
+            into: oldContainer.viewContext
+        ) as! WritingProject
+        project.id = UUID()
+        project.title = "V2 Project"
+        project.sourceIdentifier = "v2-project"
+        project.sourceFormat = "native"
+        project.createdAt = Date()
+        project.modifiedAt = Date()
+        try oldContainer.viewContext.save()
+        for persistentStore in oldContainer.persistentStoreCoordinator.persistentStores {
+            try oldContainer.persistentStoreCoordinator.remove(persistentStore)
+        }
+
+        let migratedStore = try AuthorDataStore(storeURL: storeURL)
+        XCTAssertEqual(try migratedStore.projects.count(), 1)
+        XCTAssertEqual(try migratedStore.galleryItems.count(), 0)
+    }
 }

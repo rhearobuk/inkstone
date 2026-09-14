@@ -44,6 +44,7 @@ public final class AuthorDataStore {
     public let characterNotes: EntityRepository<CharacterNote>
     public let characterRelationships: EntityRepository<CharacterRelationship>
     public let characterConflicts: EntityRepository<CharacterConflict>
+    public let galleryItems: EntityRepository<GalleryItem>
 
     public init(storeURL: URL? = nil, inMemory: Bool = false) throws {
         guard let modelURL = Bundle.module.url(forResource: "AuthorData", withExtension: "momd"),
@@ -97,6 +98,7 @@ public final class AuthorDataStore {
         characterNotes = EntityRepository(context: container.viewContext)
         characterRelationships = EntityRepository(context: container.viewContext)
         characterConflicts = EntityRepository(context: container.viewContext)
+        galleryItems = EntityRepository(context: container.viewContext)
     }
 
     public func save() throws {

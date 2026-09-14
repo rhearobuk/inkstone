@@ -8,6 +8,8 @@ public enum WorkspaceSelection: Hashable, Sendable {
     case projectDefinition(UUID)
     case storyBible(UUID)
     case storyBibleCategory(projectID: UUID, category: StoryBibleCategory)
+    case gallery(UUID)
+    case galleryItem(UUID)
     case narrative(UUID)
     case characterProfile(UUID)
     case semanticEntity(UUID)
@@ -74,6 +76,8 @@ public struct BinderItem: Identifiable {
         case projectDefinition
         case storyBible
         case storyBibleCategory(StoryBibleCategory)
+        case gallery
+        case galleryItem
         case narrative
         case characterProfile
         case semanticEntity
@@ -163,6 +167,33 @@ public final class WorkspaceController: ObservableObject {
     public var selectedCharacterProfile: CharacterProfile? {
         guard case .characterProfile(let id) = selection else { return nil }
         return try? store.characterProfiles.fetch(id: id)
+    }
+
+    public var selectedGalleryItem: GalleryItem? {
+        guard case .galleryItem(let id) = selection else { return nil }
+        return try? store.galleryItems.fetch(id: id)
+    }
+
+    public var galleryItems: [GalleryItem] {
+        guard let project = selectedProject else { return [] }
+        return project.galleryItems.sorted {
+            ($0.orderIndex, $0.title, $0.id.uuidString) <
+                ($1.orderIndex, $1.title, $1.id.uuidString)
+        }
+    }
+
+    public func updateGalleryItem(title: String, caption: String?) {
+        guard let item = selectedGalleryItem else { return }
+        item.title = title
+        item.caption = caption?.nilIfBlank
+        item.modifiedAt = Date()
+        item.source = ProvenanceAgent.human.rawValue
+        do {
+            try store.save()
+            objectWillChange.send()
+        } catch {
+            report(error)
+        }
     }
 
     public var otherCharacterProfiles: [CharacterProfile] {
@@ -911,6 +942,22 @@ public final class WorkspaceController: ObservableObject {
                         selection: .storyBibleCategory(projectID: project.id, category: category),
                         kind: .storyBibleCategory(category),
                         children: semanticItems + documentItems
+                    )
+                }
+            ),
+            BinderItem(
+                id: "gallery",
+                title: "Gallery",
+                systemImage: "photo.on.rectangle.angled",
+                selection: .gallery(project.id),
+                kind: .gallery,
+                children: galleryItems.map { item in
+                    BinderItem(
+                        id: item.id.uuidString,
+                        title: item.title,
+                        systemImage: "photo",
+                        selection: .galleryItem(item.id),
+                        kind: .galleryItem
                     )
                 }
             ),

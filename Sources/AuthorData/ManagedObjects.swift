@@ -34,6 +34,7 @@ public final class WritingProject: NSManagedObject, AuthorManagedObject {
     @NSManaged public var importRuns: Set<ImportRun>
     @NSManaged public var provenanceEvents: Set<ProvenanceEvent>
     @NSManaged public var characterProfiles: Set<CharacterProfile>
+    @NSManaged public var galleryItems: Set<GalleryItem>
 }
 
 @objc(Document)
@@ -65,6 +66,7 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     @NSManaged public var incomingLinks: Set<DocumentLink>
     @NSManaged public var mentions: Set<DocumentEntityMention>
     @NSManaged public var sourceCharacterProfiles: Set<CharacterProfile>
+    @NSManaged public var sourceGalleryItems: Set<GalleryItem>
 
     public var orderedChildren: [Document] {
         children.sorted { ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString) }
@@ -84,6 +86,21 @@ public final class ContentResource: NSManagedObject, AuthorManagedObject {
     @NSManaged public var isSourcePreserved: Bool
     @NSManaged public var project: WritingProject
     @NSManaged public var document: Document?
+    @NSManaged public var galleryItem: GalleryItem?
+}
+
+@objc(GalleryItem)
+public final class GalleryItem: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var id: UUID
+    @NSManaged public var title: String
+    @NSManaged public var caption: String?
+    @NSManaged public var source: String
+    @NSManaged public var orderIndex: Int64
+    @NSManaged public var createdAt: Date
+    @NSManaged public var modifiedAt: Date
+    @NSManaged public var project: WritingProject
+    @NSManaged public var resource: ContentResource
+    @NSManaged public var sourceDocument: Document?
 }
 
 @objc(MetadataField)

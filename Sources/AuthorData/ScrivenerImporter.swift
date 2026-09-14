@@ -196,12 +196,33 @@ public final class ScrivenerImporter {
                 }
                 importedResourceCount += 1
 
+                if mediaType.hasPrefix("image/") {
+                    try upsertGalleryItem(
+                        resource: resource,
+                        sourceDocument: document,
+                        title: document?.title ?? fileURL.deletingPathExtension().lastPathComponent,
+                        orderIndex: Int64(importedResourceCount - 1),
+                        project: project,
+                        inserted: &inserted,
+                        updated: &updated
+                    )
+                }
+
                 if let document {
                     if role == "synopsis" { document.synopsis = textContent }
                     if role == "content", fileURL.pathExtension.lowercased() == "rtf" {
                         let plainText = Self.plainText(fromRTF: data)
                         document.plainText = plainText
                         resource.textContent = plainText
+                        try importEmbeddedImages(
+                            from: data,
+                            sourceDocument: document,
+                            project: project,
+                            startingOrderIndex: Int64(importedResourceCount),
+                            importedResourceCount: &importedResourceCount,
+                            inserted: &inserted,
+                            updated: &updated
+                        )
                         let revisionID = DeterministicID.make(namespace: document.id, name: "source-revision:\(digest)")
                         _ = try store.revisions.upsert(id: revisionID) { revision, isNew in
                             if isNew { inserted += 1 } else { updated += 1 }
@@ -885,6 +906,103 @@ public final class ScrivenerImporter {
             return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .windowsCP1252)
         default:
             return nil
+        }
+    }
+
+    private func upsertGalleryItem(
+        resource: ContentResource,
+        sourceDocument: Document?,
+        title: String,
+        orderIndex: Int64,
+        project: WritingProject,
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        let itemID = DeterministicID.make(namespace: project.id, name: "gallery:\(resource.id)")
+        _ = try store.galleryItems.upsert(id: itemID) { item, isNew in
+            if isNew { inserted += 1 } else { updated += 1 }
+            if isNew {
+                item.title = title
+                item.source = ProvenanceAgent.sourceImport.rawValue
+                item.orderIndex = orderIndex
+                item.createdAt = sourceDocument?.createdAt ?? Date()
+                item.modifiedAt = sourceDocument?.modifiedAt ?? Date()
+            }
+            item.project = project
+            item.resource = resource
+            item.sourceDocument = sourceDocument
+        }
+    }
+
+    private func importEmbeddedImages(
+        from rtfData: Data,
+        sourceDocument: Document,
+        project: WritingProject,
+        startingOrderIndex: Int64,
+        importedResourceCount: inout Int,
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        let images = Self.embeddedImages(fromRTF: rtfData)
+
+        for (index, image) in images.enumerated() {
+            let sourcePath = "Embedded/\(sourceDocument.id.uuidString)/\(index).\(image.extensionName)"
+            let resourceID = DeterministicID.make(namespace: project.id, name: "resource:\(sourcePath)")
+            let digest = SHA256.hash(data: image.data).hex
+            let resource = try store.resources.upsert(id: resourceID) { resource, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                resource.sourcePath = sourcePath
+                resource.role = "embeddedImage"
+                resource.mediaType = image.mediaType
+                resource.byteCount = Int64(image.data.count)
+                resource.sha256 = digest
+                resource.data = image.data
+                resource.isSourcePreserved = false
+                resource.project = project
+                resource.document = sourceDocument
+            }
+            try upsertGalleryItem(
+                resource: resource,
+                sourceDocument: sourceDocument,
+                title: images.count == 1
+                    ? sourceDocument.title
+                    : "\(sourceDocument.title) \(index + 1)",
+                orderIndex: startingOrderIndex + Int64(index),
+                project: project,
+                inserted: &inserted,
+                updated: &updated
+            )
+            importedResourceCount += 1
+        }
+    }
+
+    private static func embeddedImages(
+        fromRTF data: Data
+    ) -> [(data: Data, mediaType: String, extensionName: String)] {
+        guard let source = String(data: data, encoding: .ascii) else { return [] }
+        let formats: [(controlWord: String, mediaType: String, extensionName: String)] = [
+            ("jpegblip", "image/jpeg", "jpg"),
+            ("pngblip", "image/png", "png")
+        ]
+        return formats.flatMap { format -> [(data: Data, mediaType: String, extensionName: String)] in
+            let (controlWord, mediaType, extensionName) = format
+            let pattern = #"\\\#(controlWord)\s+([0-9a-fA-F\s]+)"#
+            guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+            let range = NSRange(source.startIndex..., in: source)
+            return expression.matches(in: source, range: range).compactMap { match in
+                guard let hexRange = Range(match.range(at: 1), in: source) else { return nil }
+                let hex = source[hexRange].filter(\.isHexDigit)
+                guard hex.count.isMultiple(of: 2) else { return nil }
+                var imageData = Data(capacity: hex.count / 2)
+                var index = hex.startIndex
+                while index < hex.endIndex {
+                    let next = hex.index(index, offsetBy: 2)
+                    guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+                    imageData.append(byte)
+                    index = next
+                }
+                return (imageData, mediaType, extensionName)
+            }
         }
     }
 

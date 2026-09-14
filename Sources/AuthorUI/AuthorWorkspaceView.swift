@@ -159,6 +159,10 @@ private struct WorkspaceDetailView: View {
                 StoryBibleOverview(controller: controller)
             case .storyBibleCategory(_, let category):
                 StoryBibleCategoryView(category: category, controller: controller)
+            case .gallery:
+                GalleryView(controller: controller)
+            case .galleryItem:
+                GalleryItemEditor(controller: controller)
             case .narrative:
                 NarrativeOverview(controller: controller)
             case .characterProfile:
