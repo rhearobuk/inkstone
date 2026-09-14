@@ -11,7 +11,9 @@ let package = Package(
         .visionOS(.v1)
     ],
     products: [
-        .library(name: "AuthorData", targets: ["AuthorData"])
+        .library(name: "AuthorData", targets: ["AuthorData"]),
+        .library(name: "AuthorUI", targets: ["AuthorUI"]),
+        .executable(name: "AuthorApp", targets: ["AuthorApp"])
     ],
     targets: [
         .target(
@@ -21,9 +23,21 @@ let package = Package(
                 .copy("Resources/AuthorData.momd")
             ]
         ),
+        .target(
+            name: "AuthorUI",
+            dependencies: ["AuthorData"]
+        ),
+        .executableTarget(
+            name: "AuthorApp",
+            dependencies: ["AuthorUI"]
+        ),
         .testTarget(
             name: "AuthorDataTests",
             dependencies: ["AuthorData"]
+        ),
+        .testTarget(
+            name: "AuthorUITests",
+            dependencies: ["AuthorUI"]
         )
     ]
 )
