@@ -353,8 +353,31 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(controller.computedNarrativeNumber(for: chapterTwo), 2)
     }
 
-    func testDoNotPublishIsInheritedFromAncestorsWithoutOverwritingChildValue() throws {
+    func testBinderIconFollowsNarrativeType() throws {
         let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+
+        func icon(for documentID: UUID) throws -> String {
+            let narrativeItem = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+            let item = try XCTUnwrap(narrativeItem.children?.first { $0.documentID == documentID })
+            return item.systemImage
+        }
+
+        XCTAssertEqual(try icon(for: book.id), "folder")
+
+        controller.setNarrativeType(book, to: .book)
+        XCTAssertEqual(try icon(for: book.id), "book.closed")
+
+        controller.setNarrativeType(book, to: .chapter)
+        XCTAssertEqual(try icon(for: book.id), "doc.on.doc")
+
+        controller.setNarrativeType(book, to: nil)
+        XCTAssertEqual(try icon(for: book.id), "folder")
+    }
+
+    func testDoNotPublishIsInheritedFromAncestorsWithoutOverwritingChildValue() throws {        let controller = try makeController()
         let project = try controller.createProject(title: "Draft")
         let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
         let book = try XCTUnwrap(narrative.orderedChildren.first)

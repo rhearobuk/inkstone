@@ -1722,8 +1722,14 @@ public final class WorkspaceController: ObservableObject {
         return (lhs.orderIndex, lhs.id.uuidString) < (rhs.orderIndex, rhs.id.uuidString)
     }
 
+    /// The icon shown in the binder. A document's narrative role takes precedence over its raw
+    /// kind, so a folder marked as a Book reads as a Book in the navigator.
     private func documentSystemImage(_ document: Document) -> String {
-        switch DocumentKind(rawValue: document.kind) {
+        if let narrativeType = document.narrativeType.flatMap(NarrativeType.init(rawValue:)),
+           let symbol = narrativeSystemImage(narrativeType, kind: DocumentKind(rawValue: document.kind)) {
+            return symbol
+        }
+        return switch DocumentKind(rawValue: document.kind) {
         case .draftFolder: "text.book.closed"
         case .folder: "folder"
         case .text: "doc.plaintext"
@@ -1731,6 +1737,17 @@ public final class WorkspaceController: ObservableObject {
         case .pdf: "doc.richtext"
         case .webArchive: "globe"
         case .unknown, .none: "doc"
+        }
+    }
+
+    private func narrativeSystemImage(_ type: NarrativeType, kind: DocumentKind?) -> String? {
+        switch type {
+        case .book: "book.closed"
+        case .section: "rectangle.stack"
+        case .chapter: "doc.on.doc"
+        // Scene is the default state of every text document, so it keeps the plain document icon
+        // rather than introducing a distinction that carries no information.
+        case .scene: kind == .text ? nil : "doc.plaintext"
         }
     }
 }

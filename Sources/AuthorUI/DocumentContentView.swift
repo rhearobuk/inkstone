@@ -397,7 +397,8 @@ private final class RichTextToolbarView: NSVisualEffectView {
         ])
 
         addButton(
-            "B",
+            symbol: "bold",
+            fallbackTitle: "B",
             tooltip: "Bold",
             action: #selector(RichTextEditor.Coordinator.toggleBold),
             target: coordinator,
@@ -405,7 +406,8 @@ private final class RichTextToolbarView: NSVisualEffectView {
             fontTraits: [.boldFontMask]
         )
         addButton(
-            "I",
+            symbol: "italic",
+            fallbackTitle: "I",
             tooltip: "Italic",
             action: #selector(RichTextEditor.Coordinator.toggleItalic),
             target: coordinator,
@@ -413,7 +415,8 @@ private final class RichTextToolbarView: NSVisualEffectView {
             fontTraits: [.italicFontMask]
         )
         addButton(
-            "U",
+            symbol: "underline",
+            fallbackTitle: "U",
             tooltip: "Underline",
             action: #selector(RichTextEditor.Coordinator.toggleUnderline),
             target: coordinator,
@@ -422,28 +425,32 @@ private final class RichTextToolbarView: NSVisualEffectView {
         )
         addSeparator(to: stack)
         addButton(
-            "A-",
+            symbol: "textformat.size.smaller",
+            fallbackTitle: "A-",
             tooltip: "Decrease font size",
             action: #selector(RichTextEditor.Coordinator.decreaseFontSize),
             target: coordinator,
             to: stack
         )
         addButton(
-            "A+",
+            symbol: "textformat.size.larger",
+            fallbackTitle: "A+",
             tooltip: "Increase font size",
             action: #selector(RichTextEditor.Coordinator.increaseFontSize),
             target: coordinator,
             to: stack
         )
         addButton(
-            "Font",
+            symbol: "textformat",
+            fallbackTitle: "Font",
             tooltip: "Show fonts",
             action: #selector(RichTextEditor.Coordinator.showFontPanel),
             target: coordinator,
             to: stack
         )
         addButton(
-            "Color",
+            symbol: "paintpalette",
+            fallbackTitle: "Color",
             tooltip: "Show colors",
             action: #selector(RichTextEditor.Coordinator.showColorPanel),
             target: coordinator,
@@ -451,28 +458,32 @@ private final class RichTextToolbarView: NSVisualEffectView {
         )
         addSeparator(to: stack)
         addButton(
-            "Left",
+            symbol: "text.alignleft",
+            fallbackTitle: "Left",
             tooltip: "Align left",
             action: #selector(RichTextEditor.Coordinator.alignLeft),
             target: coordinator,
             to: stack
         )
         addButton(
-            "Center",
+            symbol: "text.aligncenter",
+            fallbackTitle: "Center",
             tooltip: "Align center",
             action: #selector(RichTextEditor.Coordinator.alignCenter),
             target: coordinator,
             to: stack
         )
         addButton(
-            "Right",
+            symbol: "text.alignright",
+            fallbackTitle: "Right",
             tooltip: "Align right",
             action: #selector(RichTextEditor.Coordinator.alignRight),
             target: coordinator,
             to: stack
         )
         addButton(
-            "Justify",
+            symbol: "text.justify",
+            fallbackTitle: "Justify",
             tooltip: "Justify",
             action: #selector(RichTextEditor.Coordinator.alignJustified),
             target: coordinator,
@@ -485,8 +496,12 @@ private final class RichTextToolbarView: NSVisualEffectView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Builds a toolbar button showing `symbol`, falling back to a styled text title on the rare
+    /// system where the symbol is unavailable. The tooltip doubles as the accessibility label,
+    /// since the button's content is purely graphical.
     private func addButton(
-        _ title: String,
+        symbol: String,
+        fallbackTitle: String,
         tooltip: String,
         action: Selector,
         target: AnyObject,
@@ -494,16 +509,22 @@ private final class RichTextToolbarView: NSVisualEffectView {
         fontTraits: NSFontTraitMask = [],
         underlined: Bool = false
     ) {
-        let button = NSButton(title: title, target: target, action: action)
+        let button = NSButton(title: fallbackTitle, target: target, action: action)
         button.bezelStyle = .texturedRounded
         button.controlSize = .small
         button.toolTip = tooltip
         button.setAccessibilityLabel(tooltip)
         button.translatesAutoresizingMaskIntoConstraints = false
-        if !fontTraits.isEmpty || underlined {
+
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip) {
+            image.isTemplate = true
+            button.image = image.withSymbolConfiguration(.init(scale: .medium)) ?? image
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+        } else if !fontTraits.isEmpty || underlined {
             let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
             let convertedFont = NSFontManager.shared.convert(font, toHaveTrait: fontTraits)
-            let title = NSMutableAttributedString(string: title, attributes: [.font: convertedFont])
+            let title = NSMutableAttributedString(string: fallbackTitle, attributes: [.font: convertedFont])
             if underlined {
                 title.addAttribute(
                     .underlineStyle,
@@ -513,6 +534,7 @@ private final class RichTextToolbarView: NSVisualEffectView {
             }
             button.attributedTitle = title
         }
+
         stack.addArrangedSubview(button)
     }
 
