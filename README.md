@@ -14,8 +14,13 @@
 
 ## Run the UI prototype
 
+Open `AuthorApp.xcodeproj` in Xcode, select the `AuthorApp` scheme and a Mac,
+iPad, or Apple Vision Pro destination, then press Run.
+
+The command-line equivalent for the macOS prototype is:
+
 ```sh
-swift run AuthorApp
+swift run AuthorAppPrototype
 ```
 
 The first launch creates a native sample project with three stable workspace areas:

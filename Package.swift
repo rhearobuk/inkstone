@@ -13,13 +13,15 @@ let package = Package(
     products: [
         .library(name: "AuthorData", targets: ["AuthorData"]),
         .library(name: "AuthorUI", targets: ["AuthorUI"]),
-        .executable(name: "AuthorApp", targets: ["AuthorApp"])
+        .executable(name: "AuthorAppPrototype", targets: ["AuthorAppPrototype"])
     ],
     targets: [
         .target(
             name: "AuthorData",
+            exclude: [
+                "Resources/AuthorData.xcdatamodeld"
+            ],
             resources: [
-                .process("Resources/AuthorData.xcdatamodeld"),
                 .copy("Resources/AuthorData.momd")
             ]
         ),
@@ -28,8 +30,9 @@ let package = Package(
             dependencies: ["AuthorData"]
         ),
         .executableTarget(
-            name: "AuthorApp",
-            dependencies: ["AuthorUI"]
+            name: "AuthorAppPrototype",
+            dependencies: ["AuthorUI"],
+            path: "Sources/AuthorApp"
         ),
         .testTarget(
             name: "AuthorDataTests",
