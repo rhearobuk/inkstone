@@ -10,11 +10,13 @@
 		A10000000000000000000001 /* AuthorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* AuthorApp.swift */; };
 		A10000000000000000000003 /* AuthorData in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000004 /* AuthorData */; };
 		A10000000000000000000005 /* AuthorUI in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000006 /* AuthorUI */; };
+		A10000000000000000000017 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000018 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000002 /* AuthorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000007 /* AuthorApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AuthorApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,6 +44,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000002 /* AuthorApp.swift */,
+				A10000000000000000000018 /* Assets.xcassets */,
 			);
 			name = App;
 			path = Sources/AuthorApp;
@@ -121,6 +124,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000017 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
