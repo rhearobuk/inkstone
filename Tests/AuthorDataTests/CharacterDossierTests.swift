@@ -251,4 +251,83 @@ final class CharacterDossierTests: XCTestCase {
         XCTAssertEqual(try migratedStore.projects.count(), 1)
         XCTAssertEqual(try migratedStore.galleryItems.count(), 0)
     }
+
+    func testV3GalleryMigratesToV4() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let modelDirectory = root.appendingPathComponent(
+            "Sources/AuthorData/Resources/AuthorData.momd"
+        )
+        let v3Model = try XCTUnwrap(
+            NSManagedObjectModel(contentsOf: modelDirectory.appendingPathComponent("AuthorDataV3.mom"))
+        )
+        XCTAssertNotNil(
+            NSManagedObjectModel(contentsOf: modelDirectory.appendingPathComponent("AuthorDataV4.mom"))
+        )
+
+        let storeDirectory = root.appendingPathComponent(".build/CharacterDossierTests")
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let storeURL = storeDirectory.appendingPathComponent("\(UUID().uuidString).sqlite")
+        defer {
+            for suffix in ["", "-shm", "-wal"] {
+                try? FileManager.default.removeItem(
+                    at: URL(fileURLWithPath: storeURL.path + suffix)
+                )
+            }
+        }
+
+        let oldContainer = NSPersistentContainer(name: "AuthorData", managedObjectModel: v3Model)
+        oldContainer.persistentStoreDescriptions = [NSPersistentStoreDescription(url: storeURL)]
+        var loadError: Error?
+        oldContainer.loadPersistentStores { _, error in loadError = error }
+        XCTAssertNil(loadError)
+
+        let project = NSEntityDescription.insertNewObject(
+            forEntityName: WritingProject.entityName,
+            into: oldContainer.viewContext
+        ) as! WritingProject
+        project.id = UUID()
+        project.title = "Gallery Project"
+        project.sourceIdentifier = "gallery-project"
+        project.sourceFormat = "native"
+        project.createdAt = Date()
+        project.modifiedAt = Date()
+        let resource = NSEntityDescription.insertNewObject(
+            forEntityName: ContentResource.entityName,
+            into: oldContainer.viewContext
+        ) as! ContentResource
+        resource.id = UUID()
+        resource.sourcePath = "Native/Gallery/image.png"
+        resource.role = "galleryImage"
+        resource.mediaType = "image/png"
+        resource.byteCount = 1
+        resource.sha256 = "00"
+        resource.data = Data([0])
+        resource.isSourcePreserved = false
+        resource.project = project
+        let itemID = UUID()
+        let item = NSEntityDescription.insertNewObject(
+            forEntityName: GalleryItem.entityName,
+            into: oldContainer.viewContext
+        ) as! GalleryItem
+        item.id = itemID
+        item.title = "Image"
+        item.source = ProvenanceAgent.human.rawValue
+        item.orderIndex = 0
+        item.createdAt = Date()
+        item.modifiedAt = Date()
+        item.project = project
+        item.resource = resource
+        try oldContainer.viewContext.save()
+        for persistentStore in oldContainer.persistentStoreCoordinator.persistentStores {
+            try oldContainer.persistentStoreCoordinator.remove(persistentStore)
+        }
+
+        let migratedStore = try AuthorDataStore(storeURL: storeURL)
+        let migratedItem = try migratedStore.galleryItems.require(id: itemID)
+        XCTAssertEqual(migratedItem.title, "Image")
+        XCTAssertNil(migratedItem.semanticEntity)
+    }
 }

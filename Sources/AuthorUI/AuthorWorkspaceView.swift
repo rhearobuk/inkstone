@@ -315,6 +315,7 @@ private struct StoryBibleCategoryView: View {
 
 private struct SemanticEntityEditor: View {
     @ObservedObject var controller: WorkspaceController
+    @State private var showsImageImporter = false
 
     var body: some View {
         if let entity = controller.selectedSemanticEntity {
@@ -336,15 +337,45 @@ private struct SemanticEntityEditor: View {
                 )
                 LabeledContent("Ontology kind", value: entity.kind)
                 LabeledContent("Source", value: entity.source)
+                Section("Images") {
+                    let images = entity.galleryItems.sorted {
+                        ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString)
+                    }
+                    if images.isEmpty {
+                        Text("No photos attached.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        LinkedGalleryItemsView(items: images) { item in
+                            controller.selection = .galleryItem(item.id)
+                        }
+                    }
+                    Button {
+                        showsImageImporter = true
+                    } label: {
+                        Label("Add Photos", systemImage: "photo.badge.plus")
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(entity.canonicalName)
+            .fileImporter(
+                isPresented: $showsImageImporter,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true
+            ) { result in
+                do {
+                    _ = try controller.addGalleryImages(from: result.get(), relatedTo: entity)
+                } catch {
+                    controller.report(error)
+                }
+            }
         }
     }
 }
 
 private struct DocumentEditor: View {
     @ObservedObject var controller: WorkspaceController
+    @State private var showsImageImporter = false
 
     var body: some View {
         if let document = controller.selectedDocument {
@@ -386,6 +417,13 @@ private struct DocumentEditor: View {
             .navigationTitle(document.title)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showsImageImporter = true
+                    } label: {
+                        Label("Add Photos", systemImage: "photo.badge.plus")
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("New Scene") {
                             addDocument(
@@ -404,6 +442,17 @@ private struct DocumentEditor: View {
                     } label: {
                         Label("Add Binder Item", systemImage: "plus")
                     }
+                }
+            }
+            .fileImporter(
+                isPresented: $showsImageImporter,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true
+            ) { result in
+                do {
+                    _ = try controller.addGalleryImages(from: result.get(), to: document)
+                } catch {
+                    controller.report(error)
                 }
             }
         }

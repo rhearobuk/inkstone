@@ -1,5 +1,6 @@
 import AuthorData
 import SwiftUI
+import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
@@ -9,44 +10,65 @@ import UIKit
 
 struct GalleryView: View {
     @ObservedObject var controller: WorkspaceController
+    @State private var showsImageImporter = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 16)
     ]
 
     var body: some View {
-        if controller.galleryItems.isEmpty {
-            VStack(spacing: 12) {
-                Image(systemName: "photo.on.rectangle.angled")
-                    .font(.largeTitle)
-                Text("No Images")
-                    .font(.title2)
-                Text("Imported images will appear here.")
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Gallery")
-        } else {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(controller.galleryItems, id: \.id) { item in
-                        Button {
-                            controller.selection = .galleryItem(item.id)
-                        } label: {
-                            GalleryThumbnail(item: item)
-                        }
-                        .buttonStyle(.plain)
-                    }
+        Group {
+            if controller.galleryItems.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.largeTitle)
+                    Text("No Images")
+                        .font(.title2)
+                    Text("Add reference photos for this project.")
+                        .foregroundStyle(.secondary)
                 }
-                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(controller.galleryItems, id: \.id) { item in
+                            Button {
+                                controller.selection = .galleryItem(item.id)
+                            } label: {
+                                GalleryThumbnail(item: item)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
+                }
             }
-            .navigationTitle("Gallery")
+        }
+        .navigationTitle("Gallery")
+        .toolbar {
+            Button {
+                showsImageImporter = true
+            } label: {
+                Label("Add Photos", systemImage: "photo.badge.plus")
+            }
+        }
+        .fileImporter(
+            isPresented: $showsImageImporter,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: true
+        ) { result in
+            do {
+                _ = try controller.addGalleryImages(from: result.get())
+            } catch {
+                controller.report(error)
+            }
         }
     }
 }
 
 struct GalleryItemEditor: View {
     @ObservedObject var controller: WorkspaceController
+    @State private var confirmsDeletion = false
 
     var body: some View {
         if let item = controller.selectedGalleryItem {
@@ -80,6 +102,21 @@ struct GalleryItemEditor: View {
                 .frame(maxHeight: 220)
             }
             .navigationTitle(item.title)
+            .toolbar {
+                Button(role: .destructive) {
+                    confirmsDeletion = true
+                } label: {
+                    Label("Delete Photo", systemImage: "trash")
+                }
+            }
+            .alert("Delete Photo?", isPresented: $confirmsDeletion) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    controller.deleteGalleryItem(item)
+                }
+            } message: {
+                Text("This removes the photo from the project and any linked card.")
+            }
         }
     }
 }

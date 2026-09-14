@@ -88,6 +88,7 @@ Use `AuthorDataStore(inMemory: true)` for previews and tests. All mutations occu
 - Binder XML order is stored as `orderIndex`; use `Document.orderedChildren`.
 - Every regular file under `Files` is represented by `ContentResource`, including RTF, notes, synopsis, style references, images, PDFs, checksums, indexes, writing history, version metadata, and binder archives.
 - Standalone images, card images, and images embedded in imported RTF are exposed as project-owned `GalleryItem` records. Gallery items retain their source document link; extracted embedded images are stored as deterministic derived resources.
+- Photos can also be added natively to a project, document, character, place, or other Story Bible entry. These records use app-owned UUIDs and resources, require no Scrivener identifiers, and can be deleted independently.
 - Original source bytes, relative paths, byte counts, media types, and SHA-256 hashes are preserved. Searchable source text and extracted RTF plain text are separate fields.
 - Broken references and orphan resources are reported as structured warnings. Duplicate/invalid identities, malformed XML, unsafe paths, and validation failures throw explicit errors.
 

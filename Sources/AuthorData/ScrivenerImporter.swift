@@ -576,6 +576,9 @@ public final class ScrivenerImporter {
                 profile.semanticEntity = entity
                 profile.sourceDocument = document
             }
+            for galleryItem in document.sourceGalleryItems {
+                galleryItem.semanticEntity = entity
+            }
 
             if shouldMapSource {
                 try upsertCharacterNotes(

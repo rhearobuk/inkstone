@@ -3,6 +3,8 @@ import Combine
 import CoreData
 import CryptoKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 public enum WorkspaceSelection: Hashable, Sendable {
     case projectDefinition(UUID)
@@ -117,6 +119,7 @@ public enum WorkspaceError: LocalizedError {
     case invalidMove
     case noScrivenerProject(URL)
     case multipleScrivenerProjects(URL)
+    case invalidImage(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -127,6 +130,8 @@ public enum WorkspaceError: LocalizedError {
             "No Scrivener project XML and Files folder were found in \(url.path)."
         case .multipleScrivenerProjects(let url):
             "More than one XML file exists in \(url.path). Select a folder containing one Scrivener project."
+        case .invalidImage(let url):
+            "\(url.lastPathComponent) is not a supported image file."
         }
     }
 }
@@ -191,6 +196,99 @@ public final class WorkspaceController: ObservableObject {
         do {
             try store.save()
             objectWillChange.send()
+        } catch {
+            report(error)
+        }
+    }
+
+    @discardableResult
+    public func addGalleryImages(
+        from urls: [URL],
+        to sourceDocument: Document? = nil,
+        relatedTo semanticEntity: SemanticEntity? = nil
+    ) throws -> [GalleryItem] {
+        guard let project = selectedProject else {
+            throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
+        }
+        let images = try urls.map { url -> (url: URL, data: Data, type: UTType) in
+            guard let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) else {
+                throw WorkspaceError.invalidImage(url)
+            }
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+            guard !data.isEmpty,
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  CGImageSourceGetCount(source) > 0 else {
+                throw WorkspaceError.invalidImage(url)
+            }
+            return (url, data, type)
+        }
+
+        var orderIndex = (project.galleryItems.map(\.orderIndex).max() ?? -1) + 1
+        let now = Date()
+        let items = images.map { image in
+            let resourceID = UUID()
+            let extensionName = image.url.pathExtension.lowercased()
+            let digest = SHA256.hash(data: image.data)
+                .map { String(format: "%02x", $0) }
+                .joined()
+            let resource = store.resources.create(id: resourceID) {
+                $0.sourcePath = "Native/Gallery/\(resourceID.uuidString).\(extensionName)"
+                $0.role = "galleryImage"
+                $0.mediaType = image.type.preferredMIMEType ?? "application/octet-stream"
+                $0.byteCount = Int64(image.data.count)
+                $0.sha256 = digest
+                $0.data = image.data
+                $0.isSourcePreserved = false
+                $0.project = project
+                $0.document = sourceDocument
+            }
+            let item = store.galleryItems.create {
+                $0.title = image.url.deletingPathExtension().lastPathComponent
+                $0.source = ProvenanceAgent.human.rawValue
+                $0.orderIndex = orderIndex
+                $0.createdAt = now
+                $0.modifiedAt = now
+                $0.project = project
+                $0.resource = resource
+                $0.sourceDocument = sourceDocument
+                $0.semanticEntity = semanticEntity
+            }
+            orderIndex += 1
+            return item
+        }
+        project.modifiedAt = now
+        try store.save()
+        refresh()
+        return items
+    }
+
+    public func deleteGalleryItem(_ item: GalleryItem) {
+        let projectID = item.project.id
+        let sourceDocument = item.sourceDocument
+        let relatedEntity = item.semanticEntity
+        let resource = item.resource
+        store.context.delete(item)
+        if resource.role == "galleryImage" {
+            store.context.delete(resource)
+        }
+        do {
+            try store.save()
+            if let profile = relatedEntity?.characterProfile {
+                selection = .characterProfile(profile.id)
+            } else if let relatedEntity {
+                selection = .semanticEntity(relatedEntity.id)
+            } else if let profile = sourceDocument?.sourceCharacterProfiles.first {
+                selection = .characterProfile(profile.id)
+            } else if let sourceDocument {
+                selection = .document(sourceDocument.id)
+            } else {
+                selection = .gallery(projectID)
+            }
+            refresh()
         } catch {
             report(error)
         }

@@ -1,9 +1,11 @@
 import AuthorData
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct CharacterDossierView: View {
     @ObservedObject var controller: WorkspaceController
     @State private var editor: DossierEditor?
+    @State private var showsImageImporter = false
 
     var body: some View {
         if let profile = controller.selectedCharacterProfile {
@@ -16,14 +18,18 @@ struct CharacterDossierView: View {
                     TextField("Location", text: optionalBinding(profile, \.location))
                 }
 
-                if let sourceDocument = profile.sourceDocument {
-                    let images = sortedImages(sourceDocument)
-                    if !images.isEmpty {
-                        Section("Images") {
-                            LinkedGalleryItemsView(items: images) { item in
-                                controller.selection = .galleryItem(item.id)
-                            }
+                Section("Images") {
+                    let images = sortedImages(profile)
+                    if images.isEmpty {
+                        Text("No photos attached.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        LinkedGalleryItemsView(items: images) { item in
+                            controller.selection = .galleryItem(item.id)
                         }
+                    }
+                    Button("Add Photos", systemImage: "photo.badge.plus") {
+                        showsImageImporter = true
                     }
                 }
 
@@ -272,6 +278,21 @@ struct CharacterDossierView: View {
                     controller: controller
                 )
             }
+            .fileImporter(
+                isPresented: $showsImageImporter,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true
+            ) { result in
+                do {
+                    _ = try controller.addGalleryImages(
+                        from: result.get(),
+                        to: profile.sourceDocument,
+                        relatedTo: profile.semanticEntity
+                    )
+                } catch {
+                    controller.report(error)
+                }
+            }
         }
     }
 
@@ -307,8 +328,9 @@ struct CharacterDossierView: View {
         }
     }
 
-    private func sortedImages(_ document: Document) -> [GalleryItem] {
-        document.sourceGalleryItems.sorted {
+    private func sortedImages(_ profile: CharacterProfile) -> [GalleryItem] {
+        let documentImages = profile.sourceDocument?.sourceGalleryItems ?? []
+        return Set(documentImages).union(profile.semanticEntity.galleryItems).sorted {
             ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString)
         }
     }

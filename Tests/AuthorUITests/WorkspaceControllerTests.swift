@@ -79,6 +79,35 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.plainText, "Rain covered the station.")
     }
 
+    func testAddsAndDeletesNativeGalleryImageForStoryBibleEntry() throws {
+        let controller = try makeController()
+        try controller.createProject(title: "World")
+        let place = try controller.addStoryBibleEntry(named: "Moon Harbor", category: .places)
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).png")
+        let imageData = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        try imageData.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+
+        let item = try XCTUnwrap(
+            controller.addGalleryImages(from: [imageURL], relatedTo: place).first
+        )
+
+        XCTAssertEqual(item.semanticEntity?.id, place.id)
+        XCTAssertEqual(item.resource.data, imageData)
+        XCTAssertEqual(item.resource.role, "galleryImage")
+        XCTAssertTrue(place.galleryItems.contains(item))
+        XCTAssertEqual(controller.galleryItems.count, 1)
+
+        controller.deleteGalleryItem(item)
+
+        XCTAssertEqual(try controller.store.galleryItems.count(), 0)
+        XCTAssertEqual(try controller.store.resources.count(), 0)
+        XCTAssertEqual(controller.selection, .semanticEntity(place.id))
+    }
+
     func testSeparatesImportedStoryBibleRootsFromNarrative() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Imported")

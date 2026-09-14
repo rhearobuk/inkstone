@@ -101,6 +101,7 @@ public final class GalleryItem: NSManagedObject, AuthorManagedObject {
     @NSManaged public var project: WritingProject
     @NSManaged public var resource: ContentResource
     @NSManaged public var sourceDocument: Document?
+    @NSManaged public var semanticEntity: SemanticEntity?
 }
 
 @objc(MetadataField)
@@ -183,6 +184,7 @@ public final class SemanticEntity: NSManagedObject, AuthorManagedObject {
     @NSManaged public var aliases: Set<EntityAlias>
     @NSManaged public var mentions: Set<DocumentEntityMention>
     @NSManaged public var characterProfile: CharacterProfile?
+    @NSManaged public var galleryItems: Set<GalleryItem>
 }
 
 @objc(EntityAlias)
