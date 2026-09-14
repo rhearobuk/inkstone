@@ -159,6 +159,8 @@ private struct WorkspaceDetailView: View {
                 StoryBibleOverview(controller: controller)
             case .storyBibleCategory(_, let category):
                 StoryBibleCategoryView(category: category, controller: controller)
+            case .narrative:
+                NarrativeOverview(controller: controller)
             case .semanticEntity:
                 SemanticEntityEditor(controller: controller)
             case .document:
@@ -175,6 +177,22 @@ private struct WorkspaceDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct NarrativeOverview: View {
+    @ObservedObject var controller: WorkspaceController
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "text.book.closed")
+                .font(.largeTitle)
+            Text("Narrative")
+                .font(.title2)
+            Text("Select a script, chapter, or scene in the binder.")
+                .foregroundStyle(.secondary)
+        }
+        .navigationTitle(controller.selectedProject?.title ?? "Narrative")
     }
 }
 
@@ -240,6 +258,14 @@ private struct StoryBibleCategoryView: View {
             ForEach(entities, id: \.id) { entity in
                 Button(entity.canonicalName) {
                     controller.selection = .semanticEntity(entity.id)
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(controller.storyBibleDocuments(in: category), id: \.id) { document in
+                Button {
+                    controller.selection = .document(document.id)
+                } label: {
+                    Label(document.title, systemImage: "folder")
                 }
                 .buttonStyle(.plain)
             }
@@ -333,20 +359,7 @@ private struct DocumentEditor: View {
 
                 Divider()
 
-                TextEditor(
-                    text: Binding(
-                        get: { document.plainText ?? "" },
-                        set: {
-                            controller.updateDocument(
-                                title: document.title,
-                                synopsis: document.synopsis,
-                                plainText: $0
-                            )
-                        }
-                    )
-                )
-                .font(.body)
-                .padding()
+                DocumentContentView(document: document, controller: controller)
             }
             .navigationTitle(document.title)
             .toolbar {

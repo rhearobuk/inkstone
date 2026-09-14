@@ -37,6 +37,8 @@ final class AuthorDataTests: XCTestCase {
 
         let gateway = try store.documents.require(id: UUID(uuidString: "AA6DDF0F-F4E5-46F2-A9AC-805ADDFD5746")!)
         XCTAssertNotNil(gateway.plainText)
+        XCTAssertFalse(gateway.plainText?.contains("\\fonttbl") == true)
+        XCTAssertFalse(gateway.plainText?.contains("\\colortbl") == true)
         XCTAssertTrue(gateway.resources.contains { $0.role == "content" && $0.data?.isEmpty == false })
         XCTAssertTrue(gateway.outgoingLinks.contains {
             $0.targetDocument?.sourceIdentifier == "CFDF5044-06F5-4130-A7F8-11BEBA8C19C3"
@@ -44,6 +46,15 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertTrue(gateway.metadataValues.contains {
             $0.field.key == "scrivener.MetaData.Custom.sexualcontent" && $0.stringValue == "R"
         })
+
+        let illustratedCharacter = try store.documents.require(
+            id: UUID(uuidString: "FBD567AB-8642-42E6-84B3-0E213E1FC4DC")!
+        )
+        let illustratedRTF = try XCTUnwrap(
+            illustratedCharacter.resources.first { $0.role == "content" }?.data
+        )
+        XCTAssertTrue(String(decoding: illustratedRTF, as: UTF8.self).contains("\\jpegblip"))
+        XCTAssertFalse(illustratedCharacter.plainText?.contains("\\jpegblip") == true)
 
         let documentCount = try store.documents.count()
         let resourceCount = try store.resources.count()

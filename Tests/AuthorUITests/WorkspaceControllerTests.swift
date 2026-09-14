@@ -79,6 +79,45 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.plainText, "Rain covered the station.")
     }
 
+    func testSeparatesImportedStoryBibleRootsFromNarrative() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported")
+        let existing = Array(project.documents)
+        for document in existing {
+            controller.store.context.delete(document)
+        }
+        let characters = controller.store.documents.create {
+            $0.sourceIdentifier = "characters"
+            $0.title = "Characters"
+            $0.kind = DocumentKind.folder.rawValue
+            $0.orderIndex = 1
+            $0.project = project
+        }
+        controller.store.documents.create {
+            $0.sourceIdentifier = "character"
+            $0.title = "Mara"
+            $0.kind = DocumentKind.text.rawValue
+            $0.orderIndex = 0
+            $0.project = project
+            $0.parent = characters
+        }
+        controller.store.documents.create {
+            $0.sourceIdentifier = "draft"
+            $0.title = "Novel"
+            $0.kind = DocumentKind.draftFolder.rawValue
+            $0.orderIndex = 0
+            $0.project = project
+        }
+        try controller.store.save()
+        controller.refresh()
+
+        let storyBible = try XCTUnwrap(controller.binderItems.first { $0.title == "Story Bible" })
+        let people = try XCTUnwrap(storyBible.children?.first { $0.title == "People" })
+        let narrative = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+        XCTAssertEqual(people.children?.map(\.title), ["Characters"])
+        XCTAssertEqual(narrative.children?.map(\.title), ["Novel"])
+    }
+
     private func makeController() throws -> WorkspaceController {
         WorkspaceController(store: try AuthorDataStore(inMemory: true))
     }

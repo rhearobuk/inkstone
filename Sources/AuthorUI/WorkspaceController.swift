@@ -1,12 +1,14 @@
 import AuthorData
 import Combine
 import CoreData
+import CryptoKit
 import Foundation
 
 public enum WorkspaceSelection: Hashable, Sendable {
     case projectDefinition(UUID)
     case storyBible(UUID)
     case storyBibleCategory(projectID: UUID, category: StoryBibleCategory)
+    case narrative(UUID)
     case semanticEntity(UUID)
     case document(UUID)
 }
@@ -17,6 +19,7 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     case artifacts = "Artifacts"
     case events = "Events, Conflicts & Timelines"
     case worldbuilding = "Worldbuilding"
+    case research = "Research"
 
     public var id: Self { self }
 
@@ -27,6 +30,7 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
         case .artifacts: "shippingbox"
         case .events: "point.3.connected.trianglepath.dotted"
         case .worldbuilding: "globe"
+        case .research: "books.vertical"
         }
     }
 
@@ -47,6 +51,8 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
             kind == SemanticEntityKind.concept.rawValue ||
                 kind == SemanticEntityKind.theme.rawValue ||
                 kind == SemanticEntityKind.other.rawValue
+        case .research:
+            false
         }
     }
 
@@ -57,6 +63,7 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
         case .artifacts: .object
         case .events: .event
         case .worldbuilding: .concept
+        case .research: .concept
         }
     }
 }
@@ -66,6 +73,7 @@ public struct BinderItem: Identifiable {
         case projectDefinition
         case storyBible
         case storyBibleCategory(StoryBibleCategory)
+        case narrative
         case semanticEntity
         case document
     }
@@ -311,6 +319,23 @@ public final class WorkspaceController: ObservableObject {
         saveAndRefresh(rebuild: false)
     }
 
+    public func updateDocumentRichText(rtfData: Data, plainText: String) {
+        guard let document = selectedDocument,
+              let resource = document.resources.first(where: {
+                  $0.role == "content" && $0.mediaType == "application/rtf"
+              }) else {
+            return
+        }
+        document.plainText = plainText
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        resource.data = rtfData
+        resource.textContent = plainText
+        resource.byteCount = Int64(rtfData.count)
+        resource.sha256 = SHA256.hash(data: rtfData).map { String(format: "%02x", $0) }.joined()
+        saveAndRefresh(rebuild: false)
+    }
+
     public func updateSemanticEntity(name: String, summary: String?) {
         guard let entity = selectedSemanticEntity else { return }
         entity.canonicalName = name
@@ -365,6 +390,13 @@ public final class WorkspaceController: ObservableObject {
         selectedProjectID = projectID
         selection = .projectDefinition(projectID)
         rebuildBinder()
+    }
+
+    public func storyBibleDocuments(in category: StoryBibleCategory) -> [Document] {
+        guard let project = selectedProject else { return [] }
+        return documents(in: project)
+            .filter { $0.parent == nil && storyBibleCategory(for: $0) == category }
+            .sorted(by: documentOrder)
     }
 
     public func report(_ error: Error) {
@@ -442,6 +474,18 @@ public final class WorkspaceController: ObservableObject {
         }
         let documents = documents(in: project)
         let roots = documents.filter { $0.parent == nil }.sorted(by: documentOrder)
+        let storyBibleRoots = Dictionary(grouping: roots.compactMap { document in
+            storyBibleCategory(for: document).map { ($0, document) }
+        }, by: \.0)
+        let narrativeRoots = roots.filter { storyBibleCategory(for: $0) == nil }
+        let visibleNarrativeRoots: [Document]
+        if narrativeRoots.count == 1,
+           let root = narrativeRoots.first,
+           root.sourceIdentifier.hasPrefix("native.narrative.") {
+            visibleNarrativeRoots = root.orderedChildren
+        } else {
+            visibleNarrativeRoots = narrativeRoots
+        }
 
         binderItems = [
             BinderItem(
@@ -457,9 +501,33 @@ public final class WorkspaceController: ObservableObject {
                 systemImage: "books.vertical",
                 selection: .storyBible(project.id),
                 kind: .storyBible,
-                children: categories
+                children: StoryBibleCategory.allCases.map { category in
+                    let documentItems = (storyBibleRoots[category] ?? [])
+                        .map(\.1)
+                        .sorted(by: documentOrder)
+                        .map(makeDocumentItem)
+                    let semanticItems = categories.first {
+                        $0.id == "story-bible.\(category.id)"
+                    }?.children ?? []
+                    return BinderItem(
+                        id: "story-bible.\(category.id)",
+                        title: category.rawValue,
+                        systemImage: category.systemImage,
+                        selection: .storyBibleCategory(projectID: project.id, category: category),
+                        kind: .storyBibleCategory(category),
+                        children: semanticItems + documentItems
+                    )
+                }
+            ),
+            BinderItem(
+                id: "narrative",
+                title: "Narrative",
+                systemImage: "text.book.closed",
+                selection: .narrative(project.id),
+                kind: .narrative,
+                children: visibleNarrativeRoots.map(makeDocumentItem)
             )
-        ] + roots.map(makeDocumentItem)
+        ]
     }
 
     private func makeDocumentItem(_ document: Document) -> BinderItem {
@@ -487,6 +555,24 @@ public final class WorkspaceController: ObservableObject {
             parent = current.parent
         }
         return false
+    }
+
+    private func storyBibleCategory(for document: Document) -> StoryBibleCategory? {
+        let title = document.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch title {
+        case "characters", "character":
+            return .people
+        case "places", "locations", "settings":
+            return .places
+        case "artifacts", "objects", "items":
+            return .artifacts
+        case "conflicts", "timelines", "timeline":
+            return .events
+        case "research", "template sheets", "templates":
+            return .research
+        default:
+            return document.kind == "ResearchFolder" ? .research : nil
+        }
     }
 
     private func reindex(_ documents: [Document]) {

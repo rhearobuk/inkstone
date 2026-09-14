@@ -1,6 +1,11 @@
 import CoreData
 import CryptoKit
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 
 public enum ScrivenerImportError: LocalizedError {
     case projectXMLNotFound(URL)
@@ -176,7 +181,7 @@ public final class ScrivenerImporter {
                 let textContent = Self.textContent(data: data, extension: fileURL.pathExtension)
                 let digest = SHA256.hash(data: data).hex
 
-                _ = try store.resources.upsert(id: resourceID) { resource, isNew in
+                let resource = try store.resources.upsert(id: resourceID) { resource, isNew in
                     if isNew { inserted += 1 } else { updated += 1 }
                     resource.sourcePath = relativePath
                     resource.role = role
@@ -196,6 +201,7 @@ public final class ScrivenerImporter {
                     if role == "content", fileURL.pathExtension.lowercased() == "rtf" {
                         let plainText = Self.plainText(fromRTF: data)
                         document.plainText = plainText
+                        resource.textContent = plainText
                         let revisionID = DeterministicID.make(namespace: document.id, name: "source-revision:\(digest)")
                         _ = try store.revisions.upsert(id: revisionID) { revision, isNew in
                             if isNew { inserted += 1 } else { updated += 1 }
@@ -342,13 +348,14 @@ public final class ScrivenerImporter {
         for item in items {
             guard let source = documents[item.identifier] else { continue }
             var links = item.bookmarks.map { ("bookmark", $0, nil as Int?) }
-            if let plainText = source.resources.first(where: { $0.role == "content" })?.textContent {
+            if let content = source.resources.first(where: { $0.role == "content" }),
+               let linkSource = Self.linkSource(from: content) {
                 let pattern = #"scrivlnk://([0-9A-Fa-f-]{36})"#
                 let regex = try NSRegularExpression(pattern: pattern)
-                let range = NSRange(plainText.startIndex..., in: plainText)
-                links += regex.matches(in: plainText, range: range).compactMap { match in
-                    guard let targetRange = Range(match.range(at: 1), in: plainText) else { return nil }
-                    return ("inline", String(plainText[targetRange]), match.range.location)
+                let range = NSRange(linkSource.startIndex..., in: linkSource)
+                links += regex.matches(in: linkSource, range: range).compactMap { match in
+                    guard let targetRange = Range(match.range(at: 1), in: linkSource) else { return nil }
+                    return ("inline", String(linkSource[targetRange]), match.range.location)
                 }
             }
             for (ordinal, link) in links.enumerated() {
@@ -500,7 +507,28 @@ public final class ScrivenerImporter {
         }
     }
 
+    private static func linkSource(from resource: ContentResource) -> String? {
+        if resource.mediaType == "application/rtf", let data = resource.data {
+            return String(data: data, encoding: .utf8)
+                ?? String(data: data, encoding: .windowsCP1252)
+        }
+        return resource.textContent
+    }
+
     private static func plainText(fromRTF data: Data) -> String? {
+        #if canImport(AppKit) || canImport(UIKit)
+        if let attributed = try? NSAttributedString(
+            data: data,
+            options: [.documentType: NSAttributedString.DocumentType.rtf],
+            documentAttributes: nil
+        ) {
+            return attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        #endif
+        return fallbackPlainText(fromRTF: data)
+    }
+
+    private static func fallbackPlainText(fromRTF data: Data) -> String? {
         guard let source = String(data: data, encoding: .utf8)
             ?? String(data: data, encoding: .windowsCP1252) else { return nil }
         var result = ""

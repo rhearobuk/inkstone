@@ -6,6 +6,13 @@
 
 `ContentResource` stores a typed source asset and its provenance attributes. Large binary values permit Core Data external storage. Keeping `data`, `textContent`, and `Document.plainText` separate preserves exact source bytes while providing queryable text.
 
+Scrivener is an import adapter, not the application domain model. Imported source
+identities and hierarchy are retained for provenance and repeatable migration,
+while the application projects documents into its own Project, Story Bible, and
+Narrative workspace. The source RTF remains in `ContentResource.data`; decoded
+search text belongs in `ContentResource.textContent` and `Document.plainText`.
+Rich editors must decode the resource data rather than display RTF source.
+
 `DocumentLink` normalizes bookmarks and inline `scrivlnk://` references. A missing target remains explicit in `unresolvedTargetIdentifier`.
 
 ## Semantics for people and agents
