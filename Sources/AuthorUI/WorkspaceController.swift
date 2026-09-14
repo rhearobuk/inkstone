@@ -386,21 +386,21 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
         return definition
     }
 
     public func renameSectionType(_ definition: SectionTypeDefinition, title: String) {
         definition.title = title
         definition.project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     public func deleteSectionType(_ definition: SectionTypeDefinition) {
         let project = definition.project
         store.context.delete(definition)
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     @discardableResult
@@ -417,7 +417,7 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
         return definition
     }
 
@@ -431,14 +431,14 @@ public final class WorkspaceController: ObservableObject {
         definition.colorGreen = color.map { NSNumber(value: $0.green) }
         definition.colorBlue = color.map { NSNumber(value: $0.blue) }
         definition.project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     public func deleteLabel(_ definition: LabelDefinition) {
         let project = definition.project
         store.context.delete(definition)
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     @discardableResult
@@ -452,21 +452,21 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
         return definition
     }
 
     public func renameStatus(_ definition: StatusDefinition, title: String) {
         definition.title = title
         definition.project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     public func deleteStatus(_ definition: StatusDefinition) {
         let project = definition.project
         store.context.delete(definition)
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     @discardableResult
@@ -483,7 +483,7 @@ public final class WorkspaceController: ObservableObject {
             $0.project = project
         }
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
         return field
     }
 
@@ -491,14 +491,14 @@ public final class WorkspaceController: ObservableObject {
         field.displayName = displayName
         field.valueType = valueType
         field.project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     public func deleteCustomMetadataField(_ field: MetadataField) {
         let project = field.project
         store.context.delete(field)
         project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     public func updateDocument(title: String, synopsis: String?, plainText: String?) {
@@ -534,7 +534,7 @@ public final class WorkspaceController: ObservableObject {
         entity.summary = summary?.nilIfBlank
         entity.modifiedAt = Date()
         entity.project.modifiedAt = Date()
-        saveAndRefresh()
+        saveAndRefresh(rebuild: false)
     }
 
     public func saveCharacterProfile(_ profile: CharacterProfile) {
