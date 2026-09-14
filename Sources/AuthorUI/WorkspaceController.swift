@@ -616,6 +616,7 @@ public final class WorkspaceController: ObservableObject {
             throw WorkspaceError.missingDocument(documentID)
         }
         let project = document.project
+        WordCountService.removeSubtree(document, from: document.parent)
         document.parent = nil
         store.context.delete(document)
         var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
@@ -638,9 +639,15 @@ public final class WorkspaceController: ObservableObject {
         }
         let trashed = trashedDocuments(in: project)
         let docIDs = trashed.map(\.id)
+        let trashedDocIDSet = Set(docIDs)
         var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
         var hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
         for doc in trashed {
+            // Only adjust rollups from documents whose parent survives this batch; descendants
+            // whose ancestor is also being deleted are already accounted for via that ancestor.
+            if !doc.ancestors.contains(where: { trashedDocIDSet.contains($0.id) }) {
+                WordCountService.removeSubtree(doc, from: doc.parent)
+            }
             doc.parent = nil
             store.context.delete(doc)
         }
@@ -765,6 +772,7 @@ public final class WorkspaceController: ObservableObject {
             $0.plainText = ""
             $0.project = project
             $0.parent = script
+            $0.narrativeType = NarrativeType.scene.rawValue
         }
         try store.save()
         selectedProjectID = projectID
@@ -800,6 +808,7 @@ public final class WorkspaceController: ObservableObject {
             $0.plainText = kind == .text ? "" : nil
             $0.project = project
             $0.parent = parent
+            $0.narrativeType = kind == .text ? NarrativeType.scene.rawValue : nil
         }
         project.modifiedAt = now
         try store.save()
@@ -1018,19 +1027,30 @@ public final class WorkspaceController: ObservableObject {
         document.title = title
         document.synopsis = synopsis?.nilIfBlank
         document.plainText = plainText
+        WordCountService.recomputeOwnWordCount(for: document)
         document.modifiedAt = Date()
         document.project.modifiedAt = Date()
         saveAndRefresh()
     }
 
     public func updateDocumentRichText(rtfData: Data, plainText: String) {
-        guard let document = selectedDocument,
-              let resource = document.resources.first(where: {
-                  $0.role == "content" && $0.mediaType == "application/rtf"
-              }) else {
+        guard let document = selectedDocument else {
             return
         }
+        let resource = document.resources.first {
+            $0.role == "content" && $0.mediaType == "application/rtf"
+        } ?? store.resources.create {
+            $0.sourcePath = "Native/Documents/\(document.id.uuidString)/content.rtf"
+            $0.role = "content"
+            $0.mediaType = "application/rtf"
+            $0.byteCount = 0
+            $0.sha256 = ""
+            $0.isSourcePreserved = false
+            $0.project = document.project
+            $0.document = document
+        }
         document.plainText = plainText
+        WordCountService.recomputeOwnWordCount(for: document)
         document.modifiedAt = Date()
         document.project.modifiedAt = Date()
         resource.data = rtfData
@@ -1038,6 +1058,65 @@ public final class WorkspaceController: ObservableObject {
         resource.byteCount = Int64(rtfData.count)
         resource.sha256 = SHA256.hash(data: rtfData).map { String(format: "%02x", $0) }.joined()
         saveAndRefresh()
+    }
+
+    // MARK: - Narrative Metadata (Book/Section/Chapter/Scene)
+
+    /// Sets or clears a folder's narrative role. Text documents are always `.scene` and cannot be
+    /// changed (set at creation time in `addDocument`).
+    public func setNarrativeType(_ document: Document, to type: NarrativeType?) {
+        document.narrativeType = type?.rawValue
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    /// Sets this document's own "Do Not Publish" flag. Does not affect inherited exclusion from
+    /// ancestors; see `Document.isPublishingExcluded`.
+    public func setDoNotPublish(_ document: Document, _ value: Bool) {
+        document.includeInCompile = NSNumber(value: !value)
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func narrativeFields(for document: Document) -> [NarrativeFieldDescriptor] {
+        guard let type = document.narrativeType.flatMap(NarrativeType.init(rawValue:)) else { return [] }
+        return NarrativeMetadataSchema.fields(for: type)
+    }
+
+    public func narrativeFieldValue(_ descriptor: NarrativeFieldDescriptor, on document: Document) -> String {
+        NarrativeMetadataStore.stringValue(for: descriptor, on: document)
+    }
+
+    public func setNarrativeFieldValue(_ rawValue: String, for descriptor: NarrativeFieldDescriptor, on document: Document) {
+        NarrativeMetadataStore.setValue(rawValue, for: descriptor, on: document, store: store)
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    /// The document's position among same-typed siblings (Chapter or Section) counted in
+    /// depth-first tree order within the nearest ancestor Book (or the narrative root, if the
+    /// item isn't nested under a Book). Returns nil for Book/Scene, which aren't numbered this way.
+    public func computedNarrativeNumber(for document: Document) -> Int? {
+        guard let type = document.narrativeType.flatMap(NarrativeType.init(rawValue:)),
+              type == .chapter || type == .section else { return nil }
+        let scopeRoot = document.ancestors.first { $0.narrativeType == NarrativeType.book.rawValue }
+            ?? document.ancestors.last
+        guard let scopeRoot else { return nil }
+
+        var counter = 0
+        var result: Int?
+        func visit(_ node: Document) {
+            if node.narrativeType == type.rawValue {
+                counter += 1
+                if node.id == document.id { result = counter }
+            }
+            for child in node.orderedChildren { visit(child) }
+        }
+        for child in scopeRoot.orderedChildren { visit(child) }
+        return result
     }
 
     public func updateSemanticEntity(name: String, summary: String?) {
@@ -1301,7 +1380,13 @@ public final class WorkspaceController: ObservableObject {
             insertionIndex = targetIdx + 1
         }
 
+        if oldParent?.id != newParent?.id {
+            WordCountService.removeSubtree(document, from: oldParent)
+        }
         document.parent = newParent
+        if oldParent?.id != newParent?.id {
+            WordCountService.addSubtree(document, to: newParent)
+        }
         let newSiblings = documents(in: document.project)
             .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
             .sorted(by: documentOrder)
@@ -1617,6 +1702,13 @@ public final class WorkspaceController: ObservableObject {
         default:
             return document.kind == "ResearchFolder" ? .research : nil
         }
+    }
+
+    /// Whether `document` lives under the Narrative tree (as opposed to Story Bible, Gallery, or
+    /// Project Definition), based on its root ancestor's classification.
+    public func isNarrativeDocument(_ document: Document) -> Bool {
+        let root = document.ancestors.last ?? document
+        return storyBibleCategory(for: root) == nil
     }
 
     private func reindex(_ documents: [Document]) {

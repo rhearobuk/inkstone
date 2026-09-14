@@ -1140,6 +1140,11 @@ private struct DocumentEditor: View {
                     Divider()
                 }
 
+                if controller.isNarrativeDocument(document) {
+                    NarrativeMetadataPanel(controller: controller, document: document)
+                    Divider()
+                }
+
                 TextField(
                     "Title",
                     text: Binding(

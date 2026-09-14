@@ -293,6 +293,107 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.plainText, "Rain covered the station.")
     }
 
+    func testWordCountRollsUpIncrementallyThroughAncestorsOnTextEdit() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        let scene = try XCTUnwrap(book.orderedChildren.first)
+        controller.selection = .document(scene.id)
+
+        controller.updateDocument(title: scene.title, synopsis: nil, plainText: "one two three four five")
+
+        XCTAssertEqual(scene.ownWordCount, 5)
+        XCTAssertEqual(scene.actualWordCount, 5)
+        XCTAssertEqual(book.actualWordCount, 5)
+        XCTAssertEqual(narrative.actualWordCount, 5)
+
+        controller.updateDocument(title: scene.title, synopsis: nil, plainText: "one two")
+
+        XCTAssertEqual(scene.actualWordCount, 2)
+        XCTAssertEqual(book.actualWordCount, 2)
+        XCTAssertEqual(narrative.actualWordCount, 2)
+    }
+
+    func testWordCountRollupMovesWithDocumentAndIsRemovedOnPermanentDelete() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        let scene = try XCTUnwrap(book.orderedChildren.first)
+        controller.selection = .document(scene.id)
+        controller.updateDocument(title: scene.title, synopsis: nil, plainText: "alpha beta gamma")
+        let otherChapter = try controller.addDocument(title: "Chapter Two", kind: .folder, parentID: book.id)
+
+        try controller.moveDocument(scene.id, onto: otherChapter.id)
+
+        XCTAssertEqual(otherChapter.actualWordCount, 3)
+        XCTAssertEqual(book.actualWordCount, 3)
+
+        try controller.deleteDocumentPermanently(scene.id)
+
+        XCTAssertEqual(otherChapter.actualWordCount, 0)
+        XCTAssertEqual(book.actualWordCount, 0)
+    }
+
+    func testChapterNumbersAreComputedFromTreePosition() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        controller.setNarrativeType(book, to: .book)
+        let existingScene = try XCTUnwrap(book.orderedChildren.first)
+        let chapterOne = try controller.addDocument(title: "Chapter One", kind: .folder, parentID: book.id)
+        controller.setNarrativeType(chapterOne, to: .chapter)
+        try controller.moveDocument(existingScene.id, onto: chapterOne.id)
+        let chapterTwo = try controller.addDocument(title: "Chapter Two", kind: .folder, parentID: book.id)
+        controller.setNarrativeType(chapterTwo, to: .chapter)
+
+        XCTAssertEqual(controller.computedNarrativeNumber(for: chapterOne), 1)
+        XCTAssertEqual(controller.computedNarrativeNumber(for: chapterTwo), 2)
+    }
+
+    func testDoNotPublishIsInheritedFromAncestorsWithoutOverwritingChildValue() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        let scene = try XCTUnwrap(book.orderedChildren.first)
+
+        XCTAssertFalse(scene.isPublishingExcluded)
+
+        controller.setDoNotPublish(book, true)
+
+        XCTAssertTrue(scene.isPublishingExcluded)
+        XCTAssertNotNil(scene.inheritedPublishingExclusionSource)
+        XCTAssertEqual(scene.inheritedPublishingExclusionSource?.id, book.id)
+
+        controller.setDoNotPublish(book, false)
+
+        XCTAssertFalse(scene.isPublishingExcluded)
+    }
+
+    func testNarrativeMetadataFieldsPersistPerDocumentType() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        controller.setNarrativeType(book, to: .book)
+
+        let isbnField = try XCTUnwrap(
+            NarrativeMetadataSchema.fields(for: .book).first { $0.key == "system.book.isbn" }
+        )
+        controller.setNarrativeFieldValue("978-0-000-00000-0", for: isbnField, on: book)
+
+        XCTAssertEqual(controller.narrativeFieldValue(isbnField, on: book), "978-0-000-00000-0")
+
+        let targetField = try XCTUnwrap(
+            NarrativeMetadataSchema.fields(for: .book).first { $0.key == NarrativeMetadataSchema.targetWordCountKey }
+        )
+        controller.setNarrativeFieldValue("80000", for: targetField, on: book)
+        XCTAssertEqual(controller.narrativeFieldValue(targetField, on: book), "80000")
+    }
+
     func testAddsAndDeletesNativeGalleryImageForStoryBibleEntry() throws {
         let controller = try makeController()
         try controller.createProject(title: "World")
@@ -457,6 +558,27 @@ final class WorkspaceControllerTests: XCTestCase {
         // Drop scene onto Narrative folder
         try controller.moveDocument(scene.id, relativeTo: narrative.id, position: .inside)
         XCTAssertEqual(scene.parent?.id, narrative.id)
+    }
+
+    func testRichTextUpdateCreatesRTFResourceForNativeTextDocument() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Rich Text")
+        let scene = try XCTUnwrap(project.documents.first { $0.kind == DocumentKind.text.rawValue })
+        controller.selection = .document(scene.id)
+
+        let data = Data(#"{\rtf1\ansi Hello}"#.utf8)
+        controller.updateDocumentRichText(rtfData: data, plainText: "Hello")
+
+        let resource = try XCTUnwrap(scene.resources.first {
+            $0.role == "content" && $0.mediaType == "application/rtf"
+        })
+        XCTAssertEqual(scene.plainText, "Hello")
+        XCTAssertEqual(resource.data, data)
+        XCTAssertEqual(resource.textContent, "Hello")
+        XCTAssertEqual(resource.byteCount, Int64(data.count))
+        XCTAssertEqual(resource.document?.id, scene.id)
+        XCTAssertEqual(resource.project.id, project.id)
+        XCTAssertFalse(resource.isSourcePreserved)
     }
 
     private func makeController() throws -> WorkspaceController {
