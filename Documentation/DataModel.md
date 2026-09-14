@@ -55,6 +55,15 @@ These four definitions back `ProjectPreferencesView` (`AuthorUI`), a project-lev
 
 Every entity has a UUID `id` uniqueness constraint. Source-owned UUIDs remain unchanged. Derived IDs are deterministic within the project namespace, making imports repeatable. Source identifier/path compound constraints provide additional conflict protection.
 
-The persistent container enables automatic model migration and inferred mappings. `AuthorDataV1` preserves the original schema, and additive `AuthorDataV2` is current; the compiled `AuthorData.momd` contains both versions so existing SQLite stores migrate through an inferred lightweight mapping. Future schema changes should add a new version under `AuthorData.xcdatamodeld`, select it in `.xccurrentversion`, regenerate `AuthorData.momd`, and add a migration test opening a store created from the previous model. Use explicit mapping models when a change cannot be inferred without data loss.
+The persistent container enables automatic model migration and inferred mappings. `AuthorDataV1` preserves the original schema, and additive `AuthorDataV5` is current; the compiled `AuthorData.momd` contains V1–V5 versions so existing SQLite stores migrate through an inferred lightweight mapping. Future schema changes should add a new version under `AuthorData.xcdatamodeld`, select it in `.xccurrentversion`, regenerate `AuthorData.momd`, and add a migration test opening a store created from the previous model. Use explicit mapping models when a change cannot be inferred without data loss.
 
 Core Data requires inverse destinations of uniqueness-constrained entities to be optional in the model. The Swift API and importer treat aggregate relationships as required and validate them before saving imported data.
+
+
+## AI Editor reviews (V5)
+
+`EditorialReview` is project-owned and cascade-owns inputs, findings, and processing chunks. Inputs preserve exact submitted text, hashes, source UUID/title/path/order, and manuscript/context role. Findings contain typed category, severity, explanation, recommendation and independent human tracking fields. Multiple `EditorialFindingAnchor` records point into immutable input snapshots using verified UTF-16 ranges. Invalid or ambiguous quotations fall back to document-level references.
+
+Deleting a target document or persona nullifies the live reference without erasing review snapshots. Deleting a project or review cascades through its review records. Persona presets are idempotently seeded; customized personas and each run's effective rubric are independent. History keeps selected provider/model, prompt/schema versions, timestamps, parameters, OS/app version, reported token usage when available, and rerun links. `ProvenanceEvent` records terminal review outcomes.
+
+States distinguish completed, partial, failed, refused, cancelled and interrupted runs. Startup marks abandoned active runs interrupted without resending text. Chunk records preserve coverage and intermediate summaries; synthesis is hierarchical and no manuscript input is silently truncated. This is an editorial subsystem: review execution never writes manuscript prose or rich-text resources.

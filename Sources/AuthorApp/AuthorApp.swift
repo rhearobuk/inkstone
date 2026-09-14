@@ -15,12 +15,25 @@ struct AuthorApp: App {
         #endif
 
         do {
-            let storeURL = try Self.storeURL()
-            let store = try AuthorDataStore(storeURL: storeURL)
+            #if DEBUG
+            let preview = ProcessInfo.processInfo.arguments.contains("--editor-preview")
+            #else
+            let preview = false
+            #endif
+            let store = try preview ? AuthorDataStore(inMemory: true) : AuthorDataStore(storeURL: Self.storeURL())
             let workspace = WorkspaceController(store: store)
             if workspace.projects.isEmpty {
                 try workspace.createProject(title: "My Novel")
             }
+            #if DEBUG
+            if preview, let project = workspace.selectedProject,
+               let scene = project.documents.first(where: { $0.kind == DocumentKind.text.rawValue }) {
+                scene.title = "The Arrival"
+                scene.plainText = "The clock struck noon. Two minutes later, it was midnight. She opened the door."
+                workspace.selection = .document(scene.id)
+                try store.save()
+            }
+            #endif
             _controller = StateObject(wrappedValue: workspace)
         } catch {
             fatalError("AuthorApp could not open its data store: \(error.localizedDescription)")

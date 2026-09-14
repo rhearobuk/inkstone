@@ -5,6 +5,11 @@ import UniformTypeIdentifiers
 public struct AuthorWorkspaceView: View {
     @ObservedObject private var controller: WorkspaceController
     @EnvironmentObject private var aiSettings: AISettingsStore
+    #if DEBUG
+    @State private var showsEditor = ProcessInfo.processInfo.arguments.contains("--editor-preview")
+    #else
+    @State private var showsEditor = false
+    #endif
     @State private var showsNewProject = false
     @State private var showsImporter = false
     @State private var showsPreferences = false
@@ -22,7 +27,27 @@ public struct AuthorWorkspaceView: View {
         } content: {
             binder
         } detail: {
-            WorkspaceDetailView(controller: controller)
+            GeometryReader { geometry in
+                HStack(spacing: 0) {
+                    WorkspaceDetailView(controller: controller)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if showsEditor && geometry.size.width >= 740 {
+                        Divider()
+                        EditorPanelView(workspace: controller, editor: controller.editorialReviews, settings: aiSettings)
+                            .frame(width: 360)
+                    }
+                }
+                .sheet(isPresented: Binding(get: { showsEditor && geometry.size.width < 740 }, set: { if !$0 { showsEditor = false } })) {
+                    VStack {
+                        HStack { Spacer(); Button("Done") { showsEditor = false } }.padding()
+                        EditorPanelView(workspace: controller, editor: controller.editorialReviews, settings: aiSettings)
+                    }.frame(minWidth: 340, minHeight: 480)
+                }
+            }
+            .toolbar {
+                Button { showsEditor.toggle() } label: { Label("AI Editor", systemImage: "text.magnifyingglass") }
+                    .help("Review manuscript and browse editorial history")
+            }
         }
         .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showsPreferences) {

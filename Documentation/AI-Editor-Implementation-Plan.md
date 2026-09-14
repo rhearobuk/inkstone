@@ -1,8 +1,8 @@
 # AI Editor — implementation plan for approval
 
-Status: Proposed; implementation awaits approval.
+Status: Approved by the user; implementation and validation recorded in AI-Editor-Validation.md.
 Branch: `feat/ai-editor`
-Isolated checkout: `/Users/robertrhea/Desktop/Author-AI-Editor`
+Isolated checkout: `/Users/robertrhea/Documents/Codex/Author-AI-Editor`
 Base: `feat/authoring-app-ui` at `16bf701`.
 
 ## Decision requested

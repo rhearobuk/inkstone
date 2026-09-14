@@ -12,6 +12,8 @@ public extension AuthorManagedObject {
 
 @objc(WritingProject)
 public final class WritingProject: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var editorialReviews: Set<EditorialReview>
+
     @NSManaged public var id: UUID
     @NSManaged public var title: String
     @NSManaged public var sourceIdentifier: String
@@ -39,6 +41,9 @@ public final class WritingProject: NSManagedObject, AuthorManagedObject {
 
 @objc(Document)
 public final class Document: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var editorialReviews: Set<EditorialReview>
+    @NSManaged public var editorialInputs: Set<EditorialReviewInput>
+
     @NSManaged public var id: UUID
     @NSManaged public var sourceIdentifier: String
     @NSManaged public var title: String

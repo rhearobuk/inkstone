@@ -20,7 +20,7 @@ struct DocumentContentView: View {
                       options: [.documentType: NSAttributedString.DocumentType.rtf],
                       documentAttributes: nil
                   ) {
-            RichTextEditor(attributedText: attributedText) { updatedText in
+            RichTextEditor(attributedText: attributedText, passage: passage) { updatedText in
                 do {
                     let range = NSRange(location: 0, length: updatedText.length)
                     let data = try updatedText.data(
@@ -36,21 +36,15 @@ struct DocumentContentView: View {
                 }
             }
         } else {
-            TextEditor(
-                text: Binding(
-                    get: { document.plainText ?? "" },
-                    set: {
-                        controller.updateDocument(
-                            title: document.title,
-                            synopsis: document.synopsis,
-                            plainText: $0
-                        )
-                    }
-                )
-            )
-            .font(.body)
-            .padding()
+            PlainDocumentEditor(text: document.plainText ?? "", passage: passage) { text in
+                controller.updateDocument(title: document.title, synopsis: document.synopsis, plainText: text)
+            }
+
         }
+    }
+
+    private var passage: EditorialPassage? {
+        controller.editorialPassage?.documentID == document.id ? controller.editorialPassage : nil
     }
 
     private var rtfResource: ContentResource? {
@@ -69,6 +63,7 @@ struct DocumentContentView: View {
 #if os(macOS)
 private struct RichTextEditor: NSViewRepresentable {
     let attributedText: NSAttributedString
+    let passage: EditorialPassage?
     let onChange: (NSAttributedString) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -97,23 +92,30 @@ private struct RichTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.onChange = onChange
-        guard let textView = scrollView.documentView as? NSTextView,
-              !textView.hasMarkedText(),
-              textView.attributedString() != attributedText else {
-            return
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        if !textView.hasMarkedText(), textView.attributedString() != attributedText {
+            textView.backgroundColor = .textBackgroundColor
+            textView.textColor = .labelColor
+            textView.insertionPointColor = .labelColor
+            textView.usesAdaptiveColorMappingForDarkAppearance = true
+            context.coordinator.isUpdating = true
+            textView.textStorage?.setAttributedString(attributedText)
+            context.coordinator.isUpdating = false
         }
-        textView.backgroundColor = .textBackgroundColor
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .labelColor
-        textView.usesAdaptiveColorMappingForDarkAppearance = true
-        context.coordinator.isUpdating = true
-        textView.textStorage?.setAttributedString(attributedText)
-        context.coordinator.isUpdating = false
+        if let passage, passage.token != context.coordinator.lastPassage,
+           passage.location >= 0, passage.length >= 0,
+           passage.location + passage.length <= textView.string.utf16.count {
+            let range = NSRange(location: passage.location, length: passage.length)
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
+            context.coordinator.lastPassage = passage.token
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var onChange: (NSAttributedString) -> Void
         var isUpdating = false
+        var lastPassage: UUID?
 
         init(onChange: @escaping (NSAttributedString) -> Void) {
             self.onChange = onChange
@@ -146,6 +148,7 @@ private struct PlatformImageView: View {
 #elseif os(iOS) || os(visionOS)
 private struct RichTextEditor: UIViewRepresentable {
     let attributedText: NSAttributedString
+    let passage: EditorialPassage?
     let onChange: (NSAttributedString) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -169,18 +172,25 @@ private struct RichTextEditor: UIViewRepresentable {
         context.coordinator.onChange = onChange
         textView.backgroundColor = .systemBackground
         textView.textColor = .label
-        textView.tintColor = .tintColor
-        guard textView.markedTextRange == nil, textView.attributedText != attributedText else {
-            return
+        if textView.markedTextRange == nil, textView.attributedText != attributedText {
+            context.coordinator.isUpdating = true
+            textView.attributedText = attributedText
+            context.coordinator.isUpdating = false
         }
-        context.coordinator.isUpdating = true
-        textView.attributedText = attributedText
-        context.coordinator.isUpdating = false
+        if let passage, passage.token != context.coordinator.lastPassage,
+           passage.location >= 0, passage.length >= 0,
+           passage.location + passage.length <= textView.text.utf16.count {
+            let range = NSRange(location: passage.location, length: passage.length)
+            textView.selectedRange = range
+            textView.scrollRangeToVisible(range)
+            context.coordinator.lastPassage = passage.token
+        }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var onChange: (NSAttributedString) -> Void
         var isUpdating = false
+        var lastPassage: UUID?
 
         init(onChange: @escaping (NSAttributedString) -> Void) {
             self.onChange = onChange
@@ -209,5 +219,70 @@ private struct PlatformImageView: View {
                 .foregroundStyle(.secondary)
         }
     }
+}
+#endif
+
+#if os(macOS)
+private struct PlainDocumentEditor: NSViewRepresentable {
+    let text: String
+    let passage: EditorialPassage?
+    let onChange: (String) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(onChange) }
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        let view = scroll.documentView as! NSTextView
+        view.isRichText = false; view.font = .systemFont(ofSize: 16)
+        view.textContainerInset = NSSize(width: 24, height: 24)
+        view.string = text; view.delegate = context.coordinator
+        return scroll
+    }
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        let view = scroll.documentView as! NSTextView
+        context.coordinator.onChange = onChange
+        if !view.hasMarkedText(), view.string != text { view.string = text }
+        if let passage, passage.token != context.coordinator.lastPassage,
+           passage.location >= 0, passage.length >= 0, passage.location + passage.length <= view.string.utf16.count {
+            let range = NSRange(location: passage.location, length: passage.length)
+            view.setSelectedRange(range); view.scrollRangeToVisible(range); context.coordinator.lastPassage = passage.token
+        }
+    }
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var onChange: (String) -> Void
+        var lastPassage: UUID?
+        init(_ onChange: @escaping (String) -> Void) { self.onChange = onChange }
+        func textDidChange(_ notification: Notification) { if let view = notification.object as? NSTextView { onChange(view.string) } }
+    }
+}
+#elseif os(iOS) || os(visionOS)
+private struct PlainDocumentEditor: UIViewRepresentable {
+    let text: String
+    let passage: EditorialPassage?
+    let onChange: (String) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(onChange) }
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView(); view.font = .preferredFont(forTextStyle: .body); view.text = text; view.delegate = context.coordinator; return view
+    }
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.onChange = onChange
+        if view.markedTextRange == nil, view.text != text { view.text = text }
+        if let passage, passage.token != context.coordinator.lastPassage,
+           passage.location >= 0, passage.length >= 0, passage.location + passage.length <= view.text.utf16.count {
+            let range = NSRange(location: passage.location, length: passage.length)
+            view.selectedRange = range; view.scrollRangeToVisible(range); context.coordinator.lastPassage = passage.token
+        }
+    }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var onChange: (String) -> Void
+        var lastPassage: UUID?
+        init(_ onChange: @escaping (String) -> Void) { self.onChange = onChange }
+        func textViewDidChange(_ view: UITextView) { onChange(view.text) }
+    }
+}
+#else
+private struct PlainDocumentEditor: View {
+    let text: String
+    let passage: EditorialPassage?
+    let onChange: (String) -> Void
+    var body: some View { TextEditor(text: Binding(get: { text }, set: onChange)) }
 }
 #endif
