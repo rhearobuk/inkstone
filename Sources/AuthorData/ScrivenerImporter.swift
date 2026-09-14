@@ -612,6 +612,20 @@ public final class ScrivenerImporter {
                 note.characterProfile = profile
             }
         }
+        if let body = card.unmappedText, !body.isEmpty {
+            let noteID = DeterministicID.make(namespace: profile.id, name: "note:importRemainder")
+            _ = try store.characterNotes.upsert(id: noteID) { note, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                note.title = "Imported Notes"
+                note.body = body
+                note.kind = "importRemainder"
+                note.source = ProvenanceAgent.sourceImport.rawValue
+                note.orderIndex = Int64(mappings.count)
+                if isNew { note.createdAt = profile.createdAt }
+                note.modifiedAt = profile.modifiedAt
+                note.characterProfile = profile
+            }
+        }
     }
 
     private func upsertCharacterMeasurements(
@@ -1017,6 +1031,7 @@ private struct CharacterCard {
     let weight: String?
     let sections: [String: String]
     let measurements: [Measurement]
+    let unmappedText: String?
 
     static func looksLikeCard(_ text: String) -> Bool {
         let normalized = clean(text)
@@ -1045,6 +1060,8 @@ private struct CharacterCard {
         }
 
         sections = values.mapValues { $0.joined(separator: "\n") }
+        let remainder = preamble.dropFirst(2).joined(separator: "\n")
+        unmappedText = remainder.isEmpty ? nil : remainder
         let rawName = sections["Character Name"] ?? preamble.first ?? fallbackName
         let nameParts = rawName.split(separator: "/")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
