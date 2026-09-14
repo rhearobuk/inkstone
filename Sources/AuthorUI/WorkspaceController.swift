@@ -73,6 +73,11 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum ScrivenerImportDestination: Equatable, Sendable {
+    case existing(UUID)
+    case newProject(title: String)
+}
+
 public struct BinderItem: Identifiable {
     public enum Kind {
         case projectDefinition
@@ -321,16 +326,44 @@ public final class WorkspaceController: ObservableObject {
     }
 
     @discardableResult
-    public func importScrivenerProject(from selectedURL: URL) throws -> ScrivenerImportResult {
+    public func importScrivenerProject(
+        from selectedURL: URL,
+        destination: ScrivenerImportDestination
+    ) throws -> ScrivenerImportResult {
         isImporting = true
         importSummary = nil
         defer { isImporting = false }
 
         let source = try scrivenerSource(from: selectedURL)
-        let result = try ScrivenerImporter(store: store).importProject(
-            xmlURL: source.xml,
-            filesURL: source.files
-        )
+        let targetProject: WritingProject
+        let createdProject: WritingProject?
+        switch destination {
+        case .existing(let projectID):
+            targetProject = try store.projects.require(id: projectID)
+            createdProject = nil
+        case .newProject(let title):
+            targetProject = try createProject(
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                createStarterContent: false
+            )
+            createdProject = targetProject
+        }
+
+        let result: ScrivenerImportResult
+        do {
+            result = try ScrivenerImporter(store: store).importProject(
+                xmlURL: source.xml,
+                filesURL: source.files,
+                targetProjectID: targetProject.id
+            )
+        } catch {
+            if let createdProject {
+                store.context.delete(createdProject)
+                try? store.save()
+                refresh()
+            }
+            throw error
+        }
         selectedProjectID = result.projectID
         selection = .projectDefinition(result.projectID)
         refresh()
@@ -342,7 +375,11 @@ public final class WorkspaceController: ObservableObject {
     }
 
     @discardableResult
-    public func createProject(title: String, author: String? = nil) throws -> WritingProject {
+    public func createProject(
+        title: String,
+        author: String? = nil,
+        createStarterContent: Bool = true
+    ) throws -> WritingProject {
         let now = Date()
         let projectID = UUID()
         let project = store.projects.create(id: projectID) {
@@ -352,6 +389,13 @@ public final class WorkspaceController: ObservableObject {
             $0.sourceFormat = "native"
             $0.createdAt = now
             $0.modifiedAt = now
+        }
+        guard createStarterContent else {
+            try store.save()
+            selectedProjectID = project.id
+            selection = .projectDefinition(project.id)
+            refresh()
+            return project
         }
         let narrative = store.documents.create {
             $0.sourceIdentifier = "native.narrative.\($0.id.uuidString)"
@@ -937,7 +981,7 @@ public final class WorkspaceController: ObservableObject {
         }
     }
 
-    private func scrivenerSource(from selectedURL: URL) throws -> (xml: URL, files: URL) {
+    func scrivenerSource(from selectedURL: URL) throws -> (xml: URL, files: URL) {
         var isDirectory: ObjCBool = false
         FileManager.default.fileExists(atPath: selectedURL.path, isDirectory: &isDirectory)
         let directory = isDirectory.boolValue
@@ -945,7 +989,8 @@ public final class WorkspaceController: ObservableObject {
             : selectedURL.deletingLastPathComponent()
         let filesURL = directory.appendingPathComponent("Files", isDirectory: true)
 
-        if !isDirectory.boolValue, selectedURL.pathExtension.lowercased() == "xml" {
+        if !isDirectory.boolValue,
+           ["xml", "scrivx"].contains(selectedURL.pathExtension.lowercased()) {
             return (selectedURL, filesURL)
         }
 
@@ -953,7 +998,7 @@ public final class WorkspaceController: ObservableObject {
             at: directory,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
-        ).filter { $0.pathExtension.lowercased() == "xml" }
+        ).filter { ["scrivx", "xml"].contains($0.pathExtension.lowercased()) }
 
         guard !xmlFiles.isEmpty else {
             throw WorkspaceError.noScrivenerProject(directory)

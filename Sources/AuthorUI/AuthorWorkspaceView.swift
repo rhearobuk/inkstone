@@ -21,12 +21,8 @@ public struct AuthorWorkspaceView: View {
             WorkspaceDetailView(controller: controller)
         }
         .navigationSplitViewStyle(.balanced)
-        .fileImporter(
-            isPresented: $showsImporter,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            importProject(result)
+        .sheet(isPresented: $showsImporter) {
+            ScrivenerImportView(controller: controller)
         }
         .alert("New Project", isPresented: $showsNewProject) {
             TextField("Project title", text: $newProjectTitle)
@@ -96,19 +92,6 @@ public struct AuthorWorkspaceView: View {
                     Label("New Project", systemImage: "plus")
                 }
             }
-        }
-    }
-
-    private func importProject(_ result: Result<[URL], Error>) {
-        do {
-            guard let url = try result.get().first else { return }
-            let hasAccess = url.startAccessingSecurityScopedResource()
-            defer {
-                if hasAccess { url.stopAccessingSecurityScopedResource() }
-            }
-            _ = try controller.importScrivenerProject(from: url)
-        } catch {
-            controller.report(error)
         }
     }
 

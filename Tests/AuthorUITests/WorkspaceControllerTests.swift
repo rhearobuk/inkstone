@@ -108,6 +108,25 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(controller.selection, .semanticEntity(place.id))
     }
 
+    func testResolvesScrivPackageAndScrivxSource() throws {
+        let controller = try makeController()
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).scriv", isDirectory: true)
+        let filesURL = packageURL.appendingPathComponent("Files", isDirectory: true)
+        let scrivxURL = packageURL.appendingPathComponent("Novel.scrivx")
+        try FileManager.default.createDirectory(at: filesURL, withIntermediateDirectories: true)
+        try Data("<ScrivenerProject/>".utf8).write(to: scrivxURL)
+        defer { try? FileManager.default.removeItem(at: packageURL) }
+
+        let packageSource = try controller.scrivenerSource(from: packageURL)
+        XCTAssertEqual(packageSource.xml.standardizedFileURL, scrivxURL.standardizedFileURL)
+        XCTAssertEqual(packageSource.files.standardizedFileURL, filesURL.standardizedFileURL)
+
+        let fileSource = try controller.scrivenerSource(from: scrivxURL)
+        XCTAssertEqual(fileSource.xml.standardizedFileURL, scrivxURL.standardizedFileURL)
+        XCTAssertEqual(fileSource.files.standardizedFileURL, filesURL.standardizedFileURL)
+    }
+
     func testSeparatesImportedStoryBibleRootsFromNarrative() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Imported")

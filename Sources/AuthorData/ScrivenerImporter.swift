@@ -60,7 +60,11 @@ public final class ScrivenerImporter {
         self.fileManager = fileManager
     }
 
-    public func importProject(xmlURL: URL, filesURL: URL) throws -> ScrivenerImportResult {
+    public func importProject(
+        xmlURL: URL,
+        filesURL: URL,
+        targetProjectID: UUID? = nil
+    ) throws -> ScrivenerImportResult {
         guard fileManager.fileExists(atPath: xmlURL.path) else {
             throw ScrivenerImportError.projectXMLNotFound(xmlURL)
         }
@@ -72,9 +76,21 @@ public final class ScrivenerImporter {
         let xmlData = try read(xmlURL)
         let parsed = try ScrivenerXMLReader.parse(data: xmlData, url: xmlURL)
         guard !parsed.identifier.isEmpty else { throw ScrivenerImportError.missingProjectIdentifier }
-        guard let projectID = UUID(uuidString: parsed.identifier) else {
+        guard let sourceProjectID = UUID(uuidString: parsed.identifier) else {
             throw ScrivenerImportError.invalidDocumentIdentifier(parsed.identifier)
         }
+        let projectID = targetProjectID ?? sourceProjectID
+        let targetIsOriginalSource = try targetProjectID.flatMap {
+            try store.projects.fetch(id: $0)
+        }.map {
+            $0.sourceFormat == "scrivener" && $0.sourceIdentifier == parsed.identifier
+        } ?? false
+        let usesTargetNamespace = targetProjectID != nil && !targetIsOriginalSource
+        let sourceNamespace = usesTargetNamespace
+            ? DeterministicID.make(namespace: projectID, name: "scrivener-source:\(parsed.identifier)")
+            : sourceProjectID
+        let sourcePrefix = usesTargetNamespace ? "scrivener.\(parsed.identifier)." : ""
+        let sourceDisplayName = xmlURL.deletingPathExtension().lastPathComponent
 
         let duplicateIDs = Dictionary(grouping: parsed.items, by: \.identifier).filter { $0.value.count > 1 }
         if let duplicate = duplicateIDs.keys.sorted().first {
@@ -102,24 +118,33 @@ public final class ScrivenerImporter {
         var warnings: [ImportWarning] = []
 
         do {
-            let project = try store.projects.upsert(id: projectID) { project, isNew in
-                if isNew { inserted += 1 } else { updated += 1 }
-                project.title = parsed.items.first(where: { $0.parentIdentifier == nil })?.title
-                    ?? xmlURL.deletingPathExtension().lastPathComponent
-                project.sourceIdentifier = parsed.identifier
-                project.sourceFormat = "scrivener"
-                project.sourceVersion = parsed.attributes["Version"]
-                project.creator = parsed.attributes["Creator"]
-                project.author = parsed.attributes["Author"]
-                project.device = parsed.attributes["Device"]
-                if isNew { project.createdAt = Date() }
+            let project: WritingProject
+            if targetProjectID != nil {
+                project = try store.projects.require(id: projectID)
                 project.modifiedAt = Date()
-                project.sourceModifiedAt = Self.parseDate(parsed.attributes["Modified"])
+            } else {
+                project = try store.projects.upsert(id: projectID) { project, isNew in
+                    if isNew { inserted += 1 } else { updated += 1 }
+                    project.title = parsed.items.first(where: { $0.parentIdentifier == nil })?.title
+                        ?? sourceDisplayName
+                    project.sourceIdentifier = parsed.identifier
+                    project.sourceFormat = "scrivener"
+                    project.sourceVersion = parsed.attributes["Version"]
+                    project.creator = parsed.attributes["Creator"]
+                    project.author = parsed.attributes["Author"]
+                    project.device = parsed.attributes["Device"]
+                    if isNew { project.createdAt = Date() }
+                    project.modifiedAt = Date()
+                    project.sourceModifiedAt = Self.parseDate(parsed.attributes["Modified"])
+                }
             }
             run.project = project
 
-            let projectDefinitionPath = "Project/\(xmlURL.lastPathComponent)"
-            let projectDefinitionID = DeterministicID.make(namespace: projectID, name: "resource:\(projectDefinitionPath)")
+            let projectDefinitionPath = "\(sourcePrefix)Project/\(xmlURL.lastPathComponent)"
+            let projectDefinitionID = DeterministicID.make(
+                namespace: sourceNamespace,
+                name: "resource:Project/\(xmlURL.lastPathComponent)"
+            )
             _ = try store.resources.upsert(id: projectDefinitionID) { resource, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
                 resource.sourcePath = projectDefinitionPath
@@ -135,10 +160,12 @@ public final class ScrivenerImporter {
 
             var documentsBySourceID: [String: Document] = [:]
             for item in parsed.items {
-                let id = UUID(uuidString: item.identifier)!
+                let id = usesTargetNamespace
+                    ? DeterministicID.make(namespace: sourceNamespace, name: "document:\(item.identifier)")
+                    : UUID(uuidString: item.identifier)!
                 let document = try store.documents.upsert(id: id) { document, isNew in
                     if isNew { inserted += 1 } else { updated += 1 }
-                    document.sourceIdentifier = item.identifier
+                    document.sourceIdentifier = "\(sourcePrefix)\(item.identifier)"
                     document.title = item.title
                     document.kind = item.kind
                     document.orderIndex = Int64(item.orderIndex)
@@ -147,9 +174,9 @@ public final class ScrivenerImporter {
                     document.includeInCompile = item.metadata["MetaData/IncludeInCompile"].map {
                         NSNumber(value: $0.caseInsensitiveCompare("yes") == .orderedSame)
                     }
-                    document.labelIdentifier = item.metadata["MetaData/LabelID"]
-                    document.statusIdentifier = item.metadata["MetaData/StatusID"]
-                    document.sectionTypeIdentifier = item.metadata["MetaData/SectionType"]
+                    document.labelIdentifier = item.metadata["MetaData/LabelID"].map { "\(sourcePrefix)\($0)" }
+                    document.statusIdentifier = item.metadata["MetaData/StatusID"].map { "\(sourcePrefix)\($0)" }
+                    document.sectionTypeIdentifier = item.metadata["MetaData/SectionType"].map { "\(sourcePrefix)\($0)" }
                     document.selectedChildIdentifier = item.metadata["CorkboardAndOutliner/SelectedSubdocumentUUIDs"]
                     let selection = Self.selection(item.metadata["TextSettings/TextSelection"])
                     document.selectionLocation = selection.map { NSNumber(value: $0.0) }
@@ -162,7 +189,16 @@ public final class ScrivenerImporter {
             for item in parsed.items {
                 let document = documentsBySourceID[item.identifier]!
                 document.parent = item.parentIdentifier.flatMap { documentsBySourceID[$0] }
-                try upsertMetadata(item.metadata, item: item, document: document, project: project, inserted: &inserted, updated: &updated)
+                try upsertMetadata(
+                    item.metadata,
+                    item: item,
+                    document: document,
+                    project: project,
+                    sourceNamespace: sourceNamespace,
+                    sourcePrefix: sourcePrefix,
+                    inserted: &inserted,
+                    updated: &updated
+                )
             }
 
             let sourceFiles = try recursivelyEnumeratedFiles(root: filesURL)
@@ -175,7 +211,7 @@ public final class ScrivenerImporter {
                     ? pathComponents[1]
                     : nil
                 let document = sourceDocumentID.flatMap { documentsBySourceID[$0] }
-                let resourceID = DeterministicID.make(namespace: projectID, name: "resource:\(relativePath)")
+                let resourceID = DeterministicID.make(namespace: sourceNamespace, name: "resource:\(relativePath)")
                 let role = Self.resourceRole(fileURL.lastPathComponent)
                 let mediaType = Self.mediaType(fileURL.pathExtension)
                 let textContent = Self.textContent(data: data, extension: fileURL.pathExtension)
@@ -183,7 +219,7 @@ public final class ScrivenerImporter {
 
                 let resource = try store.resources.upsert(id: resourceID) { resource, isNew in
                     if isNew { inserted += 1 } else { updated += 1 }
-                    resource.sourcePath = relativePath
+                    resource.sourcePath = "\(sourcePrefix)\(relativePath)"
                     resource.role = role
                     resource.mediaType = mediaType
                     resource.byteCount = Int64(data.count)
@@ -240,9 +276,11 @@ public final class ScrivenerImporter {
                         for (index, styleID) in styleIDs.enumerated() {
                             try upsertMetadata(
                                 ["StyleReference/\(index)": String(styleID)],
-                                item: parsed.items.first(where: { $0.identifier == document.sourceIdentifier })!,
+                                item: parsed.items.first(where: { $0.identifier == sourceDocumentID })!,
                                 document: document,
                                 project: project,
+                                sourceNamespace: sourceNamespace,
+                                sourcePrefix: sourcePrefix,
                                 inserted: &inserted,
                                 updated: &updated
                             )
@@ -257,25 +295,43 @@ public final class ScrivenerImporter {
                 }
             }
 
-            try importProjectSettings(parsed, project: project, inserted: &inserted, updated: &updated)
+            try importProjectSettings(
+                parsed,
+                project: project,
+                sourceNamespace: sourceNamespace,
+                sourcePrefix: sourcePrefix,
+                inserted: &inserted,
+                updated: &updated
+            )
             try importCharacterDossiers(
                 items: parsed.items,
                 documents: documentsBySourceID,
                 project: project,
+                sourceNamespace: sourceNamespace,
+                sourceDisplayName: sourceDisplayName,
+                warnings: &warnings,
                 inserted: &inserted,
                 updated: &updated
             )
-            try importStyles(filesURL: filesURL, project: project, inserted: &inserted, updated: &updated, warnings: &warnings)
+            try importStyles(
+                filesURL: filesURL,
+                project: project,
+                sourceNamespace: sourceNamespace,
+                sourcePrefix: sourcePrefix,
+                inserted: &inserted,
+                updated: &updated,
+                warnings: &warnings
+            )
             let linkCount = try importLinks(
                 items: parsed.items,
                 documents: documentsBySourceID,
-                projectID: projectID,
+                projectID: sourceNamespace,
                 warnings: &warnings,
                 inserted: &inserted,
                 updated: &updated
             )
 
-            let provenanceID = DeterministicID.make(namespace: projectID, name: "import:\(fingerprint)")
+            let provenanceID = DeterministicID.make(namespace: sourceNamespace, name: "import:\(fingerprint)")
             _ = try store.provenanceEvents.upsert(id: provenanceID) { event, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
                 event.eventType = "sourceImport"
@@ -289,7 +345,11 @@ public final class ScrivenerImporter {
                 event.project = project
             }
 
-            let validationErrors = try validate(project: project, expectedItems: parsed.items.count)
+            let validationErrors = validate(
+                project: project,
+                importedDocuments: Array(documentsBySourceID.values),
+                expectedItems: parsed.items.count
+            )
             if !validationErrors.isEmpty {
                 throw ScrivenerImportError.validationFailed(validationErrors)
             }
@@ -337,14 +397,16 @@ public final class ScrivenerImporter {
     private func importProjectSettings(
         _ parsed: ParsedScrivenerProject,
         project: WritingProject,
+        sourceNamespace: UUID,
+        sourcePrefix: String,
         inserted: inout Int,
         updated: inout Int
     ) throws {
         for (index, sectionType) in parsed.sectionTypes.enumerated() {
-            let id = DeterministicID.make(namespace: project.id, name: "section-type:\(sectionType.id)")
+            let id = DeterministicID.make(namespace: sourceNamespace, name: "section-type:\(sectionType.id)")
             _ = try store.sectionTypeDefinitions.upsert(id: id) { definition, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
-                definition.sourceIdentifier = sectionType.id
+                definition.sourceIdentifier = "\(sourcePrefix)\(sectionType.id)"
                 definition.title = sectionType.title
                 definition.orderIndex = Int64(index)
                 definition.project = project
@@ -352,11 +414,11 @@ public final class ScrivenerImporter {
         }
 
         for (index, label) in parsed.labels.enumerated() {
-            let id = DeterministicID.make(namespace: project.id, name: "label:\(label.id)")
+            let id = DeterministicID.make(namespace: sourceNamespace, name: "label:\(label.id)")
             let components = Self.colorComponents(label.color)
             _ = try store.labelDefinitions.upsert(id: id) { definition, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
-                definition.sourceIdentifier = label.id
+                definition.sourceIdentifier = "\(sourcePrefix)\(label.id)"
                 definition.title = label.title
                 definition.colorRed = components.map { NSNumber(value: $0.0) }
                 definition.colorGreen = components.map { NSNumber(value: $0.1) }
@@ -368,10 +430,10 @@ public final class ScrivenerImporter {
         }
 
         for (index, status) in parsed.statuses.enumerated() {
-            let id = DeterministicID.make(namespace: project.id, name: "status:\(status.id)")
+            let id = DeterministicID.make(namespace: sourceNamespace, name: "status:\(status.id)")
             _ = try store.statusDefinitions.upsert(id: id) { definition, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
-                definition.sourceIdentifier = status.id
+                definition.sourceIdentifier = "\(sourcePrefix)\(status.id)"
                 definition.title = status.title
                 definition.isDefault = status.id == parsed.defaultStatusID
                 definition.orderIndex = Int64(index)
@@ -380,14 +442,15 @@ public final class ScrivenerImporter {
         }
 
         for (index, field) in parsed.customFields.enumerated() {
-            let key = "scrivener.MetaData.Custom.\(field.id)"
-            let fieldID = DeterministicID.make(namespace: project.id, name: "metadata-field:\(key)")
+            let metadataPrefix = sourcePrefix.isEmpty ? "scrivener." : sourcePrefix
+            let key = "\(metadataPrefix)MetaData.Custom.\(field.id)"
+            let fieldID = DeterministicID.make(namespace: sourceNamespace, name: "metadata-field:\(key)")
             _ = try store.metadataFields.upsert(id: fieldID) { metadataField, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
                 metadataField.key = key
                 metadataField.displayName = field.title
                 metadataField.valueType = field.type.lowercased()
-                metadataField.sourceIdentifier = field.id
+                metadataField.sourceIdentifier = "\(sourcePrefix)\(field.id)"
                 metadataField.isSourceDefined = true
                 metadataField.orderIndex = Int64(index)
                 metadataField.project = project
@@ -407,6 +470,8 @@ public final class ScrivenerImporter {
         item: BinderItemRecord,
         document: Document,
         project: WritingProject,
+        sourceNamespace: UUID,
+        sourcePrefix: String,
         inserted: inout Int,
         updated: inout Int
     ) throws {
@@ -416,8 +481,9 @@ public final class ScrivenerImporter {
             "CorkboardAndOutliner/SelectedSubdocumentUUIDs"
         ])
         for (key, value) in metadata where !excluded.contains(key) && !value.isEmpty {
-            let normalizedKey = "scrivener.\(key.replacingOccurrences(of: "/", with: "."))"
-            let fieldID = DeterministicID.make(namespace: project.id, name: "metadata-field:\(normalizedKey)")
+            let metadataPrefix = sourcePrefix.isEmpty ? "scrivener." : sourcePrefix
+            let normalizedKey = "\(metadataPrefix)\(key.replacingOccurrences(of: "/", with: "."))"
+            let fieldID = DeterministicID.make(namespace: sourceNamespace, name: "metadata-field:\(normalizedKey)")
             let field = try store.metadataFields.upsert(id: fieldID) { field, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
                 field.key = normalizedKey
@@ -492,6 +558,9 @@ public final class ScrivenerImporter {
         items: [BinderItemRecord],
         documents: [String: Document],
         project: WritingProject,
+        sourceNamespace: UUID,
+        sourceDisplayName: String,
+        warnings: inout [ImportWarning],
         inserted: inout Int,
         updated: inout Int
     ) throws {
@@ -520,18 +589,33 @@ public final class ScrivenerImporter {
             }
             let card = CharacterCard(text: sourceText, fallbackName: item.title)
             let entityID = DeterministicID.make(
-                namespace: project.id,
+                namespace: sourceNamespace,
                 name: "character-entity:\(item.identifier)"
             )
             let profileID = DeterministicID.make(
-                namespace: project.id,
+                namespace: sourceNamespace,
                 name: "character-profile:\(item.identifier)"
             )
             let shouldMapSource = try store.characterProfiles.fetch(id: profileID) == nil
+            let importedName = shouldMapSource
+                ? uniqueImportedName(
+                    card.fullName,
+                    sourceName: sourceDisplayName,
+                    excluding: entityID,
+                    in: project
+                )
+                : card.fullName
+            if shouldMapSource && importedName != card.fullName {
+                warnings.append(.init(
+                    code: "renamed-story-identity",
+                    message: "Renamed \(card.fullName) to \(importedName) to avoid a Story Bible conflict.",
+                    sourceIdentifier: item.identifier
+                ))
+            }
             let entity = try store.semanticEntities.upsert(id: entityID) { entity, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
                 if shouldMapSource {
-                    entity.canonicalName = card.fullName
+                    entity.canonicalName = importedName
                     entity.kind = SemanticEntityKind.character.rawValue
                     entity.summary = card.sections["Role in Story"]
                     entity.source = ProvenanceAgent.sourceImport.rawValue
@@ -791,9 +875,36 @@ public final class ScrivenerImporter {
             .lowercased()
     }
 
+    private func uniqueImportedName(
+        _ requestedName: String,
+        sourceName: String,
+        excluding entityID: UUID,
+        in project: WritingProject
+    ) -> String {
+        let existingNames = Set(project.semanticEntities.compactMap { entity in
+            entity.id == entityID ? nil : Self.normalizedName(entity.canonicalName)
+        })
+        guard existingNames.contains(Self.normalizedName(requestedName)) else {
+            return requestedName
+        }
+
+        let sourceSuffix = sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = "\(requestedName) (\(sourceSuffix.isEmpty ? "Imported" : sourceSuffix))"
+        if !existingNames.contains(Self.normalizedName(base)) {
+            return base
+        }
+        var index = 2
+        while existingNames.contains(Self.normalizedName("\(base) \(index)")) {
+            index += 1
+        }
+        return "\(base) \(index)"
+    }
+
     private func importStyles(
         filesURL: URL,
         project: WritingProject,
+        sourceNamespace: UUID,
+        sourcePrefix: String,
         inserted: inout Int,
         updated: inout Int,
         warnings: inout [ImportWarning]
@@ -805,13 +916,16 @@ public final class ScrivenerImporter {
         }
         let styles = try StyleXMLReader.parse(data: read(stylesURL), url: stylesURL)
         for style in styles {
-            guard let sourceID = UUID(uuidString: style.identifier) else {
+            guard UUID(uuidString: style.identifier) != nil else {
                 warnings.append(.init(code: "invalid-style-id", message: "Invalid style UUID \(style.identifier).", sourceIdentifier: style.identifier))
                 continue
             }
-            _ = try store.styles.upsert(id: sourceID) { object, isNew in
+            let styleID = sourcePrefix.isEmpty
+                ? UUID(uuidString: style.identifier)!
+                : DeterministicID.make(namespace: sourceNamespace, name: "style:\(style.identifier)")
+            _ = try store.styles.upsert(id: styleID) { object, isNew in
                 if isNew { inserted += 1 } else { updated += 1 }
-                object.sourceIdentifier = style.identifier
+                object.sourceIdentifier = "\(sourcePrefix)\(style.identifier)"
                 object.name = style.name
                 object.kind = style.kind
                 object.fontChange = style.fontChange
@@ -822,14 +936,18 @@ public final class ScrivenerImporter {
         }
     }
 
-    private func validate(project: WritingProject, expectedItems: Int) throws -> [String] {
+    private func validate(
+        project: WritingProject,
+        importedDocuments: [Document],
+        expectedItems: Int
+    ) -> [String] {
         var errors: [String] = []
-        if project.documents.count != expectedItems {
-            errors.append("expected \(expectedItems) documents, found \(project.documents.count)")
+        if importedDocuments.count != expectedItems {
+            errors.append("expected \(expectedItems) imported documents, found \(importedDocuments.count)")
         }
-        let roots = project.documents.filter { $0.parent == nil }
+        let roots = importedDocuments.filter { $0.parent == nil }
         if roots.isEmpty { errors.append("project has no root documents") }
-        for document in project.documents {
+        for document in importedDocuments {
             if document.project != project { errors.append("\(document.sourceIdentifier) has wrong project") }
             if document.parent === document { errors.append("\(document.sourceIdentifier) is its own parent") }
         }

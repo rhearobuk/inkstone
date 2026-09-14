@@ -140,6 +140,44 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertEqual(second.projectID, first.projectID)
         XCTAssertGreaterThan(second.updatedCount, 0)
         XCTAssertEqual(try store.importRuns.count(), 2)
+
+        let targetID = UUID()
+        let target = store.projects.create(id: targetID) {
+            $0.title = "Shared Universe"
+            $0.sourceIdentifier = "native.project.\(targetID)"
+            $0.sourceFormat = "native"
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+        }
+        let existingAidan = store.semanticEntities.create {
+            $0.canonicalName = "Aidan Dylan Spalding"
+            $0.kind = SemanticEntityKind.character.rawValue
+            $0.source = ProvenanceAgent.human.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = target
+        }
+        try store.save()
+
+        let merged = try importer.importProject(
+            xmlURL: xmlURL,
+            filesURL: filesURL,
+            targetProjectID: targetID
+        )
+
+        XCTAssertEqual(merged.projectID, targetID)
+        XCTAssertEqual(target.title, "Shared Universe")
+        XCTAssertEqual(target.sourceFormat, "native")
+        XCTAssertEqual(target.documents.count, 284)
+        XCTAssertTrue(target.documents.allSatisfy {
+            $0.sourceIdentifier.hasPrefix("scrivener.935D19E3-65EB-4002-8F1E-95BB314D0B47.")
+        })
+        let renamedAidan = try XCTUnwrap(target.characterProfiles.first {
+            $0.sourceDocument?.sourceIdentifier.hasSuffix("92261C90-C85C-4E52-B2CF-553F92DA7467") == true
+        })
+        XCTAssertNotEqual(renamedAidan.semanticEntity.id, existingAidan.id)
+        XCTAssertTrue(renamedAidan.semanticEntity.canonicalName.hasPrefix("Aidan Dylan Spalding ("))
+        XCTAssertTrue(merged.warnings.contains { $0.code == "renamed-story-identity" })
     }
 
     func testTypedCRUDForEveryEntity() throws {

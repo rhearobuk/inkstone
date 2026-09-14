@@ -82,7 +82,10 @@ Use `AuthorDataStore(inMemory: true)` for previews and tests. All mutations occu
 
 ## Import guarantees
 
-- Scrivener project and binder UUIDs are retained as `WritingProject.id` and `Document.id`.
+- The app accepts a `.scriv` package, its `.scrivx` project file, or the legacy exported XML-plus-`Files` folder layout. Imports can create a native app project or target an existing one.
+- Records imported into an existing project are namespaced by the Scrivener project UUID. Re-importing the same source updates its records, while separate Scrivener projects cannot overwrite one another.
+- When an imported Story Bible identity has the same name as an existing identity, the imported copy is retained and renamed with its Scrivener project name rather than silently merged.
+- A standalone legacy import retains Scrivener project and binder UUIDs directly. Imports into native target projects preserve those UUIDs as source identifiers and derive collision-safe app UUIDs.
 - Derived IDs use a namespaced SHA-256 UUID algorithm based on stable source paths and identifiers.
 - Repeating an import updates matching projects, documents, resources, styles, metadata, links, revisions, and provenance rather than duplicating them. Each attempt receives a separate `ImportRun`.
 - Binder XML order is stored as `orderIndex`; use `Document.orderedChildren`.
