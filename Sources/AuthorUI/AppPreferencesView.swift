@@ -1,3 +1,4 @@
+import AuthorAI
 import SwiftUI
 #if canImport(AppKit)
 import AppKit
@@ -62,6 +63,10 @@ private struct AIProvidersPane: View {
 
     var body: some View {
         Form {
+            if let error = settings.credentialError {
+                Text(error)
+                    .foregroundStyle(.red)
+            }
             Section {
                 Picker("Preferred Provider", selection: $settings.selectedProvider) {
                     ForEach(AIProvider.allCases) { provider in
@@ -112,7 +117,7 @@ private struct AppleIntelligenceRow: View {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(AIProvider.appleIntelligence.displayName)
-                    Text(AIProvider.appleIntelligence.summary)
+                    Text(AppleIntelligenceReviewClient.unavailableReason ?? "On-device model is ready.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

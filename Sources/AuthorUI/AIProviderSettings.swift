@@ -101,9 +101,9 @@ public final class AIKeychainStore: @unchecked Sendable {
         return String(data: data, encoding: .utf8)
     }
 
-    public func setAPIKey(_ key: String?, for provider: AIProvider) {
+    public func setAPIKey(_ key: String?, for provider: AIProvider) throws {
         guard let key, !key.isEmpty else {
-            deleteAPIKey(for: provider)
+            try deleteAPIKey(for: provider)
             return
         }
         let data = Data(key.utf8)
@@ -111,17 +111,30 @@ public final class AIKeychainStore: @unchecked Sendable {
 
         if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
             let attributes: [String: Any] = [kSecValueData as String: data]
-            SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            try check(SecItemUpdate(query as CFDictionary, attributes as CFDictionary))
         } else {
             query[kSecValueData as String] = data
             query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            SecItemAdd(query as CFDictionary, nil)
+            try check(SecItemAdd(query as CFDictionary, nil))
         }
     }
 
-    public func deleteAPIKey(for provider: AIProvider) {
+    public func deleteAPIKey(for provider: AIProvider) throws {
         let query = baseQuery(for: provider)
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecItemNotFound {
+            try check(status)
+        }
+    }
+
+    private func check(_ status: OSStatus) throws {
+        guard status == errSecSuccess else {
+            throw NSError(
+                domain: NSOSStatusErrorDomain,
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Could not save the API key to Keychain (status \(status))."]
+            )
+        }
     }
 
     private func baseQuery(for provider: AIProvider) -> [String: Any] {
@@ -138,6 +151,7 @@ public final class AIKeychainStore: @unchecked Sendable {
 /// this store rather than accessing the Keychain directly.
 @MainActor
 public final class AISettingsStore: ObservableObject {
+    @Published public private(set) var credentialError: String?
     @Published public var selectedProvider: AIProvider {
         didSet { defaults.set(selectedProvider.rawValue, forKey: Keys.selectedProvider) }
     }
@@ -190,12 +204,17 @@ public final class AISettingsStore: ObservableObject {
 
     public func setAPIKey(_ value: String, for provider: AIProvider) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            apiKeys.removeValue(forKey: provider)
-        } else {
-            apiKeys[provider] = trimmed
+        do {
+            try keychain.setAPIKey(trimmed, for: provider)
+            if trimmed.isEmpty {
+                apiKeys.removeValue(forKey: provider)
+            } else {
+                apiKeys[provider] = trimmed
+            }
+            credentialError = nil
+        } catch {
+            credentialError = error.localizedDescription
         }
-        keychain.setAPIKey(trimmed, for: provider)
     }
 
     /// Whether the app is currently configured to make AI feature calls: either Apple

@@ -180,6 +180,8 @@ public enum WorkspaceError: LocalizedError {
 @MainActor
 public final class WorkspaceController: ObservableObject {
     public let store: AuthorDataStore
+    public let editorialReviews: EditorialReviewController
+    @Published public var editorialPassage: EditorialPassage?
     private let projectListPreferences: UserDefaults
     private var pendingCharacterSave: Task<Void, Never>?
     private var labelLookup: [String: LabelDefinition] = [:]
@@ -207,6 +209,7 @@ public final class WorkspaceController: ObservableObject {
 
     public init(store: AuthorDataStore, projectListPreferences: UserDefaults = .standard) {
         self.store = store
+        self.editorialReviews = EditorialReviewController(store: store)
         self.projectListPreferences = projectListPreferences
         refresh()
     }

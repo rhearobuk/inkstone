@@ -12,6 +12,7 @@ let package = Package(
     ],
     products: [
         .library(name: "AuthorData", targets: ["AuthorData"]),
+        .library(name: "AuthorAI", targets: ["AuthorAI"]),
         .library(name: "AuthorUI", targets: ["AuthorUI"]),
         .executable(name: "AuthorAppPrototype", targets: ["AuthorAppPrototype"])
     ],
@@ -25,9 +26,11 @@ let package = Package(
                 .copy("Resources/AuthorData.momd")
             ]
         ),
+        .target(name: "AuthorAI"),
+        .testTarget(name: "AuthorAITests", dependencies: ["AuthorAI"]),
         .target(
             name: "AuthorUI",
-            dependencies: ["AuthorData"]
+            dependencies: ["AuthorData", "AuthorAI"]
         ),
         .executableTarget(
             name: "AuthorAppPrototype",

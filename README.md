@@ -96,3 +96,16 @@ Use `AuthorDataStore(inMemory: true)` for previews and tests. All mutations occu
 - Broken references and orphan resources are reported as structured warnings. Duplicate/invalid identities, malformed XML, unsafe paths, and validation failures throw explicit errors.
 
 Run the data and UI behavior suites with `swift test`.
+
+
+## AI Editor
+
+Open **AI Editor** in the workspace toolbar. Choose a persona, review scope and explicit manuscript target. On Mac, the editor stays beside the manuscript. The reply appears as a message, with review controls at the bottom; Change opens review options, and the clock button opens history. Narrow mobile layouts use a sheet. Scene/document review examines one document; chapter and novel reviews traverse the chosen root and descendants in binder order. Compile-excluded text can be included explicitly. An optional short Story Bible summary supplies reference context.
+
+Apple Intelligence is the default provider when no other provider preference exists. On-device inference requires a supported Apple Intelligence device and macOS/iOS/visionOS 26 or later, with the model enabled and ready. Older platforms retain the rest of the app and show availability guidance. OpenAI is an explicit alternative using a user-supplied Keychain credential; its Responses/structured-output models can be selected in the panel. Other provider settings remain available, but their editorial adapters are not implemented. No automatic cloud fallback occurs.
+
+Results are critique and recommendations, with evidence and user-controlled addressed/dismissed status and notes. They do not rewrite or apply changes to the manuscript. History stores snapshots and warns when the current text differs. Model feedback can be mistaken. Mature fiction is submitted as literary material; providers may still refuse it, in which case refusals and incomplete coverage remain visible.
+
+The V5 Core Data model migrates existing stores. Review snapshots remain local and consume storage until the review/project is deleted. OpenAI requests use `store: false`; this is not a promise of zero provider retention. Reported token usage is shown when available, and API calls may incur charges.
+
+For a safe manual preview, run a debug build with `--editor-preview`. This opens a synthetic in-memory project instead of the saved project database. Standard validation: `swift test`. Optional runtime tests: `AUTHOR_APPLE_SMOKE=1 swift test --filter EditorialReviewTests/testAppleRuntimeSmokeWhenExplicitlyEnabled`; optional mature-theme checks use `AUTHOR_APPLE_MATURE_SMOKE=1`. These use synthetic material only and require an available local model. The UI rendering check uses `AUTHOR_RENDER_EDITOR=1 swift test --filter EditorPanelRenderTests`.

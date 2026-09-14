@@ -22,6 +22,12 @@ public final class AuthorDataStore {
     public let container: NSPersistentContainer
     public var context: NSManagedObjectContext { container.viewContext }
 
+    public let editorPersonas: EntityRepository<EditorPersona>
+    public let editorialReviews: EntityRepository<EditorialReview>
+    public let editorialInputs: EntityRepository<EditorialReviewInput>
+    public let editorialFindings: EntityRepository<EditorialFinding>
+    public let editorialAnchors: EntityRepository<EditorialFindingAnchor>
+    public let editorialChunks: EntityRepository<EditorialReviewChunk>
     public let projects: EntityRepository<WritingProject>
     public let documents: EntityRepository<Document>
     public let resources: EntityRepository<ContentResource>
@@ -76,6 +82,12 @@ public final class AuthorDataStore {
         container.viewContext.mergePolicy = NSMergePolicy(merge: .mergeByPropertyObjectTrumpMergePolicyType)
         container.viewContext.automaticallyMergesChangesFromParent = true
 
+        editorPersonas = EntityRepository(context: container.viewContext)
+        editorialReviews = EntityRepository(context: container.viewContext)
+        editorialInputs = EntityRepository(context: container.viewContext)
+        editorialFindings = EntityRepository(context: container.viewContext)
+        editorialAnchors = EntityRepository(context: container.viewContext)
+        editorialChunks = EntityRepository(context: container.viewContext)
         projects = EntityRepository(context: container.viewContext)
         documents = EntityRepository(context: container.viewContext)
         resources = EntityRepository(context: container.viewContext)
