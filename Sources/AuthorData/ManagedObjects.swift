@@ -60,6 +60,15 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     @NSManaged public var selectedChildIdentifier: String?
     @NSManaged public var plainText: String?
     @NSManaged public var synopsis: String?
+    /// One of `NarrativeType`'s raw values ("book", "section", "chapter", "scene"), or nil for
+    /// documents that aren't part of the narrative structure (e.g. research folders).
+    @NSManaged public var narrativeType: String?
+    /// Word count of this document's own `plainText`, excluding descendants.
+    @NSManaged public var ownWordCount: Int64
+    /// Cached rollup of `ownWordCount` across this document and all of its descendants. Kept up
+    /// to date incrementally by `WordCountService` whenever text changes or the tree is
+    /// restructured, so it never needs a full-tree recalculation.
+    @NSManaged public var actualWordCount: Int64
     @NSManaged public var project: WritingProject
     @NSManaged public var parent: Document?
     @NSManaged public var children: Set<Document>
@@ -75,6 +84,32 @@ public final class Document: NSManagedObject, AuthorManagedObject {
 
     public var orderedChildren: [Document] {
         children.filter { !$0.isDeleted }.sorted { ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString) }
+    }
+
+    /// The ancestor chain from immediate parent up to the root, nearest first.
+    public var ancestors: [Document] {
+        var result: [Document] = []
+        var current = parent
+        while let doc = current {
+            result.append(doc)
+            current = doc.parent
+        }
+        return result
+    }
+
+    /// Whether this document (or any ancestor) has been marked as excluded from publication.
+    /// `includeInCompile == false` is the storage backing for the "Do Not Publish" checkbox; a
+    /// child inherits its ancestors' setting without overwriting its own stored value.
+    public var isPublishingExcluded: Bool {
+        if includeInCompile?.boolValue == false { return true }
+        return ancestors.contains { $0.includeInCompile?.boolValue == false }
+    }
+
+    /// The nearest ancestor marked "Do Not Publish", if this document's exclusion is inherited
+    /// rather than set directly on it.
+    public var inheritedPublishingExclusionSource: Document? {
+        if includeInCompile?.boolValue == false { return nil }
+        return ancestors.first { $0.includeInCompile?.boolValue == false }
     }
 }
 
@@ -381,6 +416,21 @@ public enum DocumentKind: String, CaseIterable, Sendable {
     case pdf = "PDF"
     case webArchive = "WebArchive"
     case unknown
+}
+
+/// Classifies a Document's structural role within the narrative (Book/Section/Chapter/Scene).
+/// Folders may be marked Book, Section, or Chapter; text documents are always Scene.
+public enum NarrativeType: String, CaseIterable, Sendable {
+    case book, section, chapter, scene
+
+    public var displayName: String {
+        switch self {
+        case .book: "Book"
+        case .section: "Section"
+        case .chapter: "Chapter"
+        case .scene: "Scene"
+        }
+    }
 }
 
 public enum SemanticEntityKind: String, CaseIterable, Sendable {
