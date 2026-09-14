@@ -97,7 +97,7 @@ Run the data and UI behavior suites with `swift test`.
 
 ## AI Editor
 
-Open **AI Editor** in the workspace toolbar. Choose a persona, review scope and explicit manuscript target. The panel becomes a sheet when the document area is narrow. Scene/document review examines one document; chapter and novel reviews traverse the chosen root and descendants in binder order. Compile-excluded text can be included explicitly. An optional short Story Bible summary supplies reference context.
+Open **AI Editor** in the workspace toolbar. Choose a persona, review scope and explicit manuscript target. On Mac, the editor stays beside the manuscript. The reply appears as a message, with review controls at the bottom; Change opens review options, and the clock button opens history. Narrow mobile layouts use a sheet. Scene/document review examines one document; chapter and novel reviews traverse the chosen root and descendants in binder order. Compile-excluded text can be included explicitly. An optional short Story Bible summary supplies reference context.
 
 Apple Intelligence is the default provider when no other provider preference exists. On-device inference requires a supported Apple Intelligence device and macOS/iOS/visionOS 26 or later, with the model enabled and ready. Older platforms retain the rest of the app and show availability guidance. OpenAI is an explicit alternative using a user-supplied Keychain credential; its Responses/structured-output models can be selected in the panel. Other provider settings remain available, but their editorial adapters are not implemented. No automatic cloud fallback occurs.
 

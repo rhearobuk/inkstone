@@ -10,6 +10,7 @@ public struct AuthorWorkspaceView: View {
     #else
     @State private var showsEditor = false
     #endif
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showsNewProject = false
     @State private var showsImporter = false
     @State private var showsPreferences = false
@@ -17,12 +18,19 @@ public struct AuthorWorkspaceView: View {
     @State private var newProjectTitle = ""
     @State private var projectToDelete: UUID?
 
-    public init(controller: WorkspaceController) {
+    public init(controller: WorkspaceController, editorInitiallyVisible: Bool = false) {
         self.controller = controller
+        #if DEBUG
+        let editorVisible = editorInitiallyVisible || ProcessInfo.processInfo.arguments.contains("--editor-preview")
+        #else
+        let editorVisible = editorInitiallyVisible
+        #endif
+        _showsEditor = State(initialValue: editorVisible)
+        _columnVisibility = State(initialValue: editorVisible ? .detailOnly : .all)
     }
 
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             projectList
         } content: {
             binder
@@ -31,13 +39,13 @@ public struct AuthorWorkspaceView: View {
                 HStack(spacing: 0) {
                     WorkspaceDetailView(controller: controller)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if showsEditor && geometry.size.width >= 740 {
+                    if showsEditor && editorIsInline(width: geometry.size.width) {
                         Divider()
                         EditorPanelView(workspace: controller, editor: controller.editorialReviews, settings: aiSettings)
-                            .frame(width: 360)
+                            .frame(width: min(420, max(350, geometry.size.width * 0.43)))
                     }
                 }
-                .sheet(isPresented: Binding(get: { showsEditor && geometry.size.width < 740 }, set: { if !$0 { showsEditor = false } })) {
+                .sheet(isPresented: Binding(get: { showsEditor && !editorIsInline(width: geometry.size.width) }, set: { if !$0 { showsEditor = false } })) {
                     VStack {
                         HStack { Spacer(); Button("Done") { showsEditor = false } }.padding()
                         EditorPanelView(workspace: controller, editor: controller.editorialReviews, settings: aiSettings)
@@ -50,6 +58,10 @@ public struct AuthorWorkspaceView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .onAppear { if showsEditor { columnVisibility = .detailOnly } }
+        .onChange(of: showsEditor) { visible in
+            withAnimation(.easeInOut(duration: 0.2)) { columnVisibility = visible ? .detailOnly : .all }
+        }
         .sheet(isPresented: $showsPreferences) {
             ProjectPreferencesView(controller: controller)
         }
@@ -117,6 +129,14 @@ public struct AuthorWorkspaceView: View {
                     .padding()
             }
         }
+    }
+
+    private func editorIsInline(width: CGFloat) -> Bool {
+        #if os(macOS)
+        true
+        #else
+        width >= 640
+        #endif
     }
 
     private var projectList: some View {

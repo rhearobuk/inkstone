@@ -9,82 +9,174 @@ public struct EditorialPassage: Equatable {
     public let token: UUID
 }
 
+/// A review reads as a received message. Setup and diagnostics live outside the reading flow.
 struct ReviewDetailView: View {
     @ObservedObject var review: EditorialReview
     @ObservedObject var editor: EditorialReviewController
     @ObservedObject var workspace: WorkspaceController
     let rerun: () -> Void
-    @State private var severity = "all"
-    @State private var category = "all"
     @State private var status = "all"
+    @State private var showingDetails = false
     @State private var confirmDelete = false
+
+    private var active: Bool { ["queued", "running"].contains(review.status) }
     private var stale: Bool {
         review.inputs.contains { input in
             if let document = input.document { return ReviewInputSnapshot.hash(document.plainText ?? "") != input.contentHash }
             return input.role == "manuscript"
         }
     }
+    private var findings: [EditorialFinding] {
+        review.findings.filter { status == "all" || $0.status == status }
+            .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+    }
+    private var summary: String {
+        if !review.summary.isEmpty { return review.summary }
+        if active { return "I’m reading your manuscript. My notes will appear here as I go." }
+        if review.status == "refused" { return "I wasn’t able to review this passage with the selected AI. You can choose another model in Review options and try again." }
+        if review.status == "cancelled" { return "This review was stopped. Any notes I’d already gathered are saved below." }
+        if review.status == "interrupted" { return "This review was interrupted. Your saved notes are below, and you can ask for a fresh review whenever you’re ready." }
+        if !review.findings.isEmpty { return "Here are the notes I was able to gather. I couldn’t finish the whole review." }
+        return "I couldn’t complete this review. Your manuscript hasn’t changed. Check the review details or try again."
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(review.targetTitle).font(.headline)
-            Text("Model feedback may be mistaken. Check the cited passage before acting on a recommendation.").font(.caption).foregroundStyle(.secondary)
-            Text("\(review.status.capitalized) · \(review.createdAt.formatted())").font(.caption)
-            let chunks = review.chunks.filter { $0.stage == "analysis" }
-            Text("\(chunks.filter { $0.status == "completed" }.count) / \(chunks.count) manuscript sections reviewed").font(.caption)
-            if stale { Text("Manuscript changed or deleted since review. Evidence below refers to the saved snapshot.").foregroundStyle(.orange).font(.caption) }
-            if let error = review.errorMessage { Text(error).foregroundStyle(.orange).font(.caption) }
-            Text(review.summary.isEmpty ? "No final synthesis available. Section results are retained below." : review.summary).textSelection(.enabled)
-            DisclosureGroup("Review configuration") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(review.personaName), version \(review.personaVersion)")
-                    Text("\(review.providerID) / \(review.modelID)")
-                    Text("Scope: \(review.scope)")
-                    Text(review.personaInstructions)
-                    Text(review.parameters)
-                    if let input = review.inputTokens, let output = review.outputTokens { Text("Reported usage: \(input) input / \(output) output tokens") }
-                    Text(review.environment)
-                    if let previous = review.previousReviewID { Text("Previous review: \(previous.uuidString)") }
-                }.font(.caption).textSelection(.enabled)
-            }
-            DisclosureGroup("Saved inputs and section results") {
-                ForEach(review.inputs.sorted { $0.orderIndex < $1.orderIndex }, id: \.id) { input in
-                    DisclosureGroup(input.path) { Text(input.plainText).font(.caption).textSelection(.enabled) }
+        VStack(alignment: .leading, spacing: 22) {
+            HStack {
+                Spacer(minLength: 35)
+                VStack(alignment: .trailing, spacing: 7) {
+                    Text("Please review “\(review.targetTitle)”.")
+                        .font(.system(size: 14)).lineSpacing(3)
+                        .padding(.horizontal, 16).padding(.vertical, 13)
+                        .background(EditorStyle.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 17))
+                    Text(review.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                ForEach(review.chunks.sorted { $0.orderIndex < $1.orderIndex }, id: \.id) { chunk in
-                    DisclosureGroup("\(chunk.stage.capitalized) \(chunk.orderIndex + 1): \(chunk.status)") {
-                        Text(chunk.summary).font(.caption).textSelection(.enabled)
-                        if let error = chunk.errorMessage { Text(error).font(.caption).foregroundStyle(.orange) }
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    EditorAvatar()
+                    Text(EditorStyle.personaName(review.personaName))
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    Menu {
+                        Button("About this review") { showingDetails = true }
+                        Button("Ask for a fresh review", action: rerun).disabled(editor.isRunning || review.target == nil)
+                        Divider()
+                        Button("Delete review", role: .destructive) { confirmDelete = true }.disabled(editor.isRunning)
+                    } label: {
+                        Image(systemName: "ellipsis").frame(width: 25, height: 25)
+                    }.editorMenuStyle().fixedSize().foregroundStyle(.secondary)
+                        .accessibilityLabel("Review actions")
+                }
+                VStack(alignment: .leading, spacing: 20) {
+                    Text(summary)
+                        .font(.system(size: 16)).lineSpacing(6)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("editor-response")
+                    if stale {
+                        Label("You’ve edited this text since this review.", systemImage: "clock.arrow.circlepath")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    if review.status == "partial" {
+                        Text("This is a partial review. Some passages couldn’t be reviewed.")
+                            .font(.system(size: 13)).foregroundStyle(.orange)
+                    }
+                    if !review.findings.isEmpty {
+                        Divider().opacity(0.5)
+                        HStack {
+                            Text("A few things to look at").font(.system(size: 17, weight: .medium, design: .serif))
+                            Spacer(minLength: 0)
+                            Menu {
+                                Picker("Show notes", selection: $status) {
+                                    Text("All notes").tag("all")
+                                    Text("Still to consider").tag("open")
+                                    Text("Addressed").tag("addressed")
+                                    Text("Dismissed").tag("dismissed")
+                                }
+                            } label: {
+                                Image(systemName: "line.3.horizontal.decrease").frame(width: 24, height: 24)
+                            }.editorMenuStyle().fixedSize().foregroundStyle(.secondary)
+                                .accessibilityLabel("Filter notes")
+                        }
+                        if findings.isEmpty { Text("No notes in this view.").font(.system(size: 13)).foregroundStyle(.secondary) }
+                        ForEach(Array(findings.enumerated()), id: \.element.id) { index, finding in
+                            if index > 0 { Divider().opacity(0.45) }
+                            EditorialFindingView(finding: finding, editor: editor, workspace: workspace)
+                        }
+                    }
+                    if active {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Reading…").font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(EditorStyle.paper, in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.primary.opacity(0.045), lineWidth: 1))
+                .shadow(color: .black.opacity(0.025), radius: 8, y: 3)
+                if !active {
+                    HStack {
+                        Text("Your words, your decision.").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Review details") { showingDetails = true }
+                            .font(.system(size: 11)).buttonStyle(.plain).foregroundStyle(.secondary)
                     }
                 }
             }
-            HStack {
-                Button("Review Target Again", action: rerun).disabled(editor.isRunning || review.target == nil)
-                Button("Delete", role: .destructive) { confirmDelete = true }.disabled(editor.isRunning)
-            }
-            Picker("Severity", selection: $severity) {
-                Text("All severities").tag("all")
-                ForEach(["major", "moderate", "minor"], id: \.self) { Text($0.capitalized).tag($0) }
-            }
-            Picker("Category", selection: $category) {
-                Text("All categories").tag("all")
-                ForEach(["technical", "story", "continuity", "style", "academic", "reader"], id: \.self) { Text($0.capitalized).tag($0) }
-            }
-            Picker("Finding status", selection: $status) {
-                Text("All statuses").tag("all")
-                ForEach(["open", "addressed", "dismissed"], id: \.self) { Text($0.capitalized).tag($0) }
-            }
-            let findings = review.findings.filter {
-                (severity == "all" || $0.severity == severity) && (category == "all" || $0.category == category) && (status == "all" || $0.status == status)
-            }.sorted { $0.createdAt < $1.createdAt }
-            Text("\(findings.count) findings").font(.headline)
-            ForEach(findings, id: \.id) { finding in
-                EditorialFindingView(finding: finding, editor: editor, workspace: workspace)
-            }
         }
-        .alert("Delete this review and its saved snapshots?", isPresented: $confirmDelete) {
+        .sheet(isPresented: $showingDetails) { details }
+        .alert("Delete this review?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { editor.deleteReview(review) }
             Button("Cancel", role: .cancel) {}
-        }
+        } message: { Text("The review and its saved copy of the text will be removed. Your manuscript stays unchanged.") }
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("About this review").font(.title2.weight(.semibold))
+                Spacer()
+                Button("Done") { showingDetails = false }
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(review.targetTitle).font(.headline)
+                    Text("\(EditorStyle.personaName(review.personaName)) · \(review.createdAt.formatted())")
+                    let chunks = review.chunks.filter { $0.stage == "analysis" }
+                    Text("\(chunks.filter { $0.status == "completed" }.count) of \(chunks.count) passages reviewed")
+                    if let error = review.errorMessage { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
+                    Text("AI feedback can be mistaken. Use your judgment when considering a suggestion.").foregroundStyle(.secondary)
+                    DisclosureGroup("Text that was reviewed") {
+                        ForEach(review.inputs.sorted { $0.orderIndex < $1.orderIndex }, id: \.id) { input in
+                            DisclosureGroup(input.path) { Text(input.plainText).textSelection(.enabled) }
+                        }
+                    }
+                    DisclosureGroup("Notes from individual passages") {
+                        ForEach(review.chunks.sorted { $0.orderIndex < $1.orderIndex }, id: \.id) { chunk in
+                            DisclosureGroup("Passage \(chunk.orderIndex + 1) · \(chunk.status)") {
+                                Text(chunk.summary).textSelection(.enabled)
+                                if let error = chunk.errorMessage { Text(error).foregroundStyle(.orange) }
+                            }
+                        }
+                    }
+                    DisclosureGroup("Technical details") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("\(review.providerID) / \(review.modelID)")
+                            Text("\(review.personaName), version \(review.personaVersion)")
+                            Text(review.personaInstructions)
+                            Text(review.parameters)
+                            Text(review.environment)
+                            if let input = review.inputTokens, let output = review.outputTokens { Text("Usage: \(input) input / \(output) output tokens") }
+                            if let previous = review.previousReviewID { Text("Previous review: \(previous.uuidString)") }
+                        }.font(.caption).textSelection(.enabled)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }.padding(24).frame(minWidth: 390, idealWidth: 460, minHeight: 420, idealHeight: 560)
     }
 }
 
@@ -92,33 +184,61 @@ private struct EditorialFindingView: View {
     @ObservedObject var finding: EditorialFinding
     @ObservedObject var editor: EditorialReviewController
     @ObservedObject var workspace: WorkspaceController
+    @State private var showingNote = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(finding.title).font(.headline)
-            Text("\(finding.severity.capitalized) · \(finding.category) · \(finding.status)").font(.caption).foregroundStyle(.secondary)
-            Text(finding.explanation).textSelection(.enabled)
-            Text("Recommendation: \(finding.recommendation)").textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(finding.title).font(.system(size: 15, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if finding.status == "addressed" {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Addressed")
+                }
+            }
+            Text(finding.explanation).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled)
             ForEach(finding.anchors.sorted { $0.id.uuidString < $1.id.uuidString }, id: \.id) { anchor in
                 if let input = anchor.input {
-                    Text(input.title).font(.caption.bold())
-                    if !anchor.excerpt.isEmpty { Text("“\(anchor.excerpt)”").font(.callout).italic().textSelection(.enabled) }
-                    else { Text("Document-level finding; exact evidence range could not be verified.").font(.caption) }
-                    if let document = input.document {
-                        let unchanged = ReviewInputSnapshot.hash(document.plainText ?? "") == input.contentHash
-                        Button(unchanged && anchor.location != nil ? "Go to Passage" : "Open Current Document") {
-                            workspace.selection = .document(document.id)
-                            if unchanged, let location = anchor.location, let length = anchor.length {
-                                workspace.editorialPassage = .init(documentID: document.id, location: location.intValue, length: length.intValue, token: UUID())
-                            } else { workspace.editorialPassage = nil }
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !anchor.excerpt.isEmpty {
+                            HStack(spacing: 12) {
+                                RoundedRectangle(cornerRadius: 2).fill(EditorStyle.accent.opacity(0.5)).frame(width: 3)
+                                Text("“\(anchor.excerpt)”").font(.system(size: 14, design: .serif)).italic()
+                                    .lineSpacing(4).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            }.fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let document = input.document {
+                            let unchanged = ReviewInputSnapshot.hash(document.plainText ?? "") == input.contentHash
+                            Button {
+                                workspace.selection = .document(document.id)
+                                if unchanged, let location = anchor.location, let length = anchor.length {
+                                    workspace.editorialPassage = .init(documentID: document.id, location: location.intValue, length: length.intValue, token: UUID())
+                                } else { workspace.editorialPassage = nil }
+                            } label: {
+                                Label(unchanged && anchor.location != nil ? "Show in manuscript" : "Open current text", systemImage: "arrow.up.left")
+                                    .font(.system(size: 12, weight: .medium))
+                            }.buttonStyle(.plain).foregroundStyle(EditorStyle.accent)
                         }
                     }
                 }
             }
-            HStack {
-                Button(finding.status == "addressed" ? "Reopen" : "Mark Addressed") { editor.updateFinding(finding, status: finding.status == "addressed" ? "open" : "addressed") }
-                Button("Dismiss") { editor.updateFinding(finding, status: "dismissed") }
+            Text(finding.recommendation).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled)
+            HStack(spacing: 16) {
+                Button(finding.status == "addressed" ? "Reopen" : "Mark addressed") {
+                    editor.updateFinding(finding, status: finding.status == "addressed" ? "open" : "addressed")
+                }
+                Button("Add a note") { showingNote.toggle() }
+                Spacer(minLength: 0)
+                Menu {
+                    Button(finding.status == "dismissed" ? "Restore note" : "Dismiss suggestion") {
+                        editor.updateFinding(finding, status: finding.status == "dismissed" ? "open" : "dismissed")
+                    }
+                    Text("\(finding.severity.capitalized) · \(finding.category)")
+                } label: { Image(systemName: "ellipsis") }.editorMenuStyle().fixedSize()
+            }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
+            if showingNote || !finding.userNote.isEmpty {
+                TextField("Your note…", text: Binding(get: { finding.userNote }, set: { editor.updateFinding(finding, note: $0) }), axis: .vertical)
+                    .textFieldStyle(.roundedBorder).font(.system(size: 13))
             }
-            TextField("Your note", text: Binding(get: { finding.userNote }, set: { editor.updateFinding(finding, note: $0) }), axis: .vertical).textFieldStyle(.roundedBorder)
-        }.padding().background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 }

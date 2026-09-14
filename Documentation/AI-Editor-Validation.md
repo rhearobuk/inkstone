@@ -46,3 +46,10 @@ Status: Implemented for branch review; not merged or pushed.
 3. AI Editor implementation, tests and documentation (feature commit).
 
 The feature branch is ready for code/product review after final build verification. Merging remains a separate user decision.
+
+
+## Conversation presentation redesign
+
+The editorial response now appears as a received message beside the manuscript on Mac. Setup is moved into Review options; the composer remains fixed beneath the conversation. History is opened from the clock button. Technical metadata and per-section diagnostics remain available under Review details. Findings use readable paragraphs, inset quotations and Show in manuscript links, with tracking actions kept secondary. Replies scroll back to the beginning when a review finishes. Light and dark appearances use tested, distinct accent colors. Prompt version 2 requests plain-language, conversational editorial feedback without inventing praise.
+
+Validation: 19 UI tests including populated light/dark rendering passed; the full workspace was rendered with text and feedback side by side. Mac and iOS builds passed during the redesign. Final Mac and iOS incremental builds passed. The revised prompt passed six AI tests, including actual on-device inference; the mature-theme opt-in test was skipped in that targeted run. No schema changes or automatic rewriting were introduced.

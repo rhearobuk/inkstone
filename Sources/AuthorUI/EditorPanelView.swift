@@ -19,7 +19,8 @@ struct EditorPanelView: View {
     @State private var instructions = ""
     @State private var provider = AIProvider.appleIntelligence
     @AppStorage("AIEditor.openAIModel") private var modelID = "gpt-4.1-mini"
-    @State private var tab = "review"
+    @State private var showingOptions = false
+    @State private var showingHistory = false
     @State private var filter = ""
     @State private var statusFilter = "all"
     @State private var showingPersonas = false
@@ -59,47 +60,191 @@ struct EditorPanelView: View {
             return settings.appleIntelligenceEnabled ? AppleIntelligenceReviewClient.unavailableReason : "Enable Apple Intelligence in app Preferences."
         case .openAI:
             return !settings.hasAPIKey(for: .openAI) ? "Add your OpenAI key in Preferences." : modelID.trimmingCharacters(in: .whitespaces).isEmpty ? "Enter a model ID." : nil
-        default: return "This provider's review adapter is not implemented yet. Choose Apple Intelligence or OpenAI."
+        default: return "Reviews are currently available with Apple Intelligence or OpenAI."
         }
     }
+    private var projectReviews: [EditorialReview] {
+        editor.reviews.filter { $0.project?.id == workspace.selectedProjectID }
+    }
+    private var selectedReview: EditorialReview? {
+        projectReviews.first { $0.id == editor.selectedReviewID } ?? projectReviews.first
+    }
+    private var canReview: Bool {
+        guard case .success = snapshots else { return false }
+        return persona != nil && unavailable == nil && !editor.isRunning
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("AI Editor", systemImage: "text.magnifyingglass").font(.title2.bold())
-                Spacer()
-                Button { showingSettings = true } label: { Image(systemName: "gearshape") }.help("AI preferences")
-            }
-            Text("Critique and recommendations. Your manuscript stays yours.").font(.caption).foregroundStyle(.secondary)
-            Picker("View", selection: $tab) { Text("Review").tag("review"); Text("History").tag("history") }.pickerStyle(.segmented)
-            if editor.isRunning {
-                HStack { ProgressView().controlSize(.small); Text(editor.progress).font(.caption); Spacer(); Button("Cancel") { editor.cancel() } }
-            }
-            if let message = editor.errorMessage { Text(message).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if tab == "review" { reviewForm } else { history }
-                    if let review = editor.reviews.first(where: { $0.id == editor.selectedReviewID && $0.project?.id == workspace.selectedProjectID }) {
-                        Divider()
-                        ReviewDetailView(review: review, editor: editor, workspace: workspace) {
-                            rootID = review.target?.id; scope = EditorialScope(rawValue: review.scope) ?? .document
-                            personaID = review.persona?.id ?? editor.personas.first?.id
-                            provider = AIProvider(rawValue: review.providerID) ?? .appleIntelligence
-                            if provider == .openAI { modelID = review.modelID }
-                            previousID = review.id; tab = "review"
+        VStack(spacing: 0) {
+            header
+            Divider().opacity(0.5)
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        Color.clear.frame(height: 1).id("conversation-top")
+                        if let review = selectedReview {
+                            ReviewDetailView(review: review, editor: editor, workspace: workspace) {
+                                rootID = review.target?.id
+                                scope = EditorialScope(rawValue: review.scope) ?? .document
+                                personaID = review.persona?.id ?? editor.personas.first?.id
+                                provider = AIProvider(rawValue: review.providerID) ?? .appleIntelligence
+                                if provider == .openAI { modelID = review.modelID }
+                                previousID = review.id
+                                showingOptions = true
+                            }
+                        } else {
+                            welcome
                         }
                     }
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 28)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .onChange(of: editor.selectedReviewID) { _ in
+                    withAnimation { reader.scrollTo("conversation-top", anchor: .top) }
+                }
+                .onChange(of: editor.isRunning) { running in
+                    if !running { withAnimation { reader.scrollTo("conversation-top", anchor: .top) } }
                 }
             }
+            composer
         }
-        .padding()
+        .background(EditorStyle.background)
         .onAppear {
             if !didLoadDefaults { provider = settings.selectedProvider; didLoadDefaults = true }
             resetSelection()
         }
         .onChange(of: settings.selectedProvider) { value in if !editor.isRunning { provider = value } }
-        .onChange(of: workspace.selectedProjectID) { _ in rootID = nil; contextID = nil; previousID = nil; resetSelection() }
+        .onChange(of: workspace.selectedProjectID) { _ in
+            rootID = nil; contextID = nil; previousID = nil; resetSelection()
+        }
+        .onChange(of: workspace.selectedDocument?.id) { id in
+            if !editor.isRunning && scope == .document { rootID = id; previousID = nil }
+        }
         .sheet(isPresented: $showingPersonas) { EditorPersonaSettingsView(editor: editor) }
         .sheet(isPresented: $showingSettings) { AppPreferencesSheet(settings: settings) }
+        .sheet(isPresented: $showingOptions) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Review options").font(.title2.weight(.semibold))
+                    Spacer()
+                    Button("Done") { showingOptions = false }.keyboardShortcut(.defaultAction)
+                }.padding(22)
+                Divider()
+                ScrollView { VStack(alignment: .leading, spacing: 18) { reviewForm }.padding(22) }
+            }
+            .frame(minWidth: 390, idealWidth: 440, minHeight: 480, idealHeight: 600)
+            .background(EditorStyle.background)
+        }
+        .sheet(isPresented: $showingHistory) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Previous reviews").font(.title2.weight(.semibold))
+                    Spacer()
+                    Button("Done") { showingHistory = false }
+                }
+                ScrollView { VStack(alignment: .leading, spacing: 12) { history } }
+            }.padding(22).frame(minWidth: 370, idealWidth: 430, minHeight: 420)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            EditorAvatar(size: 38)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Your editor").font(.system(size: 21, weight: .semibold, design: .serif))
+                Text(editor.isRunning ? "Reading your manuscript…" : "A fresh perspective on your writing")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Button { showingHistory = true } label: {
+                Image(systemName: "clock.arrow.circlepath").frame(width: 28, height: 28)
+            }.buttonStyle(.plain).foregroundStyle(.secondary)
+                .help("Previous reviews").accessibilityLabel("Previous reviews")
+        }
+        .padding(.horizontal, 22).padding(.vertical, 20)
+    }
+
+    private var welcome: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Let’s read it together.")
+                .font(.system(size: 27, weight: .medium, design: .serif))
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Send me a scene, a chapter, or your whole novel. I’ll share what’s working, what feels unclear, and where you might take another look.")
+                .font(.system(size: 15)).lineSpacing(5).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Image(systemName: "text.quote").foregroundStyle(EditorStyle.accent)
+                Text("Your words stay untouched.").font(.system(size: 13))
+            }.padding(.top, 4)
+        }
+        .padding(.top, 32).padding(.bottom, 28)
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if editor.isRunning {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Your editor is reading…").font(.system(size: 13))
+                    Spacer()
+                    Button("Stop") { editor.cancel() }.buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+            }
+            if let error = editor.errorMessage {
+                Text(error).font(.system(size: 12)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text").foregroundStyle(EditorStyle.accent)
+                Text(root?.title ?? "Choose something to review")
+                    .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                Spacer(minLength: 0)
+                Button("Change") { showingOptions = true }
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundStyle(EditorStyle.accent)
+                    .disabled(editor.isRunning)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Anything you’d like me to focus on?", text: $instructions, axis: .vertical)
+                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(2...4)
+                    .disabled(editor.isRunning)
+                HStack {
+                    Button { showingOptions = true } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "slider.horizontal.3")
+                            Text(EditorStyle.personaName(persona?.name ?? "Technical / Copy"))
+                                .lineLimit(1)
+                        }.font(.system(size: 12))
+                    }.buttonStyle(.plain).foregroundStyle(.secondary).disabled(editor.isRunning)
+                    Spacer(minLength: 4)
+                    Button { run(); showingOptions = false } label: {
+                        HStack(spacing: 7) {
+                            Text("Review").font(.system(size: 13, weight: .semibold))
+                            Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold))
+                        }.padding(.horizontal, 15).padding(.vertical, 9)
+                            .foregroundStyle(.white)
+                            .background(canReview ? EditorStyle.buttonColor : Color.secondary.opacity(0.4), in: Capsule())
+                    }.buttonStyle(.plain).disabled(!canReview)
+                        .accessibilityLabel(provider == .openAI ? "Send to OpenAI for review" : "Review with Apple Intelligence")
+                }
+            }
+            .padding(14)
+            .background(EditorStyle.paper, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1))
+            HStack(spacing: 5) {
+                Image(systemName: provider == .appleIntelligence ? "lock" : "cloud")
+                Text(provider == .appleIntelligence ? "Apple Intelligence · On your device" : "Sent to \(provider.displayName) · API charges may apply")
+            }.font(.system(size: 11)).foregroundStyle(.secondary)
+            if let reason = unavailable {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(reason).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Set up") { showingSettings = true }.font(.system(size: 12))
+                }.foregroundStyle(.secondary)
+            } else if case .failure(let error) = snapshots, !editor.isRunning {
+                Text(error.localizedDescription).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(18)
+        .background(EditorStyle.background)
+        .overlay(alignment: .top) { Divider().opacity(0.5) }
     }
     private func resetSelection() {
         if personaID == nil { personaID = editor.personas.first(where: { $0.presetKey == "technical" })?.id }
@@ -107,12 +252,12 @@ struct EditorPanelView: View {
     }
     @ViewBuilder private var reviewForm: some View {
         Group {
-            Picker("Persona", selection: $personaID) {
+            Picker("Editor", selection: $personaID) {
                 Text("Choose persona").tag(UUID?.none)
                 ForEach(editor.personas, id: \.id) { Text($0.name).tag(Optional($0.id)) }
             }
             Button("Customize personas…") { showingPersonas = true }
-            Picker("Provider", selection: $provider) {
+            Picker("AI service", selection: $provider) {
                 ForEach(AIProvider.allCases) { Text($0.displayName).tag($0) }
             }
             if provider == .appleIntelligence {
@@ -122,13 +267,13 @@ struct EditorPanelView: View {
                     ForEach(ModelCatalog.openAI) { Text($0.name).tag($0.id) }
                     if !ModelCatalog.openAI.contains(where: { $0.id == modelID }) { Text(modelID.isEmpty ? "Enter a model ID" : modelID).tag(modelID) }
                 }
-                TextField("OpenAI model ID", text: $modelID).textFieldStyle(.roundedBorder)
-                Text("Requires a Responses API model with structured outputs. Selected text is sent to OpenAI; API charges may apply.").font(.caption).foregroundStyle(.secondary)
+                DisclosureGroup("Use another model") { TextField("Model name", text: $modelID).textFieldStyle(.roundedBorder) }
+                Text("Your selected text will be sent to OpenAI. API charges may apply.").font(.caption).foregroundStyle(.secondary)
             }
             if let unavailable { Text(unavailable).font(.caption).foregroundStyle(.orange) }
-            Picker("Scope", selection: $scope) { ForEach(EditorialScope.allCases, id: \.self) { Text($0.label).tag($0) } }
-            Picker("Root / target", selection: $rootID) {
-                Text("Choose manuscript target").tag(UUID?.none)
+            Picker("Review", selection: $scope) { ForEach(EditorialScope.allCases, id: \.self) { Text(EditorStyle.scopeName($0)).tag($0) } }
+            Picker("Manuscript", selection: $rootID) {
+                Text("Choose a scene or folder").tag(UUID?.none)
                 ForEach(documents, id: \.id) { Text($0.title).tag(Optional($0.id)) }
             }
             if let document = workspace.selectedDocument { Button("Use selected document") { rootID = document.id } }
@@ -137,7 +282,7 @@ struct EditorPanelView: View {
                 Text("None").tag(UUID?.none)
                 ForEach(contextEntities, id: \.id) { Text($0.canonicalName).tag(Optional($0.id)) }
             }
-            TextField("Additional editorial focus (optional)", text: $instructions, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...5)
+
         }.disabled(editor.isRunning)
         switch snapshots {
         case .success(let inputs):
@@ -149,7 +294,7 @@ struct EditorPanelView: View {
                 Text("Non-text resources and character cards are excluded. Compile exclusions apply to chapter/novel scopes unless enabled above.").font(.caption).foregroundStyle(.secondary)
             }
             if previousID != nil { Text("Rerun uses current manuscript text and the settings above, with a link to the previous review.").font(.caption) }
-            Button(provider == .openAI ? "Send to OpenAI & Review" : "Run Review") { run() }
+            Button(provider == .openAI ? "Send to OpenAI & Review" : "Ask for a review") { run(); showingOptions = false }
                 .buttonStyle(.borderedProminent).disabled(editor.isRunning || persona == nil || unavailable != nil)
         case .failure(let error): Text(error.localizedDescription).font(.caption).foregroundStyle(.secondary)
         }
@@ -180,7 +325,7 @@ struct EditorPanelView: View {
         }
         if reviews.isEmpty { Text("No matching reviews yet.").foregroundStyle(.secondary) }
         ForEach(reviews, id: \.id) { review in
-            Button { editor.selectedReviewID = review.id } label: {
+            Button { editor.selectedReviewID = review.id; showingHistory = false } label: {
                 VStack(alignment: .leading) {
                     Text(review.targetTitle).font(.headline)
                     Text("\(review.personaName) · \(review.status)").font(.caption)
