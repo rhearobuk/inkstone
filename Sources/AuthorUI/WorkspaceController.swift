@@ -4,6 +4,7 @@ import CoreData
 import CryptoKit
 import Foundation
 import ImageIO
+import SwiftUI
 import UniformTypeIdentifiers
 
 public enum WorkspaceSelection: Hashable, Sendable {
@@ -73,6 +74,12 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum DropPosition: String, Sendable {
+    case before
+    case inside
+    case after
+}
+
 public struct BinderItem: Identifiable {
     public enum Kind {
         case projectDefinition
@@ -92,6 +99,13 @@ public struct BinderItem: Identifiable {
     public let selection: WorkspaceSelection
     public let kind: Kind
     public let documentID: UUID?
+    public let isContainer: Bool
+    public let labelIdentifier: String?
+    public let statusIdentifier: String?
+    public let labelColor: Color?
+    public let labelTitle: String?
+    public let statusTitle: String?
+    public let sectionTypeTitle: String?
     public var children: [BinderItem]?
 
     public init(
@@ -101,6 +115,13 @@ public struct BinderItem: Identifiable {
         selection: WorkspaceSelection,
         kind: Kind,
         documentID: UUID? = nil,
+        isContainer: Bool = false,
+        labelIdentifier: String? = nil,
+        statusIdentifier: String? = nil,
+        labelColor: Color? = nil,
+        labelTitle: String? = nil,
+        statusTitle: String? = nil,
+        sectionTypeTitle: String? = nil,
         children: [BinderItem]? = nil
     ) {
         self.id = id
@@ -109,6 +130,13 @@ public struct BinderItem: Identifiable {
         self.selection = selection
         self.kind = kind
         self.documentID = documentID
+        self.isContainer = isContainer
+        self.labelIdentifier = labelIdentifier
+        self.statusIdentifier = statusIdentifier
+        self.labelColor = labelColor
+        self.labelTitle = labelTitle
+        self.statusTitle = statusTitle
+        self.sectionTypeTitle = sectionTypeTitle
         self.children = children
     }
 }
@@ -139,18 +167,26 @@ public enum WorkspaceError: LocalizedError {
 @MainActor
 public final class WorkspaceController: ObservableObject {
     public let store: AuthorDataStore
+    private let projectListPreferences: UserDefaults
     private var pendingCharacterSave: Task<Void, Never>?
+    private var labelLookup: [String: LabelDefinition] = [:]
+    private var statusLookup: [String: StatusDefinition] = [:]
+    private var sectionTypeLookup: [String: SectionTypeDefinition] = [:]
 
     @Published public private(set) var projects: [WritingProject] = []
+    @Published public var showsHiddenProjects = false
     @Published public var selectedProjectID: UUID?
     @Published public var selection: WorkspaceSelection?
     @Published public private(set) var binderItems: [BinderItem] = []
+    @Published public var labelFilter: String?
+    @Published public var statusFilter: String?
     @Published public private(set) var lastError: String?
     @Published public private(set) var importSummary: String?
     @Published public private(set) var isImporting = false
 
-    public init(store: AuthorDataStore) {
+    public init(store: AuthorDataStore, projectListPreferences: UserDefaults = .standard) {
         self.store = store
+        self.projectListPreferences = projectListPreferences
         refresh()
     }
 
@@ -307,9 +343,18 @@ public final class WorkspaceController: ObservableObject {
 
     public func refresh() {
         do {
-            projects = try store.projects.fetchAll(
+            let allProjects = try store.projects.fetchAll(
                 sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
             )
+            projects = allProjects
+                .filter { showsHiddenProjects || !isProjectHidden($0.id) }
+                .sorted { lhs, rhs in
+                    let lhsPinned = isProjectPinned(lhs.id)
+                    let rhsPinned = isProjectPinned(rhs.id)
+                    if lhsPinned != rhsPinned { return lhsPinned }
+                    if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt > rhs.modifiedAt }
+                    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
             if selectedProjectID == nil || !projects.contains(where: { $0.id == selectedProjectID }) {
                 selectedProjectID = projects.first?.id
             }
@@ -318,6 +363,55 @@ public final class WorkspaceController: ObservableObject {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    public func isProjectPinned(_ projectID: UUID) -> Bool {
+        projectListPreferences.stringArray(forKey: "pinnedProjectIDs")?.contains(projectID.uuidString) ?? false
+    }
+
+    public func isProjectHidden(_ projectID: UUID) -> Bool {
+        projectListPreferences.stringArray(forKey: "hiddenProjectIDs")?.contains(projectID.uuidString) ?? false
+    }
+
+    public func setProjectPinned(_ projectID: UUID, pinned: Bool) {
+        var projectIDs = Set(projectListPreferences.stringArray(forKey: "pinnedProjectIDs") ?? [])
+        if pinned {
+            projectIDs.insert(projectID.uuidString)
+        } else {
+            projectIDs.remove(projectID.uuidString)
+        }
+        projectListPreferences.set(Array(projectIDs), forKey: "pinnedProjectIDs")
+        refresh()
+    }
+
+    public func setProjectHidden(_ projectID: UUID, hidden: Bool) {
+        var projectIDs = Set(projectListPreferences.stringArray(forKey: "hiddenProjectIDs") ?? [])
+        if hidden {
+            projectIDs.insert(projectID.uuidString)
+        } else {
+            projectIDs.remove(projectID.uuidString)
+        }
+        projectListPreferences.set(Array(projectIDs), forKey: "hiddenProjectIDs")
+        if hidden && selectedProjectID == projectID {
+            selectedProjectID = nil
+            selection = nil
+        }
+        refresh()
+    }
+
+    public func deleteProject(_ projectID: UUID) throws {
+        guard let project = try store.projects.fetch(id: projectID) else {
+            throw WorkspaceError.missingProject(projectID)
+        }
+        store.context.delete(project)
+        try store.save()
+        setProjectPinned(projectID, pinned: false)
+        setProjectHidden(projectID, hidden: false)
+        if selectedProjectID == projectID {
+            selectedProjectID = nil
+            selection = nil
+        }
+        refresh()
     }
 
     @discardableResult
@@ -865,7 +959,11 @@ public final class WorkspaceController: ObservableObject {
         refresh()
     }
 
-    public func moveDocument(_ documentID: UUID, onto targetID: UUID) throws {
+    public func moveDocument(
+        _ documentID: UUID,
+        relativeTo targetID: UUID,
+        position: DropPosition = .inside
+    ) throws {
         guard let document = try store.documents.fetch(id: documentID) else {
             throw WorkspaceError.missingDocument(documentID)
         }
@@ -881,14 +979,44 @@ public final class WorkspaceController: ObservableObject {
         let oldParent = document.parent
         let targetIsContainer = target.kind == DocumentKind.folder.rawValue ||
             target.kind == DocumentKind.draftFolder.rawValue
-        let newParent = targetIsContainer ? target : target.parent
-        let insertionIndex = targetIsContainer ? Int.max : Int(target.orderIndex)
+
+        let newParent: Document?
+        let insertionIndex: Int
+
+        switch position {
+        case .inside:
+            if targetIsContainer {
+                newParent = target
+                insertionIndex = Int.max
+            } else {
+                newParent = target.parent
+                let siblings = documents(in: document.project)
+                    .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
+                    .sorted(by: documentOrder)
+                let targetIdx = siblings.firstIndex(where: { $0.id == target.id }) ?? (siblings.count - 1)
+                insertionIndex = targetIdx + 1
+            }
+        case .before:
+            newParent = target.parent
+            let siblings = documents(in: document.project)
+                .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
+                .sorted(by: documentOrder)
+            let targetIdx = siblings.firstIndex(where: { $0.id == target.id }) ?? 0
+            insertionIndex = targetIdx
+        case .after:
+            newParent = target.parent
+            let siblings = documents(in: document.project)
+                .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
+                .sorted(by: documentOrder)
+            let targetIdx = siblings.firstIndex(where: { $0.id == target.id }) ?? (siblings.count - 1)
+            insertionIndex = targetIdx + 1
+        }
 
         document.parent = newParent
         let newSiblings = documents(in: document.project)
             .filter { $0.parent?.id == newParent?.id && $0.id != document.id }
             .sorted(by: documentOrder)
-        let safeIndex = min(insertionIndex, newSiblings.count)
+        let safeIndex = max(0, min(insertionIndex, newSiblings.count))
         var ordered = newSiblings
         ordered.insert(document, at: safeIndex)
         reindex(ordered)
@@ -906,10 +1034,42 @@ public final class WorkspaceController: ObservableObject {
         refresh()
     }
 
+    public func moveDocument(_ documentID: UUID, onto targetID: UUID) throws {
+        try moveDocument(documentID, relativeTo: targetID, position: .inside)
+    }
+
     public func selectProject(_ projectID: UUID) {
         selectedProjectID = projectID
         selection = .projectDefinition(projectID)
+        labelFilter = nil
+        statusFilter = nil
         rebuildBinder()
+    }
+
+    /// The binder tree narrowed to `labelFilter`/`statusFilter`, if either is set. Organizational
+    /// nodes (Project Definition, Story Bible, Gallery, Narrative, and their categories) always
+    /// remain visible so the tree stays navigable; only actual binder documents (folders and
+    /// scenes) are matched against the active filters, with ancestors of a match kept so context
+    /// is preserved.
+    public var displayedBinderItems: [BinderItem] {
+        guard labelFilter != nil || statusFilter != nil else { return binderItems }
+        return binderItems.compactMap(filteredBinderItem)
+    }
+
+    private func filteredBinderItem(_ item: BinderItem) -> BinderItem? {
+        var item = item
+        let filteredChildren = item.children?.compactMap(filteredBinderItem)
+        item.children = filteredChildren
+        let matchesSelf: Bool
+        if item.documentID != nil {
+            let labelOK = labelFilter == nil || item.labelIdentifier == labelFilter
+            let statusOK = statusFilter == nil || item.statusIdentifier == statusFilter
+            matchesSelf = labelOK && statusOK
+        } else {
+            matchesSelf = true
+        }
+        let hasMatchingChildren = !(filteredChildren?.isEmpty ?? true)
+        return (matchesSelf || hasMatchingChildren) ? item : nil
     }
 
     public func storyBibleDocuments(in category: StoryBibleCategory) -> [Document] {
@@ -967,9 +1127,22 @@ public final class WorkspaceController: ObservableObject {
     private func rebuildBinder() {
         guard let project = selectedProject else {
             binderItems = []
+            labelLookup = [:]
+            statusLookup = [:]
+            sectionTypeLookup = [:]
             selection = nil
             return
         }
+
+        labelLookup = Dictionary(
+            uniqueKeysWithValues: project.labelDefinitions.map { ($0.sourceIdentifier, $0) }
+        )
+        statusLookup = Dictionary(
+            uniqueKeysWithValues: project.statusDefinitions.map { ($0.sourceIdentifier, $0) }
+        )
+        sectionTypeLookup = Dictionary(
+            uniqueKeysWithValues: project.sectionTypeDefinitions.map { ($0.sourceIdentifier, $0) }
+        )
 
         let entities = project.semanticEntities.filter {
             $0.characterProfile?.sourceDocument == nil
@@ -1003,12 +1176,15 @@ public final class WorkspaceController: ObservableObject {
         }, by: \.0)
         let narrativeRoots = roots.filter { storyBibleCategory(for: $0) == nil }
         let visibleNarrativeRoots: [Document]
+        let narrativeDocumentID: UUID?
         if narrativeRoots.count == 1,
            let root = narrativeRoots.first,
            root.sourceIdentifier.hasPrefix("native.narrative.") {
             visibleNarrativeRoots = root.orderedChildren
+            narrativeDocumentID = root.id
         } else {
             visibleNarrativeRoots = narrativeRoots
+            narrativeDocumentID = narrativeRoots.first?.id
         }
 
         binderItems = [
@@ -1065,6 +1241,8 @@ public final class WorkspaceController: ObservableObject {
                 systemImage: "text.book.closed",
                 selection: .narrative(project.id),
                 kind: .narrative,
+                documentID: narrativeDocumentID,
+                isContainer: true,
                 children: visibleNarrativeRoots.map(makeDocumentItem)
             )
         ]
@@ -1072,6 +1250,11 @@ public final class WorkspaceController: ObservableObject {
 
     private func makeDocumentItem(_ document: Document) -> BinderItem {
         let profile = document.sourceCharacterProfiles.first
+        let label = document.labelIdentifier.flatMap { labelLookup[$0] }
+        let status = document.statusIdentifier.flatMap { statusLookup[$0] }
+        let sectionType = document.sectionTypeIdentifier.flatMap { sectionTypeLookup[$0] }
+        let isContainer = document.kind == DocumentKind.folder.rawValue ||
+            document.kind == DocumentKind.draftFolder.rawValue
         return BinderItem(
             id: document.id.uuidString,
             title: document.title,
@@ -1079,6 +1262,13 @@ public final class WorkspaceController: ObservableObject {
             selection: profile.map { .characterProfile($0.id) } ?? .document(document.id),
             kind: profile == nil ? .document : .characterProfile,
             documentID: document.id,
+            isContainer: isContainer,
+            labelIdentifier: document.labelIdentifier,
+            statusIdentifier: document.statusIdentifier,
+            labelColor: label?.swiftUIColor,
+            labelTitle: label?.title,
+            statusTitle: status?.title,
+            sectionTypeTitle: sectionType?.title,
             children: document.orderedChildren.isEmpty
                 ? nil
                 : document.orderedChildren.map(makeDocumentItem)

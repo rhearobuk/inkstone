@@ -4,9 +4,13 @@ import UniformTypeIdentifiers
 
 public struct AuthorWorkspaceView: View {
     @ObservedObject private var controller: WorkspaceController
+    @EnvironmentObject private var aiSettings: AISettingsStore
     @State private var showsNewProject = false
     @State private var showsImporter = false
+    @State private var showsPreferences = false
+    @State private var showsAppPreferences = false
     @State private var newProjectTitle = ""
+    @State private var projectToDelete: UUID?
 
     public init(controller: WorkspaceController) {
         self.controller = controller
@@ -21,6 +25,12 @@ public struct AuthorWorkspaceView: View {
             WorkspaceDetailView(controller: controller)
         }
         .navigationSplitViewStyle(.balanced)
+        .sheet(isPresented: $showsPreferences) {
+            ProjectPreferencesView(controller: controller)
+        }
+        .sheet(isPresented: $showsAppPreferences) {
+            AppPreferencesSheet(settings: aiSettings)
+        }
         .fileImporter(
             isPresented: $showsImporter,
             allowedContentTypes: [.folder],
@@ -53,6 +63,20 @@ public struct AuthorWorkspaceView: View {
         } message: {
             Text(controller.importSummary ?? "")
         }
+        .alert("Delete Project?", isPresented: deleteProjectAlertBinding) {
+            Button("Cancel", role: .cancel) { projectToDelete = nil }
+            Button("Delete", role: .destructive) {
+                guard let projectToDelete else { return }
+                do {
+                    try controller.deleteProject(projectToDelete)
+                } catch {
+                    controller.report(error)
+                }
+                self.projectToDelete = nil
+            }
+        } message: {
+            Text("This permanently deletes \(projectTitleToDelete).")
+        }
         .overlay(alignment: .bottom) {
             if controller.isImporting {
                 ProgressView("Importing Scrivener project…")
@@ -76,8 +100,42 @@ public struct AuthorWorkspaceView: View {
             set: { if let id = $0 { controller.selectProject(id) } }
         )) {
             ForEach(controller.projects, id: \.id) { project in
-                Label(project.title, systemImage: "book.closed")
+                Label {
+                    Text(project.title)
+                } icon: {
+                    Image(systemName: controller.isProjectPinned(project.id) ? "pin.fill" : "book.closed")
+                }
                     .tag(project.id)
+                    .contextMenu {
+                        Button {
+                            controller.setProjectPinned(
+                                project.id,
+                                pinned: !controller.isProjectPinned(project.id)
+                            )
+                        } label: {
+                            Label(
+                                controller.isProjectPinned(project.id) ? "Unpin Project" : "Pin Project",
+                                systemImage: controller.isProjectPinned(project.id) ? "pin.slash" : "pin"
+                            )
+                        }
+
+                        Button {
+                            controller.setProjectHidden(project.id, hidden: !controller.isProjectHidden(project.id))
+                        } label: {
+                            Label(
+                                controller.isProjectHidden(project.id) ? "Show Project" : "Hide Project",
+                                systemImage: controller.isProjectHidden(project.id) ? "eye" : "eye.slash"
+                            )
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            projectToDelete = project.id
+                        } label: {
+                            Label("Delete Project", systemImage: "trash")
+                        }
+                    }
             }
         }
         .navigationTitle("Projects")
@@ -95,8 +153,46 @@ public struct AuthorWorkspaceView: View {
                 } label: {
                     Label("New Project", systemImage: "plus")
                 }
+
+                Menu {
+                    Button(controller.showsHiddenProjects ? "Hide Hidden Projects" : "Show Hidden Projects") {
+                        controller.showsHiddenProjects.toggle()
+                        controller.refresh()
+                    }
+                } label: {
+                    Label(
+                        controller.showsHiddenProjects ? "Hide Hidden Projects" : "Show Hidden Projects",
+                        systemImage: controller.showsHiddenProjects ? "eye.slash" : "eye"
+                    )
+                }
+            }
+            ToolbarItemGroup(placement: .automatic) {
+                Button {
+                    showsAppPreferences = true
+                } label: {
+                    Label("Preferences", systemImage: "gearshape.2")
+                }
+                .help("Application Preferences")
+                #if !os(macOS)
+                .keyboardShortcut(",", modifiers: .command)
+                #endif
             }
         }
+    }
+
+    private var deleteProjectAlertBinding: Binding<Bool> {
+        Binding(
+            get: { projectToDelete != nil },
+            set: { if !$0 { projectToDelete = nil } }
+        )
+    }
+
+    private var projectTitleToDelete: String {
+        guard let projectToDelete,
+              let project = controller.projects.first(where: { $0.id == projectToDelete }) else {
+            return "this project"
+        }
+        return project.title
     }
 
     private func importProject(_ result: Result<[URL], Error>) {
@@ -113,37 +209,345 @@ public struct AuthorWorkspaceView: View {
     }
 
     private var binder: some View {
-        List(selection: $controller.selection) {
-            OutlineGroup(controller.binderItems, children: \.children) { item in
-                BinderRow(item: item, controller: controller)
-                    .tag(item.selection)
+        VStack(spacing: 0) {
+            filterBar
+            Divider()
+            List(selection: $controller.selection) {
+                OutlineGroup(controller.displayedBinderItems, children: \.children) { item in
+                    BinderRow(item: item, controller: controller)
+                        .tag(item.selection)
+                }
             }
         }
         .navigationTitle(controller.selectedProject?.title ?? "Binder")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showsPreferences = true
+                } label: {
+                    Label("Project Preferences", systemImage: "gearshape")
+                }
+                .disabled(controller.selectedProject == nil)
+            }
+        }
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Button("All Statuses") { controller.statusFilter = nil }
+                if !controller.sortedStatusDefinitions.isEmpty {
+                    Divider()
+                }
+                ForEach(controller.sortedStatusDefinitions, id: \.sourceIdentifier) { status in
+                    Button {
+                        controller.statusFilter = status.sourceIdentifier
+                    } label: {
+                        if controller.statusFilter == status.sourceIdentifier {
+                            Label(status.title, systemImage: "checkmark")
+                        } else {
+                            Text(status.title)
+                        }
+                    }
+                }
+            } label: {
+                filterChip(
+                    title: statusFilterTitle,
+                    systemImage: "flag.fill",
+                    tint: .secondary,
+                    active: controller.statusFilter != nil
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Menu {
+                Button("All Labels") { controller.labelFilter = nil }
+                if !controller.sortedLabelDefinitions.isEmpty {
+                    Divider()
+                }
+                ForEach(controller.sortedLabelDefinitions, id: \.sourceIdentifier) { label in
+                    Button {
+                        controller.labelFilter = label.sourceIdentifier
+                    } label: {
+                        if controller.labelFilter == label.sourceIdentifier {
+                            Label(label.title, systemImage: "checkmark")
+                        } else {
+                            Text(label.title)
+                        }
+                    }
+                }
+            } label: {
+                filterChip(
+                    title: labelFilterTitle,
+                    systemImage: "tag.fill",
+                    tint: labelFilterTint,
+                    active: controller.labelFilter != nil
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            if controller.statusFilter != nil || controller.labelFilter != nil {
+                Button {
+                    controller.statusFilter = nil
+                    controller.labelFilter = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear filters")
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private func filterChip(
+        title: String,
+        systemImage: String,
+        tint: Color,
+        active: Bool
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+            Text(title)
+            Image(systemName: "chevron.down")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(active ? tint.opacity(0.18) : Color.secondary.opacity(0.1))
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(active ? tint.opacity(0.5) : Color.clear, lineWidth: 1)
+        )
+    }
+
+    private var statusFilterTitle: String {
+        guard let identifier = controller.statusFilter,
+              let status = controller.sortedStatusDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
+            return "Status"
+        }
+        return status.title
+    }
+
+    private var labelFilterTitle: String {
+        guard let identifier = controller.labelFilter,
+              let label = controller.sortedLabelDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
+            return "Label"
+        }
+        return label.title
+    }
+
+    private var labelFilterTint: Color {
+        guard let identifier = controller.labelFilter,
+              let label = controller.sortedLabelDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
+            return .secondary
+        }
+        return label.swiftUIColor ?? .secondary
+    }
+}
+
+private struct RowHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 28
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
     }
 }
 
 private struct BinderRow: View {
     let item: BinderItem
     @ObservedObject var controller: WorkspaceController
+    @State private var dropPosition: DropPosition?
+    @State private var rowHeight: CGFloat = 28
 
     var body: some View {
-        Label(item.title, systemImage: item.systemImage)
-            .draggable(item.documentID?.uuidString ?? "")
-            .dropDestination(for: String.self) { identifiers, _ in
-                guard let identifier = identifiers.first,
-                      let draggedID = UUID(uuidString: identifier),
-                      let targetID = item.documentID else {
-                    return false
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(height: 2)
+                .opacity(dropPosition == .before ? 1.0 : 0.0)
+                .padding(.horizontal, 2)
+
+            HStack(spacing: 6) {
+                if let color = item.labelColor {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 8, height: 8)
                 }
-                do {
-                    try controller.moveDocument(draggedID, onto: targetID)
-                    return true
-                } catch {
-                    controller.report(error)
-                    return false
+                Label(item.title, systemImage: item.systemImage)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if let sectionType = item.sectionTypeTitle {
+                    Text(sectionType)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let status = item.statusTitle {
+                    Text(status)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                        .foregroundStyle(.secondary)
                 }
             }
+            .padding(.vertical, 3)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(dropPosition == .inside ? Color.accentColor.opacity(0.18) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(dropPosition == .inside ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            )
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: RowHeightPreferenceKey.self, value: proxy.size.height)
+                }
+            )
+
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(height: 2)
+                .opacity(dropPosition == .after ? 1.0 : 0.0)
+                .padding(.horizontal, 2)
+        }
+        .contentShape(Rectangle())
+        .onPreferenceChange(RowHeightPreferenceKey.self) { height in
+            if height > 0 { rowHeight = height }
+        }
+        .modifier(BinderDragModifier(item: item))
+        .modifier(BinderDropModifier(item: item, controller: controller, rowHeight: rowHeight, dropPosition: $dropPosition))
+    }
+}
+
+private struct BinderDragModifier: ViewModifier {
+    let item: BinderItem
+
+    func body(content: Content) -> some View {
+        if let documentID = item.documentID {
+            content.draggable(documentID.uuidString) {
+                HStack(spacing: 6) {
+                    if let color = item.labelColor {
+                        Circle()
+                            .fill(color)
+                            .frame(width: 8, height: 8)
+                    }
+                    Label(item.title, systemImage: item.systemImage)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct BinderDropModifier: ViewModifier {
+    let item: BinderItem
+    @ObservedObject var controller: WorkspaceController
+    let rowHeight: CGFloat
+    @Binding var dropPosition: DropPosition?
+
+    func body(content: Content) -> some View {
+        if let targetID = item.documentID {
+            content
+                .onDrop(
+                    of: [.plainText, .text],
+                    delegate: BinderRowDropDelegate(
+                        item: item,
+                        targetID: targetID,
+                        controller: controller,
+                        rowHeight: rowHeight,
+                        dropPosition: $dropPosition
+                    )
+                )
+        } else {
+            content
+        }
+    }
+}
+
+private struct BinderRowDropDelegate: DropDelegate {
+    let item: BinderItem
+    let targetID: UUID
+    let controller: WorkspaceController
+    let rowHeight: CGFloat
+    @Binding var dropPosition: DropPosition?
+
+    func dropEntered(info: DropInfo) {
+        updatePosition(info: info)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        updatePosition(info: info)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        dropPosition = nil
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let pos = position(at: info.location)
+        dropPosition = nil
+
+        let providers = info.itemProviders(for: [.plainText, .text])
+        guard let provider = providers.first else { return false }
+
+        _ = provider.loadObject(ofClass: String.self) { string, _ in
+            guard let string, let draggedID = UUID(uuidString: string) else { return }
+            Task { @MainActor in
+                do {
+                    try controller.moveDocument(draggedID, relativeTo: targetID, position: pos)
+                } catch {
+                    controller.report(error)
+                }
+            }
+        }
+        return true
+    }
+
+    private func updatePosition(info: DropInfo) {
+        let pos = position(at: info.location)
+        if dropPosition != pos {
+            dropPosition = pos
+        }
+    }
+
+    private func position(at location: CGPoint) -> DropPosition {
+        let height = rowHeight > 0 ? rowHeight : 28
+        if item.isContainer {
+            if location.y < height * 0.25 {
+                return .before
+            } else if location.y > height * 0.75 {
+                return .after
+            } else {
+                return .inside
+            }
+        } else {
+            if location.y < height * 0.5 {
+                return .before
+            } else {
+                return .after
+            }
+        }
     }
 }
 

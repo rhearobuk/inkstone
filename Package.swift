@@ -32,7 +32,10 @@ let package = Package(
         .executableTarget(
             name: "AuthorAppPrototype",
             dependencies: ["AuthorUI"],
-            path: "Sources/AuthorApp"
+            path: "Sources/AuthorApp",
+            resources: [
+                .process("Assets.xcassets")
+            ]
         ),
         .testTarget(
             name: "AuthorDataTests",
