@@ -354,6 +354,8 @@ public final class ScrivenerImporter {
                 throw ScrivenerImportError.validationFailed(validationErrors)
             }
 
+            Self.recomputeWordCounts(for: project)
+
             run.finishedAt = Date()
             run.status = "succeeded"
             run.insertedCount = Int64(inserted)
@@ -387,6 +389,24 @@ public final class ScrivenerImporter {
             try? store.save()
             throw error
         }
+    }
+
+    /// One-time, full-tree word count recomputation used after a bulk import (where documents
+    /// are populated directly rather than through the incremental update paths that keep
+    /// `actualWordCount` current via `WordCountService`).
+    private static func recomputeWordCounts(for project: WritingProject) {
+        let roots = project.documents.filter { $0.parent == nil && !$0.isDeleted }
+        for root in roots {
+            _ = recomputeWordCount(for: root)
+        }
+    }
+
+    @discardableResult
+    private static func recomputeWordCount(for document: Document) -> Int64 {
+        document.ownWordCount = WordCountService.count(in: document.plainText)
+        let childrenTotal = document.orderedChildren.reduce(Int64(0)) { $0 + recomputeWordCount(for: $1) }
+        document.actualWordCount = document.ownWordCount + childrenTotal
+        return document.actualWordCount
     }
 
     /// Persists the project-level vocabulary definitions (`SectionTypes`, `LabelSettings`,

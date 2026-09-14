@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 struct ScrivenerImportView: View {
     @ObservedObject var controller: WorkspaceController
@@ -15,7 +18,11 @@ struct ScrivenerImportView: View {
             Form {
                 Section("Scrivener Source") {
                     Button {
+                        #if os(macOS)
+                        selectSourceMacOS()
+                        #else
                         showsSourcePicker = true
+                        #endif
                     } label: {
                         Label(
                             sourceURL?.lastPathComponent ?? "Choose .scriv Package or .scrivx File",
@@ -63,15 +70,12 @@ struct ScrivenerImportView: View {
             }
             .fileImporter(
                 isPresented: $showsSourcePicker,
-                allowedContentTypes: [.scrivenerProject, .scrivenerProjectXML, .folder, .xml],
+                allowedContentTypes: Self.allowedContentTypes,
                 allowsMultipleSelection: false
             ) { result in
                 do {
                     guard let url = try result.get().first else { return }
-                    sourceURL = url
-                    if newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        newProjectTitle = url.deletingPathExtension().lastPathComponent
-                    }
+                    handleSelectedURL(url)
                 } catch {
                     controller.report(error)
                 }
@@ -81,6 +85,50 @@ struct ScrivenerImportView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 360)
+    }
+
+    private func handleSelectedURL(_ url: URL) {
+        sourceURL = url
+        if newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            newProjectTitle = url.deletingPathExtension().lastPathComponent
+        }
+    }
+
+    #if os(macOS)
+    private func selectSourceMacOS() {
+        let panel = NSOpenPanel()
+        panel.title = "Select Scrivener Project"
+        panel.prompt = "Choose"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.treatsFilePackagesAsDirectories = false
+        panel.allowedContentTypes = Self.allowedContentTypes
+
+        if panel.runModal() == .OK, let url = panel.url {
+            handleSelectedURL(url)
+        }
+    }
+    #endif
+
+    private static var allowedContentTypes: [UTType] {
+        [
+            .scrivenerProjectPackage,
+            .scrivenerProjectDirectory,
+            .scrivenerProjectBundle,
+            .scrivenerProjectItem,
+            .scrivenerProjectXML,
+            .scrivenerProjectData,
+            UTType(importedAs: "com.literatureandlatte.scrivener2", conformingTo: .package),
+            UTType(importedAs: "com.literatureandlatte.scrivener3.scriv", conformingTo: .package),
+            .package,
+            .bundle,
+            .directory,
+            .folder,
+            .xml,
+            .data,
+            .item
+        ]
     }
 
     private var canImport: Bool {
@@ -126,8 +174,16 @@ private enum DestinationMode: Hashable {
 }
 
 private extension UTType {
-    static let scrivenerProject = UTType(filenameExtension: "scriv")
+    static let scrivenerProjectPackage = UTType(tag: "scriv", tagClass: .filenameExtension, conformingTo: .package)
         ?? UTType(importedAs: "com.literatureandlatte.scrivener.project", conformingTo: .package)
-    static let scrivenerProjectXML = UTType(filenameExtension: "scrivx")
+    static let scrivenerProjectDirectory = UTType(tag: "scriv", tagClass: .filenameExtension, conformingTo: .directory)
+        ?? UTType(importedAs: "com.literatureandlatte.scrivener.project-directory", conformingTo: .directory)
+    static let scrivenerProjectBundle = UTType(tag: "scriv", tagClass: .filenameExtension, conformingTo: .bundle)
+        ?? .bundle
+    static let scrivenerProjectItem = UTType(tag: "scriv", tagClass: .filenameExtension, conformingTo: .item)
+        ?? .item
+    static let scrivenerProjectXML = UTType(tag: "scrivx", tagClass: .filenameExtension, conformingTo: .xml)
         ?? UTType(importedAs: "com.literatureandlatte.scrivener.project-xml", conformingTo: .xml)
+    static let scrivenerProjectData = UTType(tag: "scrivx", tagClass: .filenameExtension, conformingTo: .data)
+        ?? .data
 }
