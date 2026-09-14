@@ -16,6 +16,17 @@ struct CharacterDossierView: View {
                     TextField("Location", text: optionalBinding(profile, \.location))
                 }
 
+                if let sourceDocument = profile.sourceDocument {
+                    let images = sortedImages(sourceDocument)
+                    if !images.isEmpty {
+                        Section("Images") {
+                            LinkedGalleryItemsView(items: images) { item in
+                                controller.selection = .galleryItem(item.id)
+                            }
+                        }
+                    }
+                }
+
                 Section("Aliases") {
                     ForEach(sortedAliases(profile), id: \.id) { alias in
                         HStack {
@@ -293,6 +304,12 @@ struct CharacterDossierView: View {
     private func sortedAliases(_ profile: CharacterProfile) -> [EntityAlias] {
         profile.semanticEntity.aliases.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func sortedImages(_ document: Document) -> [GalleryItem] {
+        document.sourceGalleryItems.sorted {
+            ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString)
         }
     }
 

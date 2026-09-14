@@ -368,6 +368,19 @@ private struct DocumentEditor: View {
 
                 Divider()
 
+                let images = document.sourceGalleryItems.sorted {
+                    ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString)
+                }
+                if !images.isEmpty {
+                    LinkedGalleryItemsView(items: images) { item in
+                        controller.selection = .galleryItem(item.id)
+                    }
+                    .frame(height: 170)
+                    .padding(.horizontal)
+
+                    Divider()
+                }
+
                 DocumentContentView(document: document, controller: controller)
             }
             .navigationTitle(document.title)

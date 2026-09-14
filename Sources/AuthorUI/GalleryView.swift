@@ -108,7 +108,35 @@ private struct GalleryThumbnail: View {
     }
 }
 
-private struct GalleryImage: View {
+struct LinkedGalleryItemsView: View {
+    let items: [GalleryItem]
+    let onSelect: (GalleryItem) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 12) {
+                ForEach(items, id: \.id) { item in
+                    Button {
+                        onSelect(item)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            GalleryImage(data: item.resource.data)
+                                .frame(width: 160, height: 120)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            Text(item.title)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
+
+struct GalleryImage: View {
     let data: Data?
 
     var body: some View {
