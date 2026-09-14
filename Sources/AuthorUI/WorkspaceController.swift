@@ -9,6 +9,7 @@ public enum WorkspaceSelection: Hashable, Sendable {
     case storyBible(UUID)
     case storyBibleCategory(projectID: UUID, category: StoryBibleCategory)
     case narrative(UUID)
+    case characterProfile(UUID)
     case semanticEntity(UUID)
     case document(UUID)
 }
@@ -74,6 +75,7 @@ public struct BinderItem: Identifiable {
         case storyBible
         case storyBibleCategory(StoryBibleCategory)
         case narrative
+        case characterProfile
         case semanticEntity
         case document
     }
@@ -128,6 +130,7 @@ public enum WorkspaceError: LocalizedError {
 @MainActor
 public final class WorkspaceController: ObservableObject {
     public let store: AuthorDataStore
+    private var pendingCharacterSave: Task<Void, Never>?
 
     @Published public private(set) var projects: [WritingProject] = []
     @Published public var selectedProjectID: UUID?
@@ -155,6 +158,22 @@ public final class WorkspaceController: ObservableObject {
     public var selectedSemanticEntity: SemanticEntity? {
         guard case .semanticEntity(let id) = selection else { return nil }
         return try? store.semanticEntities.fetch(id: id)
+    }
+
+    public var selectedCharacterProfile: CharacterProfile? {
+        guard case .characterProfile(let id) = selection else { return nil }
+        return try? store.characterProfiles.fetch(id: id)
+    }
+
+    public var otherCharacterProfiles: [CharacterProfile] {
+        guard let selectedCharacterProfile, let project = selectedProject else { return [] }
+        return project.characterProfiles
+            .filter { $0.id != selectedCharacterProfile.id }
+            .sorted {
+                $0.semanticEntity.canonicalName.localizedCaseInsensitiveCompare(
+                    $1.semanticEntity.canonicalName
+                ) == .orderedAscending
+            }
     }
 
     public func refresh() {
@@ -294,9 +313,26 @@ public final class WorkspaceController: ObservableObject {
             $0.modifiedAt = now
             $0.project = project
         }
+        if category == .people {
+            let nameComponents = name.split(whereSeparator: \.isWhitespace).map(String.init)
+            let profile = store.characterProfiles.create {
+                $0.firstName = nameComponents.first ?? name
+                $0.middleName = nameComponents.count > 2
+                    ? nameComponents.dropFirst().dropLast().joined(separator: " ")
+                    : nil
+                $0.lastName = nameComponents.count > 1 ? nameComponents.last : nil
+                $0.source = ProvenanceAgent.human.rawValue
+                $0.createdAt = now
+                $0.modifiedAt = now
+                $0.project = project
+                $0.semanticEntity = entity
+            }
+            selection = .characterProfile(profile.id)
+        } else {
+            selection = .semanticEntity(entity.id)
+        }
         project.modifiedAt = now
         try store.save()
-        selection = .semanticEntity(entity.id)
         refresh()
         return entity
     }
@@ -305,6 +341,162 @@ public final class WorkspaceController: ObservableObject {
         guard let project = selectedProject else { return }
         project.title = title
         project.author = author?.nilIfBlank
+        project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    // MARK: - Project Preferences (Section Types, Labels, Statuses, Custom Metadata)
+
+    public var sortedSectionTypeDefinitions: [SectionTypeDefinition] {
+        guard let project = selectedProject else { return [] }
+        return project.sectionTypeDefinitions.sorted {
+            ($0.orderIndex, $0.title) < ($1.orderIndex, $1.title)
+        }
+    }
+
+    public var sortedLabelDefinitions: [LabelDefinition] {
+        guard let project = selectedProject else { return [] }
+        return project.labelDefinitions.sorted {
+            ($0.orderIndex, $0.title) < ($1.orderIndex, $1.title)
+        }
+    }
+
+    public var sortedStatusDefinitions: [StatusDefinition] {
+        guard let project = selectedProject else { return [] }
+        return project.statusDefinitions.sorted {
+            ($0.orderIndex, $0.title) < ($1.orderIndex, $1.title)
+        }
+    }
+
+    public var sortedCustomMetadataFields: [MetadataField] {
+        guard let project = selectedProject else { return [] }
+        return project.metadataFields
+            .filter { $0.sourceIdentifier != nil || !$0.isSourceDefined }
+            .sorted { ($0.orderIndex, $0.displayName) < ($1.orderIndex, $1.displayName) }
+    }
+
+    @discardableResult
+    public func addSectionType(title: String) -> SectionTypeDefinition? {
+        guard let project = selectedProject else { return nil }
+        let maxOrder = project.sectionTypeDefinitions.map(\.orderIndex).max() ?? -1
+        let definition = store.sectionTypeDefinitions.create {
+            $0.sourceIdentifier = "native.\(UUID().uuidString)"
+            $0.title = title
+            $0.orderIndex = maxOrder + 1
+            $0.project = project
+        }
+        project.modifiedAt = Date()
+        saveAndRefresh()
+        return definition
+    }
+
+    public func renameSectionType(_ definition: SectionTypeDefinition, title: String) {
+        definition.title = title
+        definition.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func deleteSectionType(_ definition: SectionTypeDefinition) {
+        let project = definition.project
+        store.context.delete(definition)
+        project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    @discardableResult
+    public func addLabel(title: String, color: (red: Double, green: Double, blue: Double)? = nil) -> LabelDefinition? {
+        guard let project = selectedProject else { return nil }
+        let maxOrder = project.labelDefinitions.map(\.orderIndex).max() ?? -1
+        let definition = store.labelDefinitions.create {
+            $0.sourceIdentifier = "native.\(UUID().uuidString)"
+            $0.title = title
+            $0.colorRed = color.map { NSNumber(value: $0.red) }
+            $0.colorGreen = color.map { NSNumber(value: $0.green) }
+            $0.colorBlue = color.map { NSNumber(value: $0.blue) }
+            $0.orderIndex = maxOrder + 1
+            $0.project = project
+        }
+        project.modifiedAt = Date()
+        saveAndRefresh()
+        return definition
+    }
+
+    public func updateLabel(
+        _ definition: LabelDefinition,
+        title: String,
+        color: (red: Double, green: Double, blue: Double)?
+    ) {
+        definition.title = title
+        definition.colorRed = color.map { NSNumber(value: $0.red) }
+        definition.colorGreen = color.map { NSNumber(value: $0.green) }
+        definition.colorBlue = color.map { NSNumber(value: $0.blue) }
+        definition.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func deleteLabel(_ definition: LabelDefinition) {
+        let project = definition.project
+        store.context.delete(definition)
+        project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    @discardableResult
+    public func addStatus(title: String) -> StatusDefinition? {
+        guard let project = selectedProject else { return nil }
+        let maxOrder = project.statusDefinitions.map(\.orderIndex).max() ?? -1
+        let definition = store.statusDefinitions.create {
+            $0.sourceIdentifier = "native.\(UUID().uuidString)"
+            $0.title = title
+            $0.orderIndex = maxOrder + 1
+            $0.project = project
+        }
+        project.modifiedAt = Date()
+        saveAndRefresh()
+        return definition
+    }
+
+    public func renameStatus(_ definition: StatusDefinition, title: String) {
+        definition.title = title
+        definition.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func deleteStatus(_ definition: StatusDefinition) {
+        let project = definition.project
+        store.context.delete(definition)
+        project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    @discardableResult
+    public func addCustomMetadataField(displayName: String, valueType: String = "text") -> MetadataField? {
+        guard let project = selectedProject else { return nil }
+        let maxOrder = project.metadataFields.map(\.orderIndex).max() ?? -1
+        let key = "custom.\(UUID().uuidString)"
+        let field = store.metadataFields.create {
+            $0.key = key
+            $0.displayName = displayName
+            $0.valueType = valueType
+            $0.isSourceDefined = false
+            $0.orderIndex = maxOrder + 1
+            $0.project = project
+        }
+        project.modifiedAt = Date()
+        saveAndRefresh()
+        return field
+    }
+
+    public func updateCustomMetadataField(_ field: MetadataField, displayName: String, valueType: String) {
+        field.displayName = displayName
+        field.valueType = valueType
+        field.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func deleteCustomMetadataField(_ field: MetadataField) {
+        let project = field.project
+        store.context.delete(field)
         project.modifiedAt = Date()
         saveAndRefresh()
     }
@@ -343,6 +535,132 @@ public final class WorkspaceController: ObservableObject {
         entity.modifiedAt = Date()
         entity.project.modifiedAt = Date()
         saveAndRefresh()
+    }
+
+    public func saveCharacterProfile(_ profile: CharacterProfile) {
+        profile.semanticEntity.canonicalName = [
+            profile.firstName, profile.middleName, profile.lastName
+        ].compactMap { $0?.nilIfBlank }.joined(separator: " ")
+        let normalizedAge = profile.ageText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedAge, let age = Int(normalizedAge) {
+            profile.age = NSNumber(value: age)
+        } else {
+            profile.age = nil
+        }
+        profile.semanticEntity.modifiedAt = Date()
+        profile.modifiedAt = Date()
+        profile.project.modifiedAt = Date()
+        pendingCharacterSave?.cancel()
+        pendingCharacterSave = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled, let self else { return }
+                try self.store.save()
+                self.refresh()
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.report(error)
+            }
+        }
+    }
+
+    public func addAlias(_ name: String, to profile: CharacterProfile) throws {
+        let normalized = name.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty,
+              !profile.semanticEntity.aliases.contains(where: { $0.normalizedName == normalized }) else {
+            return
+        }
+        store.entityAliases.create {
+            $0.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            $0.normalizedName = normalized
+            $0.semanticEntity = profile.semanticEntity
+        }
+        try store.save()
+        refresh()
+    }
+
+    public func addMeasurement(
+        name: String,
+        value: String,
+        unit: String?,
+        to profile: CharacterProfile
+    ) throws {
+        store.characterMeasurements.create {
+            $0.name = name
+            $0.value = value
+            $0.unit = unit?.nilIfBlank
+            $0.orderIndex = Int64(profile.measurements.count)
+            $0.characterProfile = profile
+        }
+        try store.save()
+        refresh()
+    }
+
+    public func addCharacterNote(
+        title: String?,
+        body: String,
+        to profile: CharacterProfile
+    ) throws {
+        let now = Date()
+        store.characterNotes.create {
+            $0.title = title?.nilIfBlank
+            $0.body = body
+            $0.kind = "general"
+            $0.source = ProvenanceAgent.human.rawValue
+            $0.orderIndex = Int64(profile.notes.count)
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.characterProfile = profile
+        }
+        try store.save()
+        refresh()
+    }
+
+    public func addCharacterRelationship(
+        kind: String,
+        notes: String?,
+        from source: CharacterProfile,
+        to target: CharacterProfile
+    ) throws {
+        let now = Date()
+        store.characterRelationships.create {
+            $0.kind = kind.nilIfBlank ?? "other"
+            $0.notes = notes?.nilIfBlank
+            $0.source = ProvenanceAgent.human.rawValue
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.sourceCharacter = source
+            $0.targetCharacter = target
+        }
+        try store.save()
+        refresh()
+    }
+
+    public func addCharacterConflict(
+        title: String,
+        summary: String?,
+        kind: String,
+        relatedCharacter: CharacterProfile?,
+        to profile: CharacterProfile
+    ) throws {
+        let now = Date()
+        store.characterConflicts.create {
+            $0.title = title
+            $0.summary = summary?.nilIfBlank
+            $0.kind = kind
+            $0.status = "active"
+            $0.source = ProvenanceAgent.human.rawValue
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.characterProfile = profile
+            $0.relatedCharacters = relatedCharacter.map { Set([$0]) } ?? []
+        }
+        try store.save()
+        refresh()
     }
 
     public func moveDocument(_ documentID: UUID, onto targetID: UUID) throws {
@@ -451,7 +769,9 @@ public final class WorkspaceController: ObservableObject {
             return
         }
 
-        let entities = project.semanticEntities.sorted {
+        let entities = project.semanticEntities.filter {
+            $0.characterProfile?.sourceDocument == nil
+        }.sorted {
             $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
         }
         let categories = StoryBibleCategory.allCases.map { category in
@@ -466,8 +786,10 @@ public final class WorkspaceController: ObservableObject {
                         id: entity.id.uuidString,
                         title: entity.canonicalName,
                         systemImage: category.systemImage,
-                        selection: .semanticEntity(entity.id),
-                        kind: .semanticEntity
+                        selection: entity.characterProfile.map {
+                            .characterProfile($0.id)
+                        } ?? .semanticEntity(entity.id),
+                        kind: entity.characterProfile == nil ? .semanticEntity : .characterProfile
                     )
                 }
             )
@@ -531,12 +853,13 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func makeDocumentItem(_ document: Document) -> BinderItem {
-        BinderItem(
+        let profile = document.sourceCharacterProfiles.first
+        return BinderItem(
             id: document.id.uuidString,
             title: document.title,
             systemImage: documentSystemImage(document),
-            selection: .document(document.id),
-            kind: .document,
+            selection: profile.map { .characterProfile($0.id) } ?? .document(document.id),
+            kind: profile == nil ? .document : .characterProfile,
             documentID: document.id,
             children: document.orderedChildren.isEmpty
                 ? nil

@@ -26,6 +26,9 @@ public final class AuthorDataStore {
     public let documents: EntityRepository<Document>
     public let resources: EntityRepository<ContentResource>
     public let metadataFields: EntityRepository<MetadataField>
+    public let labelDefinitions: EntityRepository<LabelDefinition>
+    public let statusDefinitions: EntityRepository<StatusDefinition>
+    public let sectionTypeDefinitions: EntityRepository<SectionTypeDefinition>
     public let metadataValues: EntityRepository<MetadataValue>
     public let semanticEntities: EntityRepository<SemanticEntity>
     public let entityAliases: EntityRepository<EntityAlias>
@@ -36,6 +39,11 @@ public final class AuthorDataStore {
     public let styles: EntityRepository<StyleDefinition>
     public let importRuns: EntityRepository<ImportRun>
     public let provenanceEvents: EntityRepository<ProvenanceEvent>
+    public let characterProfiles: EntityRepository<CharacterProfile>
+    public let characterMeasurements: EntityRepository<CharacterMeasurement>
+    public let characterNotes: EntityRepository<CharacterNote>
+    public let characterRelationships: EntityRepository<CharacterRelationship>
+    public let characterConflicts: EntityRepository<CharacterConflict>
 
     public init(storeURL: URL? = nil, inMemory: Bool = false) throws {
         guard let modelURL = Bundle.module.url(forResource: "AuthorData", withExtension: "momd"),
@@ -71,6 +79,9 @@ public final class AuthorDataStore {
         documents = EntityRepository(context: container.viewContext)
         resources = EntityRepository(context: container.viewContext)
         metadataFields = EntityRepository(context: container.viewContext)
+        labelDefinitions = EntityRepository(context: container.viewContext)
+        statusDefinitions = EntityRepository(context: container.viewContext)
+        sectionTypeDefinitions = EntityRepository(context: container.viewContext)
         metadataValues = EntityRepository(context: container.viewContext)
         semanticEntities = EntityRepository(context: container.viewContext)
         entityAliases = EntityRepository(context: container.viewContext)
@@ -81,6 +92,11 @@ public final class AuthorDataStore {
         styles = EntityRepository(context: container.viewContext)
         importRuns = EntityRepository(context: container.viewContext)
         provenanceEvents = EntityRepository(context: container.viewContext)
+        characterProfiles = EntityRepository(context: container.viewContext)
+        characterMeasurements = EntityRepository(context: container.viewContext)
+        characterNotes = EntityRepository(context: container.viewContext)
+        characterRelationships = EntityRepository(context: container.viewContext)
+        characterConflicts = EntityRepository(context: container.viewContext)
     }
 
     public func save() throws {

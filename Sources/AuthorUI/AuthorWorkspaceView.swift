@@ -161,6 +161,8 @@ private struct WorkspaceDetailView: View {
                 StoryBibleCategoryView(category: category, controller: controller)
             case .narrative:
                 NarrativeOverview(controller: controller)
+            case .characterProfile:
+                CharacterDossierView(controller: controller)
             case .semanticEntity:
                 SemanticEntityEditor(controller: controller)
             case .document:
@@ -297,7 +299,10 @@ private struct StoryBibleCategoryView: View {
     private var entities: [SemanticEntity] {
         guard let project = controller.selectedProject else { return [] }
         return project.semanticEntities
-            .filter { category.contains(kind: $0.kind) }
+            .filter {
+                category.contains(kind: $0.kind) &&
+                    $0.characterProfile?.sourceDocument == nil
+            }
             .sorted {
                 $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
             }

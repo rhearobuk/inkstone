@@ -47,6 +47,30 @@ final class AuthorDataTests: XCTestCase {
             $0.field.key == "scrivener.MetaData.Custom.sexualcontent" && $0.stringValue == "R"
         })
 
+        XCTAssertEqual(project.sectionTypeDefinitions.count, 9)
+        XCTAssertTrue(project.sectionTypeDefinitions.contains { $0.title == "Chapter Heading" })
+        XCTAssertTrue(project.sectionTypeDefinitions.contains {
+            $0.sourceIdentifier == "9AFECE21-8C79-45E0-9B9F-D6D62A9729D3" && $0.title == "Scene"
+        })
+
+        XCTAssertEqual(project.labelDefinitions.count, 7)
+        let intenseLabel = try XCTUnwrap(project.labelDefinitions.first { $0.sourceIdentifier == "7" })
+        XCTAssertEqual(intenseLabel.title, "Scenes of Intense Sexuality/Violence")
+        XCTAssertNotNil(intenseLabel.colorRed)
+        XCTAssertTrue(project.labelDefinitions.contains { $0.sourceIdentifier == "-1" && $0.title == "No Label" })
+
+        XCTAssertEqual(project.statusDefinitions.count, 7)
+        XCTAssertTrue(project.statusDefinitions.contains { $0.sourceIdentifier == "4" && $0.title == "Final Draft" })
+
+        let customFields = project.metadataFields.filter { $0.sourceIdentifier != nil }
+        XCTAssertEqual(customFields.count, 3)
+        XCTAssertTrue(customFields.contains {
+            $0.key == "scrivener.MetaData.Custom.sexualcontent" && $0.displayName == "Sexual Content"
+        })
+        XCTAssertTrue(customFields.contains {
+            $0.key == "scrivener.MetaData.Custom.paperbackisbn" && $0.displayName == "Paperback ISBN"
+        })
+
         let illustratedCharacter = try store.documents.require(
             id: UUID(uuidString: "FBD567AB-8642-42E6-84B3-0E213E1FC4DC")!
         )
@@ -56,11 +80,44 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertTrue(String(decoding: illustratedRTF, as: UTF8.self).contains("\\jpegblip"))
         XCTAssertFalse(illustratedCharacter.plainText?.contains("\\jpegblip") == true)
 
+        let aidanDocument = try store.documents.require(
+            id: UUID(uuidString: "92261C90-C85C-4E52-B2CF-553F92DA7467")!
+        )
+        let aidan = try XCTUnwrap(aidanDocument.sourceCharacterProfiles.first)
+        XCTAssertEqual(aidan.firstName, "Aidan")
+        XCTAssertEqual(aidan.middleName, "Dylan")
+        XCTAssertEqual(aidan.lastName, "Spalding")
+        XCTAssertEqual(aidan.age?.intValue, 21)
+        XCTAssertEqual(aidan.location, "London")
+        XCTAssertEqual(aidan.height, "6’3")
+        XCTAssertFalse(aidan.measurements.isEmpty)
+        XCTAssertTrue(aidan.semanticEntity.aliases.contains { $0.name == "Iphis" })
+        XCTAssertFalse(aidan.biography?.isEmpty ?? true)
+        XCTAssertFalse(aidan.notes.isEmpty)
+        XCTAssertFalse(aidan.conflicts.isEmpty)
+
+        let jacobDocument = try store.documents.require(
+            id: UUID(uuidString: "4A5215B5-53F1-42D8-9D00-BC0F93EE6F9D")!
+        )
+        let jacob = try XCTUnwrap(jacobDocument.sourceCharacterProfiles.first)
+        XCTAssertTrue(jacob.outgoingRelationships.contains {
+            $0.targetCharacter.id == aidan.id
+        })
+
         let documentCount = try store.documents.count()
         let resourceCount = try store.resources.count()
+        let characterProfileCount = try store.characterProfiles.count()
+        let labelCount = try store.labelDefinitions.count()
+        let statusCount = try store.statusDefinitions.count()
+        let sectionTypeCount = try store.sectionTypeDefinitions.count()
+        XCTAssertGreaterThan(characterProfileCount, 10)
         let second = try importer.importProject(xmlURL: xmlURL, filesURL: filesURL)
         XCTAssertEqual(try store.documents.count(), documentCount)
         XCTAssertEqual(try store.resources.count(), resourceCount)
+        XCTAssertEqual(try store.characterProfiles.count(), characterProfileCount)
+        XCTAssertEqual(try store.labelDefinitions.count(), labelCount)
+        XCTAssertEqual(try store.statusDefinitions.count(), statusCount)
+        XCTAssertEqual(try store.sectionTypeDefinitions.count(), sectionTypeCount)
         XCTAssertEqual(second.projectID, first.projectID)
         XCTAssertGreaterThan(second.updatedCount, 0)
         XCTAssertEqual(try store.importRuns.count(), 2)

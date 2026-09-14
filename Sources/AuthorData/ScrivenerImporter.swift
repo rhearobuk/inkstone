@@ -236,6 +236,14 @@ public final class ScrivenerImporter {
                 }
             }
 
+            try importProjectSettings(parsed, project: project, inserted: &inserted, updated: &updated)
+            try importCharacterDossiers(
+                items: parsed.items,
+                documents: documentsBySourceID,
+                project: project,
+                inserted: &inserted,
+                updated: &updated
+            )
             try importStyles(filesURL: filesURL, project: project, inserted: &inserted, updated: &updated, warnings: &warnings)
             let linkCount = try importLinks(
                 items: parsed.items,
@@ -298,6 +306,79 @@ public final class ScrivenerImporter {
             try? store.save()
             throw error
         }
+    }
+
+    /// Persists the project-level vocabulary definitions (`SectionTypes`, `LabelSettings`,
+    /// `StatusSettings`, `CustomMetaDataSettings`) parsed from the Scrivener project XML so they
+    /// can be surfaced and edited in a project preferences UI. Runs after per-document metadata
+    /// import so authoritative display names/types from these settings win over placeholder
+    /// values inferred from raw metadata keys.
+    private func importProjectSettings(
+        _ parsed: ParsedScrivenerProject,
+        project: WritingProject,
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        for (index, sectionType) in parsed.sectionTypes.enumerated() {
+            let id = DeterministicID.make(namespace: project.id, name: "section-type:\(sectionType.id)")
+            _ = try store.sectionTypeDefinitions.upsert(id: id) { definition, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                definition.sourceIdentifier = sectionType.id
+                definition.title = sectionType.title
+                definition.orderIndex = Int64(index)
+                definition.project = project
+            }
+        }
+
+        for (index, label) in parsed.labels.enumerated() {
+            let id = DeterministicID.make(namespace: project.id, name: "label:\(label.id)")
+            let components = Self.colorComponents(label.color)
+            _ = try store.labelDefinitions.upsert(id: id) { definition, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                definition.sourceIdentifier = label.id
+                definition.title = label.title
+                definition.colorRed = components.map { NSNumber(value: $0.0) }
+                definition.colorGreen = components.map { NSNumber(value: $0.1) }
+                definition.colorBlue = components.map { NSNumber(value: $0.2) }
+                definition.isDefault = label.id == parsed.defaultLabelID
+                definition.orderIndex = Int64(index)
+                definition.project = project
+            }
+        }
+
+        for (index, status) in parsed.statuses.enumerated() {
+            let id = DeterministicID.make(namespace: project.id, name: "status:\(status.id)")
+            _ = try store.statusDefinitions.upsert(id: id) { definition, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                definition.sourceIdentifier = status.id
+                definition.title = status.title
+                definition.isDefault = status.id == parsed.defaultStatusID
+                definition.orderIndex = Int64(index)
+                definition.project = project
+            }
+        }
+
+        for (index, field) in parsed.customFields.enumerated() {
+            let key = "scrivener.MetaData.Custom.\(field.id)"
+            let fieldID = DeterministicID.make(namespace: project.id, name: "metadata-field:\(key)")
+            _ = try store.metadataFields.upsert(id: fieldID) { metadataField, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                metadataField.key = key
+                metadataField.displayName = field.title
+                metadataField.valueType = field.type.lowercased()
+                metadataField.sourceIdentifier = field.id
+                metadataField.isSourceDefined = true
+                metadataField.orderIndex = Int64(index)
+                metadataField.project = project
+            }
+        }
+    }
+
+    private static func colorComponents(_ raw: String?) -> (Double, Double, Double)? {
+        guard let raw else { return nil }
+        let parts = raw.split(separator: " ").compactMap { Double($0) }
+        guard parts.count >= 3 else { return nil }
+        return (parts[0], parts[1], parts[2])
     }
 
     private func upsertMetadata(
@@ -384,6 +465,285 @@ public final class ScrivenerImporter {
             }
         }
         return linkCount
+    }
+
+    private func importCharacterDossiers(
+        items: [BinderItemRecord],
+        documents: [String: Document],
+        project: WritingProject,
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        let itemByID = Dictionary(uniqueKeysWithValues: items.map { ($0.identifier, $0) })
+        let characterRootIDs = Set(items.filter {
+            $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("Characters") == .orderedSame
+        }.map(\.identifier))
+        guard !characterRootIDs.isEmpty else { return }
+
+        func belongsToCharacters(_ item: BinderItemRecord) -> Bool {
+            var parentID = item.parentIdentifier
+            while let currentID = parentID {
+                if characterRootIDs.contains(currentID) { return true }
+                parentID = itemByID[currentID]?.parentIdentifier
+            }
+            return false
+        }
+
+        var imported: [(profile: CharacterProfile, card: CharacterCard)] = []
+        for item in items where belongsToCharacters(item) {
+            guard let document = documents[item.identifier],
+                  let sourceText = document.plainText,
+                  CharacterCard.looksLikeCard(sourceText) else {
+                continue
+            }
+            let card = CharacterCard(text: sourceText, fallbackName: item.title)
+            let entityID = DeterministicID.make(
+                namespace: project.id,
+                name: "character-entity:\(item.identifier)"
+            )
+            let entity = try store.semanticEntities.upsert(id: entityID) { entity, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                entity.canonicalName = card.fullName
+                entity.kind = SemanticEntityKind.character.rawValue
+                entity.summary = card.sections["Role in Story"]
+                entity.source = ProvenanceAgent.sourceImport.rawValue
+                if isNew { entity.createdAt = document.createdAt ?? Date() }
+                entity.modifiedAt = document.modifiedAt ?? Date()
+                entity.project = project
+            }
+
+            for aliasName in card.aliases {
+                let normalizedName = Self.normalizedName(aliasName)
+                let aliasID = DeterministicID.make(
+                    namespace: entityID,
+                    name: "alias:\(normalizedName)"
+                )
+                _ = try store.entityAliases.upsert(id: aliasID) { alias, isNew in
+                    if isNew { inserted += 1 } else { updated += 1 }
+                    alias.name = aliasName
+                    alias.normalizedName = normalizedName
+                    alias.semanticEntity = entity
+                }
+            }
+
+            let profileID = DeterministicID.make(
+                namespace: project.id,
+                name: "character-profile:\(item.identifier)"
+            )
+            let profile = try store.characterProfiles.upsert(id: profileID) { profile, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                profile.firstName = card.firstName
+                profile.middleName = card.middleName
+                profile.lastName = card.lastName
+                profile.age = card.age.map(NSNumber.init(value:))
+                profile.ageText = card.ageText
+                profile.location = card.location
+                profile.height = card.height
+                profile.weight = card.weight
+                profile.physicalDescription = card.sections["Physical Description"]
+                profile.biography = card.sections["Background"]
+                profile.source = ProvenanceAgent.sourceImport.rawValue
+                if isNew { profile.createdAt = document.createdAt ?? Date() }
+                profile.modifiedAt = document.modifiedAt ?? Date()
+                profile.project = project
+                profile.semanticEntity = entity
+                profile.sourceDocument = document
+            }
+
+            try upsertCharacterNotes(
+                card: card,
+                profile: profile,
+                inserted: &inserted,
+                updated: &updated
+            )
+            try upsertCharacterMeasurements(
+                card: card,
+                profile: profile,
+                inserted: &inserted,
+                updated: &updated
+            )
+            try upsertCharacterConflicts(
+                card: card,
+                profile: profile,
+                inserted: &inserted,
+                updated: &updated
+            )
+            imported.append((profile, card))
+        }
+
+        try upsertCharacterRelationships(
+            imported,
+            inserted: &inserted,
+            updated: &updated
+        )
+        resolveConflictParticipants(imported)
+    }
+
+    private func upsertCharacterNotes(
+        card: CharacterCard,
+        profile: CharacterProfile,
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        let mappings = [
+            ("Role in Story", "role"),
+            ("Goal", "goal"),
+            ("Narrative Function", "narrativeFunction"),
+            ("Skills", "skills"),
+            ("Personality", "personality"),
+            ("Occupation", "occupation"),
+            ("Habits/Mannerisms", "mannerisms"),
+            ("Key Relationships", "relationships"),
+            ("Notes", "general")
+        ]
+        for (index, mapping) in mappings.enumerated() {
+            guard let body = card.sections[mapping.0], !body.isEmpty else { continue }
+            let noteID = DeterministicID.make(namespace: profile.id, name: "note:\(mapping.1)")
+            _ = try store.characterNotes.upsert(id: noteID) { note, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                note.title = mapping.0
+                note.body = body
+                note.kind = mapping.1
+                note.source = ProvenanceAgent.sourceImport.rawValue
+                note.orderIndex = Int64(index)
+                if isNew { note.createdAt = profile.createdAt }
+                note.modifiedAt = profile.modifiedAt
+                note.characterProfile = profile
+            }
+        }
+    }
+
+    private func upsertCharacterMeasurements(
+        card: CharacterCard,
+        profile: CharacterProfile,
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        for (index, measurement) in card.measurements.enumerated() {
+            let measurementID = DeterministicID.make(
+                namespace: profile.id,
+                name: "measurement:\(index):\(Self.normalizedName(measurement.value))"
+            )
+            _ = try store.characterMeasurements.upsert(id: measurementID) { object, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                object.name = measurement.name
+                object.value = measurement.value
+                object.unit = measurement.unit
+                object.notes = measurement.notes
+                object.orderIndex = Int64(index)
+                object.characterProfile = profile
+            }
+        }
+    }
+
+    private func upsertCharacterConflicts(
+        card: CharacterCard,
+        profile: CharacterProfile,
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        for (title, kind) in [("Internal Conflicts", "internal"), ("External Conflicts", "external")] {
+            guard let summary = card.sections[title], !summary.isEmpty else { continue }
+            let conflictID = DeterministicID.make(namespace: profile.id, name: "conflict:\(kind)")
+            _ = try store.characterConflicts.upsert(id: conflictID) { conflict, isNew in
+                if isNew { inserted += 1 } else { updated += 1 }
+                conflict.title = title
+                conflict.summary = summary
+                conflict.kind = kind
+                conflict.status = "active"
+                conflict.source = ProvenanceAgent.sourceImport.rawValue
+                if isNew { conflict.createdAt = profile.createdAt }
+                conflict.modifiedAt = profile.modifiedAt
+                conflict.characterProfile = profile
+            }
+        }
+    }
+
+    private func upsertCharacterRelationships(
+        _ imported: [(profile: CharacterProfile, card: CharacterCard)],
+        inserted: inout Int,
+        updated: inout Int
+    ) throws {
+        for source in imported {
+            let relationshipText = [
+                source.card.sections["Role in Story"],
+                source.card.sections["Key Relationships"]
+            ].compactMap { $0 }.joined(separator: "\n")
+            guard !relationshipText.isEmpty else { continue }
+
+            for target in imported where target.profile.id != source.profile.id {
+                let names = [
+                    target.profile.semanticEntity.canonicalName,
+                    target.profile.firstName,
+                    target.profile.lastName
+                ].compactMap { $0 } +
+                    target.profile.semanticEntity.aliases.map(\.name)
+                guard names.contains(where: {
+                    $0.count >= 3 && relationshipText.localizedCaseInsensitiveContains($0)
+                }) else {
+                    continue
+                }
+                let relationshipID = DeterministicID.make(
+                    namespace: source.profile.id,
+                    name: "relationship:\(target.profile.id.uuidString)"
+                )
+                _ = try store.characterRelationships.upsert(id: relationshipID) { relationship, isNew in
+                    if isNew { inserted += 1 } else { updated += 1 }
+                    relationship.kind = Self.relationshipKind(relationshipText)
+                    relationship.label = nil
+                    relationship.notes = relationshipText
+                    relationship.source = ProvenanceAgent.sourceImport.rawValue
+                    if isNew { relationship.createdAt = source.profile.createdAt }
+                    relationship.modifiedAt = source.profile.modifiedAt
+                    relationship.sourceCharacter = source.profile
+                    relationship.targetCharacter = target.profile
+                }
+            }
+        }
+    }
+
+    private func resolveConflictParticipants(
+        _ imported: [(profile: CharacterProfile, card: CharacterCard)]
+    ) {
+        for source in imported {
+            for conflict in source.profile.conflicts {
+                guard let text = conflict.summary else { continue }
+                conflict.relatedCharacters = Set(imported.compactMap { target in
+                    guard target.profile.id != source.profile.id else { return nil }
+                    let names = [
+                        target.profile.semanticEntity.canonicalName,
+                        target.profile.firstName,
+                        target.profile.lastName
+                    ].compactMap { $0 } +
+                        target.profile.semanticEntity.aliases.map(\.name)
+                    return names.contains(where: {
+                        $0.count >= 3 && text.localizedCaseInsensitiveContains($0)
+                    }) ? target.profile : nil
+                })
+            }
+        }
+    }
+
+    private static func relationshipKind(_ text: String) -> String {
+        let lowercased = text.lowercased()
+        if lowercased.contains("romantic") || lowercased.contains("love") { return "romantic" }
+        if lowercased.contains("friend") { return "friend" }
+        if lowercased.contains("coworker") || lowercased.contains("colleague") { return "colleague" }
+        if lowercased.contains("family") || lowercased.contains("father") ||
+            lowercased.contains("mother") || lowercased.contains("brother") ||
+            lowercased.contains("sister") {
+            return "family"
+        }
+        if lowercased.contains("antagonist") || lowercased.contains("enemy") { return "antagonist" }
+        if lowercased.contains("mentor") || lowercased.contains("master") { return "mentor" }
+        return "other"
+    }
+
+    private static func normalizedName(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 
     private func importStyles(
@@ -630,10 +990,205 @@ private struct BinderItemRecord {
     let bookmarks: [String]
 }
 
+private struct CharacterCard {
+    struct Measurement {
+        let name: String
+        let value: String
+        let unit: String?
+        let notes: String?
+    }
+
+    static let headings = [
+        "Character Name", "Age • Location", "Role in Story", "Narrative Function",
+        "Goal", "Skills", "Physical Description", "Personality", "Occupation",
+        "Habits/Mannerisms", "Background", "Internal Conflicts",
+        "External Conflicts", "Key Relationships", "Notes"
+    ]
+
+    let fullName: String
+    let firstName: String
+    let middleName: String?
+    let lastName: String?
+    let aliases: [String]
+    let age: Int?
+    let ageText: String?
+    let location: String?
+    let height: String?
+    let weight: String?
+    let sections: [String: String]
+    let measurements: [Measurement]
+
+    static func looksLikeCard(_ text: String) -> Bool {
+        let normalized = clean(text)
+        return headings.filter { normalized.localizedCaseInsensitiveContains($0) }.count >= 3
+    }
+
+    init(text: String, fallbackName: String) {
+        let cleaned = Self.clean(text)
+        var preamble: [String] = []
+        var values: [String: [String]] = [:]
+        var currentHeading: String?
+
+        for rawLine in cleaned.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            if let match = Self.headingMatch(line) {
+                currentHeading = match.heading
+                if !match.value.isEmpty {
+                    values[match.heading, default: []].append(match.value)
+                }
+            } else if let currentHeading {
+                values[currentHeading, default: []].append(line)
+            } else {
+                preamble.append(line)
+            }
+        }
+
+        sections = values.mapValues { $0.joined(separator: "\n") }
+        let rawName = sections["Character Name"] ?? preamble.first ?? fallbackName
+        let nameParts = rawName.split(separator: "/")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.caseInsensitiveCompare("Character Name") != .orderedSame }
+        let selectedName = nameParts.first(where: { $0.split(separator: " ").count >= 2 })
+            ?? nameParts.first
+            ?? fallbackName
+        let components = selectedName.split(whereSeparator: \.isWhitespace).map(String.init)
+        firstName = components.first ?? selectedName
+        lastName = components.count > 1 ? components.last : nil
+        middleName = components.count > 2
+            ? components.dropFirst().dropLast().joined(separator: " ")
+            : nil
+        fullName = selectedName
+        aliases = Array(Set(nameParts.filter {
+            $0.caseInsensitiveCompare(selectedName) != .orderedSame
+        })).sorted()
+
+        let ageLocation = sections["Age • Location"] ?? preamble.dropFirst().first
+        let ageLocationParts = ageLocation?.components(separatedBy: "•") ?? []
+        let rawAge = ageLocationParts.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "Age:", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        ageText = rawAge?.isEmpty == false ? rawAge : nil
+        if let rawAge,
+           let match = rawAge.range(of: #"^\d{1,3}$"#, options: .regularExpression) {
+            age = Int(rawAge[match])
+        } else {
+            age = nil
+        }
+        location = ageLocationParts.count > 1
+            ? ageLocationParts.dropFirst().joined(separator: "•")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+
+        let physical = sections["Physical Description"] ?? ""
+        height = Self.firstMatch(
+            in: physical,
+            pattern: #"\b\d+(?:\.\d+)?\s*(?:cm|centimet(?:er|re)s?|feet|ft)\b|\b\d+\s*[’']\s*\d+(?:\s*[”"])?\b"#
+        )
+        weight = Self.firstMatch(
+            in: physical,
+            pattern: #"\b\d+(?:\.\d+)?\s*(?:kg|kilograms?|lbs?|pounds?)\b"#
+        )
+        measurements = Self.measurements(in: physical)
+    }
+
+    private static func clean(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: #"<[^>]*Scr[^>]*>"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
+
+    private static func headingMatch(_ line: String) -> (heading: String, value: String)? {
+        for heading in headings.sorted(by: { $0.count > $1.count }) {
+            guard line.range(of: heading, options: [.anchored, .caseInsensitive]) != nil else {
+                continue
+            }
+            var remainder = String(line.dropFirst(heading.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if remainder.first == ":" {
+                remainder.removeFirst()
+                remainder = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return (heading, remainder)
+        }
+        return nil
+    }
+
+    private static func firstMatch(in text: String, pattern: String) -> String? {
+        guard let range = text.range(
+            of: pattern,
+            options: [.regularExpression, .caseInsensitive]
+        ) else {
+            return nil
+        }
+        return String(text[range])
+    }
+
+    private static func measurements(in physicalDescription: String) -> [Measurement] {
+        let unitPattern = #"\b\d+(?:\.\d+)?\s*(?:cm|mm|kg|lbs?|inches?|feet|ft)\b|\b\d+\s*[’']\s*\d+"#
+        var result: [Measurement] = []
+        for line in physicalDescription.components(separatedBy: .newlines) {
+            guard line.range(of: unitPattern, options: [.regularExpression, .caseInsensitive]) != nil else {
+                continue
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name: String
+            if let separator = trimmed.firstIndex(of: ":") {
+                name = String(trimmed[..<separator])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "-* \t"))
+            } else if trimmed.localizedCaseInsensitiveContains("height") {
+                name = "Height"
+            } else if trimmed.localizedCaseInsensitiveContains("weight") {
+                name = "Weight"
+            } else {
+                name = "Imported Measurement"
+            }
+            result.append(Measurement(
+                name: name.isEmpty ? "Imported Measurement" : name,
+                value: trimmed,
+                unit: nil,
+                notes: "Imported from Physical Description"
+            ))
+        }
+        return result
+    }
+}
+
+private struct ParsedSectionType {
+    let id: String
+    let title: String
+}
+
+private struct ParsedLabel {
+    let id: String
+    let title: String
+    let color: String?
+}
+
+private struct ParsedStatus {
+    let id: String
+    let title: String
+}
+
+private struct ParsedCustomField {
+    let id: String
+    let title: String
+    let type: String
+}
+
 private struct ParsedScrivenerProject {
     let identifier: String
     let attributes: [String: String]
     let items: [BinderItemRecord]
+    let sectionTypes: [ParsedSectionType]
+    let labels: [ParsedLabel]
+    let defaultLabelID: String?
+    let statuses: [ParsedStatus]
+    let defaultStatusID: String?
+    let customFields: [ParsedCustomField]
 }
 
 private final class ScrivenerXMLReader: NSObject, XMLParserDelegate {
@@ -658,6 +1213,16 @@ private final class ScrivenerXMLReader: NSObject, XMLParserDelegate {
     private var text = ""
     private var parseError: Error?
 
+    private var sectionTypes: [ParsedSectionType] = []
+    private var labels: [ParsedLabel] = []
+    private var defaultLabelID: String?
+    private var statuses: [ParsedStatus] = []
+    private var defaultStatusID: String?
+    private var customFields: [ParsedCustomField] = []
+    private var pendingAttributes: [String: String] = [:]
+    private var currentMetaDataFieldID: String?
+    private var currentMetaDataFieldType: String?
+
     static func parse(data: Data, url: URL) throws -> ParsedScrivenerProject {
         let reader = ScrivenerXMLReader()
         let parser = XMLParser(data: data)
@@ -671,7 +1236,13 @@ private final class ScrivenerXMLReader: NSObject, XMLParserDelegate {
         return ParsedScrivenerProject(
             identifier: reader.projectAttributes["Identifier"] ?? "",
             attributes: reader.projectAttributes,
-            items: reader.items
+            items: reader.items,
+            sectionTypes: reader.sectionTypes,
+            labels: reader.labels,
+            defaultLabelID: reader.defaultLabelID,
+            statuses: reader.statuses,
+            defaultStatusID: reader.defaultStatusID,
+            customFields: reader.customFields
         )
     }
 
@@ -704,6 +1275,15 @@ private final class ScrivenerXMLReader: NSObject, XMLParserDelegate {
             ))
         } else if elementName == "Bookmark", let target = attributeDict["BinderUUID"], !stack.isEmpty {
             stack[stack.count - 1].bookmarks.append(target)
+        } else if elementName == "Type", elementPath.count >= 2, elementPath[elementPath.count - 2] == "TypeDefinitions" {
+            pendingAttributes = attributeDict
+        } else if elementName == "Label", elementPath.count >= 2, elementPath[elementPath.count - 2] == "Labels" {
+            pendingAttributes = attributeDict
+        } else if elementName == "Status", elementPath.count >= 2, elementPath[elementPath.count - 2] == "StatusItems" {
+            pendingAttributes = attributeDict
+        } else if elementName == "MetaDataField", elementPath.count >= 2, elementPath[elementPath.count - 2] == "CustomMetaDataSettings" {
+            currentMetaDataFieldID = attributeDict["ID"]
+            currentMetaDataFieldType = attributeDict["Type"] ?? "Text"
         }
     }
 
@@ -725,8 +1305,9 @@ private final class ScrivenerXMLReader: NSObject, XMLParserDelegate {
             _ = elementPath.popLast()
             text = ""
         }
-        guard !stack.isEmpty else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        handleProjectSettingsEnd(elementName: elementName, trimmed: trimmed)
+        guard !stack.isEmpty else { return }
         if elementName == "Title" {
             stack[stack.count - 1].title = trimmed
         } else if elementName == "BinderItem" {
@@ -756,6 +1337,38 @@ private final class ScrivenerXMLReader: NSObject, XMLParserDelegate {
                 stack[stack.count - 1].metadata[key] = trimmed
                 stack[stack.count - 1].sourcePaths[key] = "/ScrivenerProject/Binder/\(relative)"
             }
+        }
+    }
+
+    /// Captures the project-level `SectionTypes`, `LabelSettings`, `StatusSettings`, and
+    /// `CustomMetaDataSettings` blocks, which sit as siblings of `Binder` under the project root
+    /// and define the vocabularies used elsewhere via `MetaData/SectionType`, `MetaData/LabelID`,
+    /// `MetaData/StatusID`, and `MetaData/CustomMetaData`.
+    private func handleProjectSettingsEnd(elementName: String, trimmed: String) {
+        if elementName == "Type", elementPath.count >= 2, elementPath[elementPath.count - 2] == "TypeDefinitions" {
+            if let id = pendingAttributes["ID"] {
+                sectionTypes.append(ParsedSectionType(id: id, title: trimmed))
+            }
+            pendingAttributes = [:]
+        } else if elementName == "Label", elementPath.count >= 2, elementPath[elementPath.count - 2] == "Labels" {
+            if let id = pendingAttributes["ID"] {
+                labels.append(ParsedLabel(id: id, title: trimmed, color: pendingAttributes["Color"]))
+            }
+            pendingAttributes = [:]
+        } else if elementName == "DefaultLabelID", elementPath.count >= 1, elementPath[elementPath.count - 1] == "DefaultLabelID" {
+            defaultLabelID = trimmed
+        } else if elementName == "Status", elementPath.count >= 2, elementPath[elementPath.count - 2] == "StatusItems" {
+            if let id = pendingAttributes["ID"] {
+                statuses.append(ParsedStatus(id: id, title: trimmed))
+            }
+            pendingAttributes = [:]
+        } else if elementName == "DefaultStatusID", elementPath.count >= 1, elementPath[elementPath.count - 1] == "DefaultStatusID" {
+            defaultStatusID = trimmed
+        } else if elementName == "Title", elementPath.count >= 2, elementPath[elementPath.count - 2] == "MetaDataField",
+                  let id = currentMetaDataFieldID {
+            customFields.append(ParsedCustomField(id: id, title: trimmed, type: currentMetaDataFieldType ?? "Text"))
+            currentMetaDataFieldID = nil
+            currentMetaDataFieldType = nil
         }
     }
 }

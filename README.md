@@ -34,6 +34,13 @@ The first launch creates a native sample project with three stable workspace are
 - **Story Bible** groups `SemanticEntity` values into people, places, artifacts, events/conflicts/timelines, and worldbuilding without introducing a second persistence model.
 - **Narrative** is a `Document` hierarchy containing scripts, folders, chapters, scenes, and imported Scrivener binder items. Binder drag and drop updates `parent` and `orderIndex`.
 
+Imported Scrivener character cards are normalized into native character dossiers.
+The importer maps names, aliases, age/location, physical description, biography,
+measurements, notes, relationships, and conflicts when it can do so safely.
+Relationships and conflict participants point to actual character records;
+unstructured material and the original rich-text card remain available without
+creating unresolved references.
+
 `AuthorUI` is platform-neutral SwiftUI. To ship on iPadOS and visionOS, add `AuthorUI` and `AuthorData` as package product dependencies to the corresponding app targets in an Xcode multiplatform app and use the same root view:
 
 ```swift
