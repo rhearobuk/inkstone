@@ -75,10 +75,20 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-public enum DropPosition: String, Sendable {
+public enum DropPosition: String, Sendable, Equatable {
     case before
     case inside
     case after
+}
+
+public struct ActiveDropTarget: Equatable, Sendable {
+    public let documentID: UUID
+    public let position: DropPosition
+
+    public init(documentID: UUID, position: DropPosition) {
+        self.documentID = documentID
+        self.position = position
+    }
 }
 
 public enum ScrivenerImportDestination: Equatable, Sendable {
@@ -201,6 +211,7 @@ public final class WorkspaceController: ObservableObject {
     @Published public var selectedProjectID: UUID?
     @Published public var selection: WorkspaceSelection?
     @Published public private(set) var binderItems: [BinderItem] = []
+    @Published public var activeDropTarget: ActiveDropTarget?
     @Published public var labelFilter: String?
     @Published public var statusFilter: String?
     @Published public private(set) var lastError: String?
@@ -392,6 +403,7 @@ public final class WorkspaceController: ObservableObject {
             if selectedProjectID == nil || !projects.contains(where: { $0.id == selectedProjectID }) {
                 selectedProjectID = projects.first(where: { !isProjectTrashed($0.id) })?.id ?? projects.first?.id
             }
+            activeDropTarget = nil
             rebuildBinder()
             lastError = nil
         } catch {
@@ -1320,6 +1332,7 @@ public final class WorkspaceController: ObservableObject {
         selection = .projectDefinition(projectID)
         labelFilter = nil
         statusFilter = nil
+        activeDropTarget = nil
         rebuildBinder()
     }
 

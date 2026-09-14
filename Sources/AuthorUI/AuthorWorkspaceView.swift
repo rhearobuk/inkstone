@@ -16,8 +16,15 @@ public struct AuthorWorkspaceView: View {
     @State private var showsAppPreferences = false
     @State private var newProjectTitle = ""
 
-    public init(controller: WorkspaceController) {
+    public init(controller: WorkspaceController, editorInitiallyVisible: Bool = false) {
         self.controller = controller
+        #if DEBUG
+        let editorVisible = editorInitiallyVisible ||
+            ProcessInfo.processInfo.arguments.contains("--editor-preview")
+        #else
+        let editorVisible = editorInitiallyVisible
+        #endif
+        _showsEditor = State(initialValue: editorVisible)
     }
 
     public var body: some View {
@@ -374,6 +381,14 @@ public struct AuthorWorkspaceView: View {
                         .tag(item.selection)
                 }
             }
+            .onHover { isHovered in
+                if !isHovered && controller.activeDropTarget != nil {
+                    controller.activeDropTarget = nil
+                }
+            }
+        }
+        .onChange(of: controller.selection) { _ in
+            controller.activeDropTarget = nil
         }
         .navigationTitle(controller.selectedProject?.title ?? "Binder")
         .toolbar {
@@ -542,8 +557,16 @@ private struct RowHeightPreferenceKey: PreferenceKey {
 private struct BinderRow: View {
     let item: BinderItem
     @ObservedObject var controller: WorkspaceController
-    @State private var dropPosition: DropPosition?
     @State private var rowHeight: CGFloat = 28
+
+    private var dropPosition: DropPosition? {
+        guard let documentID = item.documentID,
+              let activeTarget = controller.activeDropTarget,
+              activeTarget.documentID == documentID else {
+            return nil
+        }
+        return activeTarget.position
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -606,7 +629,7 @@ private struct BinderRow: View {
             if height > 0 { rowHeight = height }
         }
         .modifier(BinderDragModifier(item: item))
-        .modifier(BinderDropModifier(item: item, controller: controller, rowHeight: rowHeight, dropPosition: $dropPosition))
+        .modifier(BinderDropModifier(item: item, controller: controller, rowHeight: rowHeight))
     }
 
     @ViewBuilder
@@ -658,7 +681,7 @@ private struct BinderDragModifier: ViewModifier {
     let item: BinderItem
 
     func body(content: Content) -> some View {
-        if let documentID = item.documentID {
+        if !item.isTrashed, let documentID = item.documentID {
             content.draggable(documentID.uuidString) {
                 HStack(spacing: 6) {
                     if let color = item.labelColor {
@@ -683,10 +706,9 @@ private struct BinderDropModifier: ViewModifier {
     let item: BinderItem
     @ObservedObject var controller: WorkspaceController
     let rowHeight: CGFloat
-    @Binding var dropPosition: DropPosition?
 
     func body(content: Content) -> some View {
-        if let targetID = item.documentID {
+        if !item.isTrashed, let targetID = item.documentID {
             content
                 .onDrop(
                     of: [.plainText, .text],
@@ -694,8 +716,7 @@ private struct BinderDropModifier: ViewModifier {
                         item: item,
                         targetID: targetID,
                         controller: controller,
-                        rowHeight: rowHeight,
-                        dropPosition: $dropPosition
+                        rowHeight: rowHeight
                     )
                 )
         } else {
@@ -709,7 +730,6 @@ private struct BinderRowDropDelegate: DropDelegate {
     let targetID: UUID
     let controller: WorkspaceController
     let rowHeight: CGFloat
-    @Binding var dropPosition: DropPosition?
 
     func dropEntered(info: DropInfo) {
         updatePosition(info: info)
@@ -721,12 +741,14 @@ private struct BinderRowDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        dropPosition = nil
+        if controller.activeDropTarget?.documentID == targetID {
+            controller.activeDropTarget = nil
+        }
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let pos = position(at: info.location)
-        dropPosition = nil
+        controller.activeDropTarget = nil
 
         let providers = info.itemProviders(for: [.plainText, .text])
         guard let provider = providers.first else { return false }
@@ -746,8 +768,9 @@ private struct BinderRowDropDelegate: DropDelegate {
 
     private func updatePosition(info: DropInfo) {
         let pos = position(at: info.location)
-        if dropPosition != pos {
-            dropPosition = pos
+        let newTarget = ActiveDropTarget(documentID: targetID, position: pos)
+        if controller.activeDropTarget != newTarget {
+            controller.activeDropTarget = newTarget
         }
     }
 

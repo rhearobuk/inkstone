@@ -14,7 +14,7 @@ let package = Package(
         .library(name: "AuthorData", targets: ["AuthorData"]),
         .library(name: "AuthorAI", targets: ["AuthorAI"]),
         .library(name: "AuthorUI", targets: ["AuthorUI"]),
-        .executable(name: "AuthorAppPrototype", targets: ["AuthorAppPrototype"])
+        .executable(name: "ScribePrototype", targets: ["ScribePrototype"])
     ],
     targets: [
         .target(
@@ -33,7 +33,7 @@ let package = Package(
             dependencies: ["AuthorData", "AuthorAI"]
         ),
         .executableTarget(
-            name: "AuthorAppPrototype",
+            name: "ScribePrototype",
             dependencies: ["AuthorUI"],
             path: "Sources/AuthorApp",
             resources: [

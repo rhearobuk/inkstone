@@ -1,6 +1,9 @@
-# AuthorData
+# Scribe
 
-`AuthorData` is a Core Data foundation for a Universal Apple writing application. The package also includes `AuthorUI`, a reusable SwiftUI authoring workspace for macOS 13, iPadOS 16, and visionOS 1 or newer, plus a runnable macOS prototype.
+Scribe is a universal Apple authoring application backed by the `AuthorData`
+Core Data foundation. The package also includes `AuthorUI`, a reusable SwiftUI
+authoring workspace for macOS 13, iPadOS 16, and visionOS 1 or newer, plus a
+runnable macOS prototype.
 
 ## What is included
 
@@ -14,7 +17,7 @@
 
 ## Run the UI prototype
 
-Open `AuthorApp.xcodeproj` in Xcode, select the `AuthorApp` scheme and a Mac,
+Open `AuthorApp.xcodeproj` in Xcode, select the `Scribe` scheme and a Mac,
 iPad, or Apple Vision Pro destination, then press Run.
 
 To load the supplied test project, click **Import Scrivener Project** in the
@@ -25,7 +28,7 @@ binder hierarchy, and selects the imported project when complete.
 The command-line equivalent for the macOS prototype is:
 
 ```sh
-swift run AuthorAppPrototype
+swift run ScribePrototype
 ```
 
 The first launch creates a native sample project with three stable workspace areas:

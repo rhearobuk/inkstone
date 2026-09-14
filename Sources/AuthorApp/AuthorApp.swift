@@ -4,7 +4,7 @@ import SwiftUI
 
 @main
 @MainActor
-struct AuthorApp: App {
+struct ScribeApp: App {
     @StateObject private var controller: WorkspaceController
     @StateObject private var aiSettings = AISettingsStore()
 
@@ -36,7 +36,7 @@ struct AuthorApp: App {
             #endif
             _controller = StateObject(wrappedValue: workspace)
         } catch {
-            fatalError("AuthorApp could not open its data store: \(error.localizedDescription)")
+            fatalError("Scribe could not open its data store: \(error.localizedDescription)")
         }
     }
 
