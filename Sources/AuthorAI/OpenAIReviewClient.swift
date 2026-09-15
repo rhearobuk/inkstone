@@ -1,6 +1,7 @@
 import Foundation
 
 public struct OpenAIReviewClient: EditorialReviewClient {
+    private static let requestTimeout: TimeInterval = 60
     private let apiKey: String
     private let modelID: String
     private let session: URLSession
@@ -12,7 +13,7 @@ public struct OpenAIReviewClient: EditorialReviewClient {
             throw ReviewClientError.unavailable("Choose an OpenAI model and configure an API key in Preferences.")
         }
         var urlRequest = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
-        urlRequest.httpMethod = "POST"; urlRequest.timeoutInterval = 120
+        urlRequest.httpMethod = "POST"; urlRequest.timeoutInterval = Self.requestTimeout
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -22,7 +23,15 @@ public struct OpenAIReviewClient: EditorialReviewClient {
         ])
         for attempt in 0..<3 {
             try Task.checkCancellation()
-            let (data, response) = try await session.data(for: urlRequest)
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: urlRequest)
+            } catch let error as URLError where error.code == .timedOut {
+                throw ReviewClientError.unavailable(
+                    "OpenAI did not respond within \(Int(Self.requestTimeout)) seconds. Try again or choose another model."
+                )
+            }
             guard let http = response as? HTTPURLResponse else { throw ReviewClientError.invalidResponse }
             if (http.statusCode == 429 || http.statusCode >= 500), attempt < 2 {
                 let delay = min(max(Double(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? Double(attempt + 1) * 2, 1), 15)

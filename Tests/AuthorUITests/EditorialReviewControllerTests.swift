@@ -141,4 +141,20 @@ final class EditorialReviewControllerTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(builtIns.first { $0.presetKey == "technical" }).instructions.contains("senior copy editor"))
         XCTAssertEqual(try XCTUnwrap(builtIns.first { $0.presetKey == "technical" }).version, 2)
     }
+    func testDeletingSelectedReviewSelectsRemainingReviewFirst() async throws {
+        let (_, workspace, project, scene) = try setup()
+        try run(workspace, project: project, root: scene, client: FakeEditor())
+        await workspace.editorialReviews.waitUntilFinished()
+        try run(workspace, project: project, root: scene, client: FakeEditor())
+        await workspace.editorialReviews.waitUntilFinished()
+
+        let reviews = workspace.editorialReviews.reviews
+        let deleting = try XCTUnwrap(reviews.first)
+        let remainingID = try XCTUnwrap(reviews.first { $0.id != deleting.id }).id
+        workspace.editorialReviews.selectedReviewID = deleting.id
+        workspace.editorialReviews.deleteReview(deleting)
+
+        XCTAssertEqual(workspace.editorialReviews.selectedReviewID, remainingID)
+        XCTAssertEqual(workspace.editorialReviews.reviews.count, 1)
+    }
 }

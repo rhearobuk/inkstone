@@ -53,7 +53,10 @@ public final class EditorialReviewController: ObservableObject {
         finding.modifiedAt = Date(); save()
     }
     public func deleteReview(_ review: EditorialReview) {
-        guard !["queued", "running"].contains(review.status) else { return }
+        guard !review.isDeleted, !["queued", "running"].contains(review.status) else { return }
+        if selectedReviewID == review.id {
+            selectedReviewID = reviews.first(where: { $0.id != review.id })?.id
+        }
         store.context.delete(review); save()
     }
     private func save() {

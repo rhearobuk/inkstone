@@ -130,7 +130,12 @@ struct ReviewDetailView: View {
         }
         .sheet(isPresented: $showingDetails) { details }
         .alert("Delete this review?", isPresented: $confirmDelete) {
-            Button("Delete", role: .destructive) { editor.deleteReview(review) }
+            Button("Delete", role: .destructive) {
+                confirmDelete = false
+                DispatchQueue.main.async {
+                    editor.deleteReview(review)
+                }
+            }
             Button("Cancel", role: .cancel) {}
         } message: { Text("The review and its saved copy of the text will be removed. Your manuscript stays unchanged.") }
     }
