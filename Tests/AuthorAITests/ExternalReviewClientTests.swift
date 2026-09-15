@@ -108,10 +108,14 @@ final class ExternalReviewClientTests: XCTestCase {
             let model = body["model"] as? String
             let response: [String: Any]
             if body["format"] != nil, model == "junior" {
+                XCTAssertEqual((body["options"] as? [String: Any])?["num_predict"] as? Int, 1200)
+                XCTAssertEqual(request.timeoutInterval, 60)
                 response = ["message": ["content": #"{"summary":"Junior note.","findings":[]}"#]]
             } else if body["format"] != nil, model == "senior" {
                 let messages = body["messages"] as? [[String: Any]] ?? []
                 XCTAssertTrue(messages.contains { ($0["content"] as? String)?.contains("JUNIOR REVIEW") == true })
+                XCTAssertEqual((body["options"] as? [String: Any])?["num_predict"] as? Int, 2400)
+                XCTAssertEqual(request.timeoutInterval, 180)
                 response = ["message": ["content": #"{"summary":"Senior adjudication.","findings":[]}"#]]
             } else {
                 response = ["message": ["content": "The senior recommendation is to resolve the strongest note first."]]

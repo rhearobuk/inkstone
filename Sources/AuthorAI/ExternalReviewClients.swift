@@ -5,17 +5,21 @@ public enum ExternalReviewProvider: Sendable {
 }
 
 public struct ExternalReviewClient: EditorialReviewClient {
-    private static let requestTimeout: TimeInterval = 60
     private let provider: ExternalReviewProvider
     private let apiKey: String
     private let modelID: String
     private let session: URLSession
+    private let requestTimeout: TimeInterval
+    private let ollamaNumPredict: Int
 
-    public init(provider: ExternalReviewProvider, apiKey: String, modelID: String, session: URLSession = .shared) {
+    public init(provider: ExternalReviewProvider, apiKey: String, modelID: String, session: URLSession = .shared,
+                requestTimeout: TimeInterval = 60, ollamaNumPredict: Int = 1200) {
         self.provider = provider
         self.apiKey = apiKey
         self.modelID = modelID
         self.session = session
+        self.requestTimeout = requestTimeout
+        self.ollamaNumPredict = ollamaNumPredict
     }
 
     public func review(_ request: ReviewRequest) async throws -> ReviewResponse {
@@ -28,7 +32,7 @@ public struct ExternalReviewClient: EditorialReviewClient {
         do {
             (data, response) = try await session.data(for: urlRequest)
         } catch let error as URLError where error.code == .timedOut {
-            throw ReviewClientError.unavailable("The selected model did not respond within \(Int(Self.requestTimeout)) seconds. Try again or choose another model.")
+            throw ReviewClientError.unavailable("The selected model did not respond within \(Int(requestTimeout)) seconds. Try again or choose another model.")
         }
         guard let http = response as? HTTPURLResponse else { throw ReviewClientError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw ReviewClientError.service(http.statusCode) }
@@ -94,12 +98,12 @@ public struct ExternalReviewClient: EditorialReviewClient {
                     ["role": "user", "content": prompt]
                 ],
                 "format": EditorPromptBuilder.EditorialReviewResponse.schema,
-                "options": ["num_predict": 1200, "temperature": 0.2]
+                "options": ["num_predict": ollamaNumPredict, "temperature": 0.2]
             ]
         }
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = Self.requestTimeout
+        urlRequest.timeoutInterval = requestTimeout
         headers.forEach { urlRequest.setValue($0.value, forHTTPHeaderField: $0.key) }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
         return urlRequest

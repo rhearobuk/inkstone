@@ -6,7 +6,14 @@ public struct OllamaTwoPhaseReviewClient: EditorialReviewClient {
 
     public init(juniorModelID: String, seniorModelID: String, session: URLSession = .shared) {
         junior = ExternalReviewClient(provider: .ollama, apiKey: "", modelID: juniorModelID, session: session)
-        senior = ExternalReviewClient(provider: .ollama, apiKey: "", modelID: seniorModelID, session: session)
+        senior = ExternalReviewClient(
+            provider: .ollama,
+            apiKey: "",
+            modelID: seniorModelID,
+            session: session,
+            requestTimeout: 180,
+            ollamaNumPredict: 2400
+        )
     }
 
     public func review(_ request: ReviewRequest) async throws -> ReviewResponse {
