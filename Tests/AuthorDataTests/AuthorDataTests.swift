@@ -25,6 +25,18 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertEqual(project.sourceIdentifier, "935D19E3-65EB-4002-8F1E-95BB314D0B47")
         XCTAssertEqual(project.author, "Evan Blackwood")
         XCTAssertFalse(project.styles.isEmpty)
+        XCTAssertGreaterThan(project.galleryItems.count, 13)
+        XCTAssertTrue(project.galleryItems.allSatisfy {
+            $0.resource.mediaType.hasPrefix("image/") && $0.resource.data?.isEmpty == false
+        })
+        XCTAssertTrue(project.galleryItems.contains {
+            $0.resource.role == "cardImage" && $0.sourceDocument != nil
+        })
+        XCTAssertTrue(project.galleryItems.contains {
+            $0.resource.role == "embeddedImage" &&
+                !$0.resource.isSourcePreserved &&
+                $0.sourceDocument?.id == UUID(uuidString: "FBD567AB-8642-42E6-84B3-0E213E1FC4DC")
+        })
 
         let draft = try store.documents.require(id: UUID(uuidString: "4A1D6B18-0952-42EB-A487-D17915DD3BA1")!)
         XCTAssertEqual(draft.kind, "DraftFolder")
@@ -37,6 +49,8 @@ final class AuthorDataTests: XCTestCase {
 
         let gateway = try store.documents.require(id: UUID(uuidString: "AA6DDF0F-F4E5-46F2-A9AC-805ADDFD5746")!)
         XCTAssertNotNil(gateway.plainText)
+        XCTAssertFalse(gateway.plainText?.contains("\\fonttbl") == true)
+        XCTAssertFalse(gateway.plainText?.contains("\\colortbl") == true)
         XCTAssertTrue(gateway.resources.contains { $0.role == "content" && $0.data?.isEmpty == false })
         XCTAssertTrue(gateway.outgoingLinks.contains {
             $0.targetDocument?.sourceIdentifier == "CFDF5044-06F5-4130-A7F8-11BEBA8C19C3"
@@ -45,14 +59,125 @@ final class AuthorDataTests: XCTestCase {
             $0.field.key == "scrivener.MetaData.Custom.sexualcontent" && $0.stringValue == "R"
         })
 
+        XCTAssertEqual(project.sectionTypeDefinitions.count, 9)
+        XCTAssertTrue(project.sectionTypeDefinitions.contains { $0.title == "Chapter Heading" })
+        XCTAssertTrue(project.sectionTypeDefinitions.contains {
+            $0.sourceIdentifier == "9AFECE21-8C79-45E0-9B9F-D6D62A9729D3" && $0.title == "Scene"
+        })
+
+        XCTAssertEqual(project.labelDefinitions.count, 7)
+        let intenseLabel = try XCTUnwrap(project.labelDefinitions.first { $0.sourceIdentifier == "7" })
+        XCTAssertEqual(intenseLabel.title, "Scenes of Intense Sexuality/Violence")
+        XCTAssertNotNil(intenseLabel.colorRed)
+        XCTAssertTrue(project.labelDefinitions.contains { $0.sourceIdentifier == "-1" && $0.title == "No Label" })
+
+        XCTAssertEqual(project.statusDefinitions.count, 7)
+        XCTAssertTrue(project.statusDefinitions.contains { $0.sourceIdentifier == "4" && $0.title == "Final Draft" })
+
+        let customFields = project.metadataFields.filter { $0.sourceIdentifier != nil }
+        XCTAssertEqual(customFields.count, 3)
+        XCTAssertTrue(customFields.contains {
+            $0.key == "scrivener.MetaData.Custom.sexualcontent" && $0.displayName == "Sexual Content"
+        })
+        XCTAssertTrue(customFields.contains {
+            $0.key == "scrivener.MetaData.Custom.paperbackisbn" && $0.displayName == "Paperback ISBN"
+        })
+
+        let illustratedCharacter = try store.documents.require(
+            id: UUID(uuidString: "FBD567AB-8642-42E6-84B3-0E213E1FC4DC")!
+        )
+        let illustratedRTF = try XCTUnwrap(
+            illustratedCharacter.resources.first { $0.role == "content" }?.data
+        )
+        XCTAssertTrue(String(decoding: illustratedRTF, as: UTF8.self).contains("\\jpegblip"))
+        XCTAssertFalse(illustratedCharacter.plainText?.contains("\\jpegblip") == true)
+
+        let aidanDocument = try store.documents.require(
+            id: UUID(uuidString: "92261C90-C85C-4E52-B2CF-553F92DA7467")!
+        )
+        let aidan = try XCTUnwrap(aidanDocument.sourceCharacterProfiles.first)
+        XCTAssertEqual(aidan.firstName, "Aidan")
+        XCTAssertEqual(aidan.middleName, "Dylan")
+        XCTAssertEqual(aidan.lastName, "Spalding")
+        XCTAssertEqual(aidan.age?.intValue, 21)
+        XCTAssertEqual(aidan.location, "London")
+        XCTAssertEqual(aidan.height, "6’3")
+        XCTAssertFalse(aidan.measurements.isEmpty)
+        XCTAssertTrue(aidan.semanticEntity.aliases.contains { $0.name == "Iphis" })
+        XCTAssertFalse(aidan.biography?.isEmpty ?? true)
+        XCTAssertFalse(aidan.notes.isEmpty)
+        XCTAssertFalse(aidan.conflicts.isEmpty)
+
+        let jacobDocument = try store.documents.require(
+            id: UUID(uuidString: "4A5215B5-53F1-42D8-9D00-BC0F93EE6F9D")!
+        )
+        let jacob = try XCTUnwrap(jacobDocument.sourceCharacterProfiles.first)
+        XCTAssertTrue(jacob.outgoingRelationships.contains {
+            $0.targetCharacter.id == aidan.id
+        })
+
         let documentCount = try store.documents.count()
         let resourceCount = try store.resources.count()
+        let characterProfileCount = try store.characterProfiles.count()
+        let labelCount = try store.labelDefinitions.count()
+        let statusCount = try store.statusDefinitions.count()
+        let sectionTypeCount = try store.sectionTypeDefinitions.count()
+        let galleryItemCount = try store.galleryItems.count()
+        XCTAssertGreaterThan(characterProfileCount, 10)
+        aidan.firstName = "Edited Aidan"
+        let editedGalleryItem = try XCTUnwrap(project.galleryItems.first)
+        editedGalleryItem.title = "Edited image title"
         let second = try importer.importProject(xmlURL: xmlURL, filesURL: filesURL)
         XCTAssertEqual(try store.documents.count(), documentCount)
         XCTAssertEqual(try store.resources.count(), resourceCount)
+        XCTAssertEqual(try store.characterProfiles.count(), characterProfileCount)
+        XCTAssertEqual(aidan.firstName, "Edited Aidan")
+        XCTAssertEqual(try store.labelDefinitions.count(), labelCount)
+        XCTAssertEqual(try store.statusDefinitions.count(), statusCount)
+        XCTAssertEqual(try store.sectionTypeDefinitions.count(), sectionTypeCount)
+        XCTAssertEqual(try store.galleryItems.count(), galleryItemCount)
+        XCTAssertEqual(editedGalleryItem.title, "Edited image title")
         XCTAssertEqual(second.projectID, first.projectID)
         XCTAssertGreaterThan(second.updatedCount, 0)
         XCTAssertEqual(try store.importRuns.count(), 2)
+
+        let targetID = UUID()
+        let target = store.projects.create(id: targetID) {
+            $0.title = "Shared Universe"
+            $0.sourceIdentifier = "native.project.\(targetID)"
+            $0.sourceFormat = "native"
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+        }
+        let existingAidan = store.semanticEntities.create {
+            $0.canonicalName = "Aidan Dylan Spalding"
+            $0.kind = SemanticEntityKind.character.rawValue
+            $0.source = ProvenanceAgent.human.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = target
+        }
+        try store.save()
+
+        let merged = try importer.importProject(
+            xmlURL: xmlURL,
+            filesURL: filesURL,
+            targetProjectID: targetID
+        )
+
+        XCTAssertEqual(merged.projectID, targetID)
+        XCTAssertEqual(target.title, "Shared Universe")
+        XCTAssertEqual(target.sourceFormat, "native")
+        XCTAssertEqual(target.documents.count, 284)
+        XCTAssertTrue(target.documents.allSatisfy {
+            $0.sourceIdentifier.hasPrefix("scrivener.935D19E3-65EB-4002-8F1E-95BB314D0B47.")
+        })
+        let renamedAidan = try XCTUnwrap(target.characterProfiles.first {
+            $0.sourceDocument?.sourceIdentifier.hasSuffix("92261C90-C85C-4E52-B2CF-553F92DA7467") == true
+        })
+        XCTAssertNotEqual(renamedAidan.semanticEntity.id, existingAidan.id)
+        XCTAssertTrue(renamedAidan.semanticEntity.canonicalName.hasPrefix("Aidan Dylan Spalding ("))
+        XCTAssertTrue(merged.warnings.contains { $0.code == "renamed-story-identity" })
     }
 
     func testTypedCRUDForEveryEntity() throws {
@@ -76,7 +201,7 @@ final class AuthorDataTests: XCTestCase {
             $0.project = project
         }
         let resourceID = UUID()
-        _ = store.resources.create(id: resourceID) {
+        let resource = store.resources.create(id: resourceID) {
             $0.sourcePath = "content.rtf"
             $0.role = "content"
             $0.mediaType = "application/rtf"
@@ -85,6 +210,17 @@ final class AuthorDataTests: XCTestCase {
             $0.isSourcePreserved = true
             $0.project = project
             $0.document = document
+        }
+        let galleryItemID = UUID()
+        _ = store.galleryItems.create(id: galleryItemID) {
+            $0.title = "Reference image"
+            $0.source = ProvenanceAgent.human.rawValue
+            $0.orderIndex = 0
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.project = project
+            $0.resource = resource
+            $0.sourceDocument = document
         }
         let fieldID = UUID()
         let field = store.metadataFields.create(id: fieldID) {
@@ -179,6 +315,9 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertEqual(try store.projects.require(id: projectID).title, "Project")
         XCTAssertEqual(try store.documents.require(id: documentID).title, "Document")
         XCTAssertNotNil(try store.resources.fetch(id: resourceID))
+        XCTAssertNotNil(try store.galleryItems.fetch(id: galleryItemID))
+        XCTAssertTrue(project.galleryItems.contains { $0.id == galleryItemID })
+        XCTAssertTrue(document.sourceGalleryItems.contains { $0.id == galleryItemID })
         XCTAssertNotNil(try store.metadataFields.fetch(id: fieldID))
         XCTAssertNotNil(try store.metadataValues.fetch(id: valueID))
         XCTAssertNotNil(try store.semanticEntities.fetch(id: entityID))
@@ -203,6 +342,7 @@ final class AuthorDataTests: XCTestCase {
         try store.revisions.delete(id: revisionID)
         try store.links.delete(id: linkID)
         try store.metadataValues.delete(id: valueID)
+        try store.galleryItems.delete(id: galleryItemID)
         try store.resources.delete(id: resourceID)
         try store.styles.delete(id: styleID)
         try store.importRuns.delete(id: runID)
