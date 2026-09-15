@@ -68,7 +68,7 @@ public struct ExternalReviewClient: EditorialReviewClient {
             headers["Authorization"] = "Bearer \(apiKey)"
             body = [
                 "model": modelID, "store": false, "instructions": EditorPromptBuilder.contract, "input": prompt,
-                "max_output_tokens": 4096,
+                "max_output_tokens": 1200,
                 "text": ["format": ["type": "json_schema", "name": "editorial_review", "strict": true, "schema": EditorPromptBuilder.EditorialReviewResponse.schema]]
             ]
         case .cohere:

@@ -8,6 +8,7 @@ private final class ExternalReviewURLProtocol: URLProtocol, @unchecked Sendable 
 
     override func startLoading() {
         XCTAssertEqual(request.httpMethod, "POST")
+        let body = try! JSONSerialization.jsonObject(with: requestBody()) as! [String: Any]
         let text = #"{"summary":"Supported editorial note.","findings":[]}"#
         let response: [String: Any]
         switch request.url?.host {
@@ -22,6 +23,7 @@ private final class ExternalReviewURLProtocol: URLProtocol, @unchecked Sendable 
             response = ["choices": [["message": ["content": text]]]]
         case "api.x.ai":
             XCTAssertEqual(request.url?.path, "/v1/responses")
+            XCTAssertEqual(body["max_output_tokens"] as? Int, 1200)
             response = ["output": [["type": "message", "content": [["type": "output_text", "text": text]]]]]
         case "api.cohere.com":
             XCTAssertEqual(request.url?.path, "/v2/chat")
@@ -41,6 +43,21 @@ private final class ExternalReviewURLProtocol: URLProtocol, @unchecked Sendable 
     }
 
     override func stopLoading() {}
+
+    private func requestBody() -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count > 0 else { break }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        return data
+    }
 }
 
 final class ExternalReviewClientTests: XCTestCase {
