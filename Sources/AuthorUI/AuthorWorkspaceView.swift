@@ -333,6 +333,7 @@ public struct AuthorWorkspaceView: View {
                 } label: {
                     Label("Import Scrivener Project", systemImage: "square.and.arrow.down")
                 }
+                .help("Import a Scrivener project")
                 .disabled(controller.isImporting)
 
                 Button {
@@ -340,6 +341,7 @@ public struct AuthorWorkspaceView: View {
                 } label: {
                     Label("New Project", systemImage: "plus")
                 }
+                .help("Create a new project")
 
                 Menu {
                     Button(controller.showsHiddenProjects ? "Hide Hidden Projects" : "Show Hidden Projects") {
@@ -361,6 +363,7 @@ public struct AuthorWorkspaceView: View {
                 } label: {
                     Label("Project Options", systemImage: "ellipsis.circle")
                 }
+                .help("Project list options")
             }
             ToolbarItemGroup(placement: .automatic) {
                 Button {
@@ -420,12 +423,14 @@ public struct AuthorWorkspaceView: View {
                 } label: {
                     Label("Binder Options", systemImage: "ellipsis.circle")
                 }
+                .help("Binder options")
 
                 Button {
                     showsPreferences = true
                 } label: {
                     Label("Project Preferences", systemImage: "gearshape")
                 }
+                .help("Project preferences")
                 .disabled(controller.selectedProject == nil)
             }
         }
@@ -1067,6 +1072,7 @@ private struct StoryBibleCategoryView: View {
                 } label: {
                     Label("Add Entry", systemImage: "plus")
                 }
+                .help("Add a Story Bible entry")
             } else {
                 Button {
                     entryKind = category.defaultEntityKind
@@ -1074,6 +1080,7 @@ private struct StoryBibleCategoryView: View {
                 } label: {
                     Label("Add Entry", systemImage: "plus")
                 }
+                .help("Add a Story Bible entry")
             }
         }
         .alert("New \(category.rawValue) Entry", isPresented: $showsNewEntry) {
@@ -1151,6 +1158,7 @@ private struct SemanticEntityEditor: View {
                     } label: {
                         Label("Add Photos", systemImage: "photo.badge.plus")
                     }
+                    .help("Add photos to this entry")
                 }
             }
             .formStyle(.grouped)
@@ -1259,6 +1267,7 @@ private struct DocumentEditor: View {
                     } label: {
                         Label("Add Photos", systemImage: "photo.badge.plus")
                     }
+                    .help("Add photos to this document")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     if let category = controller.storyBibleCategory(for: document) {
@@ -1282,6 +1291,7 @@ private struct DocumentEditor: View {
                         } label: {
                             Label("Add Binder Item", systemImage: "plus")
                         }
+                        .help("Add a scene or folder beside this item")
                     }
                 }
             }
@@ -1326,6 +1336,7 @@ private struct DocumentEditor: View {
         } label: {
             Label("Add Story Bible Card", systemImage: "plus")
         }
+        .help("Add a Story Bible card")
     }
 
     private func resetStoryBibleEntry() {

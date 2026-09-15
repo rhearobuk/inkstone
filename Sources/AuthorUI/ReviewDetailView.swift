@@ -83,6 +83,7 @@ struct ReviewDetailView: View {
                         Image(systemName: "ellipsis").frame(width: 25, height: 25)
                     }.editorMenuStyle().fixedSize().foregroundStyle(.secondary)
                         .accessibilityLabel("Review actions")
+                        .help("Review actions")
                 }
                 VStack(alignment: .leading, spacing: 20) {
                     Text(summary)
@@ -114,6 +115,7 @@ struct ReviewDetailView: View {
                                 Image(systemName: "line.3.horizontal.decrease").frame(width: 24, height: 24)
                             }.editorMenuStyle().fixedSize().foregroundStyle(.secondary)
                                 .accessibilityLabel("Filter notes")
+                                .help("Filter review notes")
                         }
                         if findings.isEmpty { Text("No notes in this view.").font(.system(size: 13)).foregroundStyle(.secondary) }
                         ForEach(Array(findings.enumerated()), id: \.element.id) { index, finding in
@@ -124,7 +126,10 @@ struct ReviewDetailView: View {
                     if active {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("Reading…").font(.system(size: 13)).foregroundStyle(.secondary)
+                            Text(editor.progress.isEmpty ? "Preparing your review…" : editor.progress)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
                         }
                     }
                 }
@@ -330,6 +335,8 @@ private struct EditorialFindingView: View {
                     }
                     Text("\(finding.severity.capitalized) · \(finding.category)")
                 } label: { Image(systemName: "ellipsis") }.editorMenuStyle().fixedSize()
+                    .accessibilityLabel("Suggestion actions")
+                    .help("Suggestion actions")
             }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
             if showingNote || !finding.userNote.isEmpty {
                 TextField("Your note…", text: Binding(get: { finding.userNote }, set: { editor.updateFinding(finding, note: $0) }), axis: .vertical)

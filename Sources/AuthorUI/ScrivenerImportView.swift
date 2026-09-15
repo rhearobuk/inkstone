@@ -29,6 +29,7 @@ struct ScrivenerImportView: View {
                             systemImage: "doc.badge.plus"
                         )
                     }
+                    .help("Choose a Scrivener project to import")
                 }
 
                 Section("Destination") {

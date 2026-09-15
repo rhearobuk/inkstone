@@ -205,6 +205,7 @@ private struct ProviderKeyRow: View {
                 }
                 .buttonStyle(.plain)
                 .help(isRevealed ? "Hide key" : "Show key")
+                .accessibilityLabel(isRevealed ? "Hide API key" : "Show API key")
 
                 if !keyText.isEmpty {
                     Button(role: .destructive) {
@@ -242,6 +243,7 @@ private struct ProviderKeyRow: View {
             }
         }
         .font(.caption)
+        .help(settings.hasAPIKey(for: provider) ? "\(provider.displayName) API key configured" : "\(provider.displayName) API key not configured")
     }
 
     private func commit() {

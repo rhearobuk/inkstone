@@ -287,6 +287,7 @@ struct CharacterDossierView: View {
                 } label: {
                     Label("Delete Character", systemImage: "trash")
                 }
+                .help("Delete this character")
             }
             .alert("Delete Character?", isPresented: $confirmsDeletion) {
                 Button("Cancel", role: .cancel) {}
@@ -431,6 +432,8 @@ struct CharacterDossierView: View {
             Image(systemName: "trash")
         }
         .buttonStyle(.borderless)
+        .accessibilityLabel("Delete item")
+        .help("Delete item")
     }
 }
 

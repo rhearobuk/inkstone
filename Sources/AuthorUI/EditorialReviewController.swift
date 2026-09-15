@@ -117,11 +117,20 @@ public final class EditorialReviewController: ObservableObject {
                 try Task.checkCancellation()
                 guard !review.isDeleted, let input = chunk.input else { throw CancellationError() }
                 chunk.status = "running"; chunk.attempts += 1; try store.save()
-                progress = "Reviewing section \(index + 1) of \(chunks.count)"
+                let sectionProgress = "Reviewing section \(index + 1) of \(chunks.count)"
+                progress = sectionProgress
                 let segment = (input.plainText as NSString).substring(with: NSRange(location: Int(chunk.location), length: Int(chunk.length)))
                 let material = "DOCUMENT \(input.documentID.uuidString)\n\(input.title)\n\(segment)" + (context.isEmpty ? "" : "\nREFERENCE CONTEXT\n\(context)")
                 do {
-                    let response = try await client.review(.init(rubric: review.personaInstructions, material: material))
+                    let response = try await client.review(.init(
+                        rubric: review.personaInstructions,
+                        material: material,
+                        progress: { [weak self] phase in
+                            Task { @MainActor [weak self] in
+                                self?.progress = "\(sectionProgress) - \(phase)"
+                            }
+                        }
+                    ))
                     try Task.checkCancellation()
                     guard !review.isDeleted else { throw CancellationError() }
                     let validated = try ReviewResponseValidator.validate(response, allowedDocumentIDs: [input.documentID.uuidString])
@@ -156,7 +165,17 @@ public final class EditorialReviewController: ObservableObject {
                             $0.location = 0; $0.length = 0; $0.status = "running"; $0.attempts = 1; $0.summary = ""; $0.createdAt = Date()
                         }
                         try store.save()
-                        let response = try await client.review(.init(rubric: review.personaInstructions + "\nKeep summary under 500 characters. Synthesis findings must cite original evidence or have no anchors.", material: batch, synthesis: true))
+                        let synthesisProgress = "Combining review findings (pass \(level), group \(i + 1))"
+                        let response = try await client.review(.init(
+                            rubric: review.personaInstructions + "\nKeep summary under 500 characters. Synthesis findings must cite original evidence or have no anchors.",
+                            material: batch,
+                            synthesis: true,
+                            progress: { [weak self] phase in
+                                Task { @MainActor [weak self] in
+                                    self?.progress = "\(synthesisProgress) - \(phase)"
+                                }
+                            }
+                        ))
                         try Task.checkCancellation()
                         let validated = try ReviewResponseValidator.validate(response, allowedDocumentIDs: Set(review.inputs.map { $0.documentID.uuidString }))
                         persist(validated, review: review, segment: nil)

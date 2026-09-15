@@ -127,6 +127,8 @@ struct StoryBibleRelationshipsSection: View {
             Image(systemName: "trash")
         }
         .buttonStyle(.borderless)
+        .accessibilityLabel("Delete relationship")
+        .help("Delete relationship")
     }
 
     private func resetEditor() {

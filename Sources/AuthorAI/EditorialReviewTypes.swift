@@ -29,8 +29,10 @@ public struct ReviewRequest: Sendable {
     public let rubric: String
     public let material: String
     public let synthesis: Bool
-    public init(rubric: String, material: String, synthesis: Bool = false) {
-        self.rubric = rubric; self.material = material; self.synthesis = synthesis
+    public let progress: (@Sendable (String) -> Void)?
+    public init(rubric: String, material: String, synthesis: Bool = false,
+                progress: (@Sendable (String) -> Void)? = nil) {
+        self.rubric = rubric; self.material = material; self.synthesis = synthesis; self.progress = progress
     }
 }
 public protocol EditorialReviewClient: Sendable {

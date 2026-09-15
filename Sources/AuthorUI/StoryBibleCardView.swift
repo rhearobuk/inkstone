@@ -51,6 +51,8 @@ struct StoryBibleCardView: View {
                                     Image(systemName: "trash")
                                 }
                                 .buttonStyle(.borderless)
+                                .accessibilityLabel("Delete note")
+                                .help("Delete note")
                             }
                             TextField("Note", text: noteBinding(note, \.body), axis: .vertical)
                         }

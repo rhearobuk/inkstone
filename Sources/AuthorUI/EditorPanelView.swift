@@ -164,8 +164,11 @@ struct EditorPanelView: View {
             EditorAvatar(size: 38)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Your editor").font(.system(size: 21, weight: .semibold, design: .serif))
-                Text(editor.isRunning ? "Reading your manuscript…" : "A fresh perspective on your writing")
+                Text(editor.isRunning
+                    ? (editor.progress.isEmpty ? "Preparing your review…" : editor.progress)
+                    : "A fresh perspective on your writing")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
             Spacer(minLength: 0)
             Button { showingHistory = true } label: {
@@ -196,7 +199,9 @@ struct EditorPanelView: View {
             if editor.isRunning {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("Your editor is reading…").font(.system(size: 13))
+                    Text(editor.progress.isEmpty ? "Preparing your review…" : editor.progress)
+                        .font(.system(size: 13))
+                        .lineLimit(2)
                     Spacer()
                     Button("Stop") { editor.cancel() }.buttonStyle(.plain).foregroundStyle(.secondary)
                 }
@@ -225,6 +230,7 @@ struct EditorPanelView: View {
                                 .lineLimit(1)
                         }.font(.system(size: 12))
                     }.buttonStyle(.plain).foregroundStyle(.secondary).disabled(editor.isRunning)
+                        .help("Choose review options and editor persona")
                     Spacer(minLength: 4)
                     Button { run(); showingOptions = false } label: {
                         HStack(spacing: 7) {
@@ -235,6 +241,7 @@ struct EditorPanelView: View {
                             .background(canReview ? EditorStyle.buttonColor : Color.secondary.opacity(0.4), in: Capsule())
                     }.buttonStyle(.plain).disabled(!canReview)
                         .accessibilityLabel(provider == .openAI ? "Send to OpenAI for review" : "Review with Apple Intelligence")
+                        .help(provider == .openAI ? "Send the selected text to OpenAI for review" : "Review the selected text with Apple Intelligence")
                 }
             }
             .padding(14)

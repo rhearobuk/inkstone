@@ -116,6 +116,8 @@ private struct SectionTypeRow: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Delete section type")
+            .help("Delete section type")
         }
     }
 
@@ -152,6 +154,8 @@ private struct LabelsPane: View {
         HStack {
             ColorPicker("", selection: $newColor, supportsOpacity: false)
                 .labelsHidden()
+                .accessibilityLabel("New label color")
+                .help("Choose a color for the new label")
                 .frame(width: 32)
             TextField("New label name", text: $newTitle)
                 .textFieldStyle(.roundedBorder)
@@ -187,6 +191,8 @@ private struct LabelRow: View {
         HStack {
             ColorPicker("", selection: $color, supportsOpacity: false)
                 .labelsHidden()
+                .accessibilityLabel("Label color")
+                .help("Choose this label's color")
                 .frame(width: 32)
                 .onChange(of: color) { newValue in
                     controller.updateLabel(definition, title: title, color: newValue.rgbComponents)
@@ -206,6 +212,8 @@ private struct LabelRow: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Delete label")
+            .help("Delete label")
         }
     }
 
@@ -283,6 +291,8 @@ private struct StatusRow: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Delete status")
+            .help("Delete status")
         }
     }
 
@@ -369,6 +379,8 @@ private struct CustomMetadataRow: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Delete custom metadata field")
+            .help("Delete custom metadata field")
         }
     }
 

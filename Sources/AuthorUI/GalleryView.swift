@@ -38,6 +38,7 @@ struct GalleryView: View {
                                 GalleryThumbnail(item: item)
                             }
                             .buttonStyle(.plain)
+                            .help("Open photo: \(item.title)")
                         }
                     }
                     .padding()
@@ -51,6 +52,7 @@ struct GalleryView: View {
             } label: {
                 Label("Add Photos", systemImage: "photo.badge.plus")
             }
+            .help("Add photos to this project")
         }
         .fileImporter(
             isPresented: $showsImageImporter,
@@ -108,6 +110,7 @@ struct GalleryItemEditor: View {
                 } label: {
                     Label("Delete Photo", systemImage: "trash")
                 }
+                .help("Delete this photo")
             }
             .alert("Delete Photo?", isPresented: $confirmsDeletion) {
                 Button("Cancel", role: .cancel) {}
@@ -166,6 +169,7 @@ struct LinkedGalleryItemsView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .help("Open photo: \(item.title)")
                 }
             }
             .padding(.vertical, 4)

@@ -2,6 +2,23 @@ import Foundation
 import XCTest
 @testable import AuthorAI
 
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 private final class ExternalReviewURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -130,8 +147,18 @@ final class ExternalReviewClientTests: XCTestCase {
             defer { session.invalidateAndCancel() }
 
             let pipeline = OllamaTwoPhaseReviewClient(juniorModelID: "junior", seniorModelID: "senior", session: session)
-            let review = try await pipeline.review(.init(rubric: "Developmental", material: "Synthetic manuscript."))
+            let progress = ProgressRecorder()
+            let review = try await pipeline.review(.init(
+                rubric: "Developmental",
+                material: "Synthetic manuscript.",
+                progress: { progress.append($0) }
+            ))
             XCTAssertEqual(review.summary, "Senior adjudication.")
+            XCTAssertEqual(progress.snapshot(), [
+                "Junior Reviewer is reading and identifying evidence",
+                "Senior Reviewer is checking the Junior's evidence",
+                "Senior Reviewer completed this section"
+            ])
 
             let discussion = try await OllamaReviewConversationClient(modelID: "senior", session: session)
                 .respond(reviewContext: "Saved findings.", messages: [.init(role: .user, content: "Which note matters most?")])

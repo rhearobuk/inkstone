@@ -10,8 +10,10 @@ public struct OllamaTwoPhaseReviewClient: EditorialReviewClient {
     }
 
     public func review(_ request: ReviewRequest) async throws -> ReviewResponse {
+        request.progress?("Junior Reviewer is reading and identifying evidence")
         let juniorReview = try await junior.review(request)
         try Task.checkCancellation()
+        request.progress?("Senior Reviewer is checking the Junior's evidence")
         let juniorJSON = try JSONEncoder().encode(juniorReview)
         let seniorRubric = request.rubric + """
 
@@ -24,7 +26,9 @@ public struct OllamaTwoPhaseReviewClient: EditorialReviewClient {
         JUNIOR REVIEW
         \(String(decoding: juniorJSON, as: UTF8.self))
         """
-        return try await senior.review(.init(rubric: seniorRubric, material: seniorMaterial, synthesis: request.synthesis))
+        let response = try await senior.review(.init(rubric: seniorRubric, material: seniorMaterial, synthesis: request.synthesis))
+        request.progress?("Senior Reviewer completed this section")
+        return response
     }
 }
 
