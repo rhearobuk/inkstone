@@ -24,7 +24,6 @@ struct EditorPanelView: View {
     @AppStorage("AIEditor.mistralModel") private var mistralModelID = "mistral-large-latest"
     @AppStorage("AIEditor.xaiModel") private var xAIModelID = "grok-4.6"
     @AppStorage("AIEditor.cohereModel") private var cohereModelID = "command-a"
-    @AppStorage("AIEditor.ollamaModel") private var ollamaModelID = ""
     @State private var openAIModels = ModelCatalog.openAI
     @State private var isLoadingOpenAIModels = false
     @State private var openAIModelError: String?
@@ -70,7 +69,10 @@ struct EditorPanelView: View {
         case .openAI, .anthropic, .google, .mistral, .xai, .cohere:
             return !settings.hasAPIKey(for: provider) ? "Add your \(provider.displayName) key in Preferences." : activeModelID.trimmingCharacters(in: .whitespaces).isEmpty ? "Enter a model ID." : nil
         case .ollama:
-            return activeModelID.trimmingCharacters(in: .whitespaces).isEmpty ? "Choose an installed Ollama model." : nil
+            return settings.ollamaJuniorReviewerModel.trimmingCharacters(in: .whitespaces).isEmpty ||
+                settings.ollamaSeniorReviewerModel.trimmingCharacters(in: .whitespaces).isEmpty
+                ? "Configure both Junior and Senior Reviewer models in Local AI settings."
+                : nil
         }
     }
     private var projectReviews: [EditorialReview] {
@@ -92,7 +94,7 @@ struct EditorPanelView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         Color.clear.frame(height: 1).id("conversation-top")
                         if let review = selectedReview {
-                            ReviewDetailView(review: review, editor: editor, workspace: workspace) {
+                            ReviewDetailView(review: review, editor: editor, workspace: workspace, settings: settings) {
                                 rootID = review.target?.id
                                 scope = EditorialScope(rawValue: review.scope) ?? .document
                                 personaID = review.persona?.id ?? editor.personas.first?.id
@@ -296,11 +298,13 @@ struct EditorPanelView: View {
                         await refreshOpenAIModels()
                     }
             } else if provider == .ollama {
-                TextField("Model", text: activeModelBinding)
-                    .textFieldStyle(.roundedBorder)
-                Text("Enter the name of a model installed in Ollama, such as llama3.2.")
+                LabeledContent("Junior Reviewer", value: settings.ollamaJuniorReviewerModel.isEmpty ? "Not configured" : settings.ollamaJuniorReviewerModel)
+                LabeledContent("Senior Reviewer", value: settings.ollamaSeniorReviewerModel.isEmpty ? "Not configured" : settings.ollamaSeniorReviewerModel)
+                Text("The Junior finds candidate issues; the Senior checks its evidence and returns the final review.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Button("Configure Local AI") { showingSettings = true }
+                    .font(.caption)
             } else {
                 TextField("Model", text: activeModelBinding)
                     .textFieldStyle(.roundedBorder)
@@ -363,7 +367,10 @@ struct EditorPanelView: View {
         case .cohere:
             client = ExternalReviewClient(provider: .cohere, apiKey: settings.apiKey(for: .cohere), modelID: activeModelID)
         case .ollama:
-            client = ExternalReviewClient(provider: .ollama, apiKey: "", modelID: activeModelID)
+            client = OllamaTwoPhaseReviewClient(
+                juniorModelID: settings.ollamaJuniorReviewerModel,
+                seniorModelID: settings.ollamaSeniorReviewerModel
+            )
         }
         editor.start(project: project, root: root, scope: scope, persona: persona, inputs: inputs,
                      providerID: provider.rawValue, modelID: provider == .appleIntelligence ? "apple-system-on-device" : activeModelID,
@@ -377,7 +384,7 @@ struct EditorPanelView: View {
         case .mistral: mistralModelID
         case .xai: xAIModelID
         case .cohere: cohereModelID
-        case .ollama: ollamaModelID
+        case .ollama: ""
         case .appleIntelligence: ""
         }
     }
@@ -389,7 +396,7 @@ struct EditorPanelView: View {
         case .mistral: $mistralModelID
         case .xai: $xAIModelID
         case .cohere: $cohereModelID
-        case .ollama: $ollamaModelID
+        case .ollama: .constant("")
         case .appleIntelligence: .constant("")
         }
     }
@@ -401,7 +408,7 @@ struct EditorPanelView: View {
         case .mistral: mistralModelID = value
         case .xai: xAIModelID = value
         case .cohere: cohereModelID = value
-        case .ollama: ollamaModelID = value
+        case .ollama: break
         case .appleIntelligence: break
         }
     }

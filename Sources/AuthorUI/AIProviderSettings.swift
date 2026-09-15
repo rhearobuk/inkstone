@@ -165,6 +165,12 @@ public final class AISettingsStore: ObservableObject {
     @Published public var appleIntelligenceEnabled: Bool {
         didSet { defaults.set(appleIntelligenceEnabled, forKey: Keys.appleIntelligenceEnabled) }
     }
+    @Published public var ollamaJuniorReviewerModel: String {
+        didSet { defaults.set(ollamaJuniorReviewerModel, forKey: Keys.ollamaJuniorReviewerModel) }
+    }
+    @Published public var ollamaSeniorReviewerModel: String {
+        didSet { defaults.set(ollamaSeniorReviewerModel, forKey: Keys.ollamaSeniorReviewerModel) }
+    }
 
     @Published private var apiKeys: [AIProvider: String] = [:]
 
@@ -174,6 +180,8 @@ public final class AISettingsStore: ObservableObject {
     private enum Keys {
         static let selectedProvider = "AISettings.selectedProvider"
         static let appleIntelligenceEnabled = "AISettings.appleIntelligenceEnabled"
+        static let ollamaJuniorReviewerModel = "AISettings.ollamaJuniorReviewerModel"
+        static let ollamaSeniorReviewerModel = "AISettings.ollamaSeniorReviewerModel"
     }
 
     public init(defaults: UserDefaults = .standard, keychain: AIKeychainStore = .shared) {
@@ -190,6 +198,8 @@ public final class AISettingsStore: ObservableObject {
         self.appleIntelligenceEnabled = defaults.object(forKey: Keys.appleIntelligenceEnabled) == nil
             ? true
             : defaults.bool(forKey: Keys.appleIntelligenceEnabled)
+        self.ollamaJuniorReviewerModel = defaults.string(forKey: Keys.ollamaJuniorReviewerModel) ?? ""
+        self.ollamaSeniorReviewerModel = defaults.string(forKey: Keys.ollamaSeniorReviewerModel) ?? ""
 
         var loadedKeys: [AIProvider: String] = [:]
         for provider in AIProvider.allCases where provider.requiresAPIKey {

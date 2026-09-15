@@ -20,8 +20,41 @@ public struct AppPreferencesView: View {
                 .tabItem {
                     Label("AI & Automation", systemImage: "sparkles")
                 }
+            LocalAISettingsPane(settings: settings)
+                .tabItem {
+                    Label("Local AI", systemImage: "desktopcomputer")
+                }
         }
+
         .frame(minWidth: 560, idealWidth: 620, minHeight: 480, idealHeight: 560)
+    }
+}
+
+private struct LocalAISettingsPane: View {
+    @ObservedObject var settings: AISettingsStore
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Junior Reviewer", text: $settings.ollamaJuniorReviewerModel)
+                    .textFieldStyle(.roundedBorder)
+                Text("Uses a faster local Ollama model to identify candidate editorial issues and exact evidence.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Senior Reviewer", text: $settings.ollamaSeniorReviewerModel)
+                    .textFieldStyle(.roundedBorder)
+                Text("Uses a more capable local Ollama model to check the Junior’s evidence, reject unsupported claims, and deliver the final notes.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Ollama review team")
+            } footer: {
+                Text("Ollama must be running locally at 127.0.0.1:11434. The Senior Reviewer has the final say; unresolved evidence is presented as a minor editorial question, not a defect.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

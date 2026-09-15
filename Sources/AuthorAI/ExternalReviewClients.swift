@@ -93,7 +93,8 @@ public struct ExternalReviewClient: EditorialReviewClient {
                     ["role": "system", "content": EditorPromptBuilder.contract],
                     ["role": "user", "content": prompt]
                 ],
-                "format": EditorPromptBuilder.EditorialReviewResponse.schema
+                "format": EditorPromptBuilder.EditorialReviewResponse.schema,
+                "options": ["num_predict": 1200, "temperature": 0.2]
             ]
         }
         var urlRequest = URLRequest(url: url)

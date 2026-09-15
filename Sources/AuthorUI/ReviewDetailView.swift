@@ -14,6 +14,7 @@ struct ReviewDetailView: View {
     @ObservedObject var review: EditorialReview
     @ObservedObject var editor: EditorialReviewController
     @ObservedObject var workspace: WorkspaceController
+    @ObservedObject var settings: AISettingsStore
     let rerun: () -> Void
     @State private var status = "all"
     @State private var showingDetails = false
@@ -38,6 +39,20 @@ struct ReviewDetailView: View {
         if review.status == "interrupted" { return "This review was interrupted. Your saved notes are below, and you can ask for a fresh review whenever you’re ready." }
         if !review.findings.isEmpty { return "Here are the notes I was able to gather. I couldn’t finish the whole review." }
         return "I couldn’t complete this review. Your manuscript hasn’t changed. Check the review details or try again."
+    }
+    private var conversationContext: String {
+        let notes = review.findings
+            .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+            .map { finding in
+                let evidence = finding.anchors
+                    .sorted { $0.id.uuidString < $1.id.uuidString }
+                    .map(\.excerpt)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " | ")
+                return "[\(finding.severity) \(finding.category)] \(finding.title)\n\(finding.explanation)\nRecommendation: \(finding.recommendation)\nEvidence: \(evidence)"
+            }
+            .joined(separator: "\n\n")
+        return "SUMMARY\n\(summary)\n\nSAVED FINDINGS\n\(notes)"
     }
 
     var body: some View {
@@ -126,8 +141,12 @@ struct ReviewDetailView: View {
                             .font(.system(size: 11)).buttonStyle(.plain).foregroundStyle(.secondary)
                     }
                 }
+                if !active, review.providerID == AIProvider.ollama.rawValue {
+                    SeniorReviewConversation(settings: settings, reviewContext: conversationContext)
+                }
             }
         }
+
         .sheet(isPresented: $showingDetails) { details }
         .alert("Delete this review?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
@@ -182,6 +201,78 @@ struct ReviewDetailView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }.padding(24).frame(minWidth: 390, idealWidth: 460, minHeight: 420, idealHeight: 560)
+    }
+}
+
+private struct SeniorReviewConversation: View {
+    @ObservedObject var settings: AISettingsStore
+    let reviewContext: String
+    @State private var question = ""
+    @State private var messages: [OllamaConversationMessage] = []
+    @State private var isSending = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Discuss this review", systemImage: "bubble.left.and.bubble.right")
+                .font(.system(size: 15, weight: .semibold))
+            Text("Ask the Senior Reviewer about its notes, priorities, or evidence. This discussion is kept only while this review is open.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(message.role == .user ? "You" : "Senior Reviewer")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(message.content)
+                        .font(.system(size: 14))
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if isSending {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Senior Reviewer is considering your question…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundStyle(.orange)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Ask about this review…", text: $question, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                Button("Send") {
+                    Task { await send() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending || settings.ollamaSeniorReviewerModel.isEmpty)
+            }
+        }
+        .padding(20)
+        .background(EditorStyle.paper, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.primary.opacity(0.045), lineWidth: 1))
+    }
+
+    private func send() async {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isSending else { return }
+        question = ""
+        errorMessage = nil
+        messages.append(.init(role: .user, content: text))
+        isSending = true
+        defer { isSending = false }
+        do {
+            let response = try await OllamaReviewConversationClient(modelID: settings.ollamaSeniorReviewerModel)
+                .respond(reviewContext: reviewContext, messages: messages)
+            messages.append(.init(role: .assistant, content: response))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
