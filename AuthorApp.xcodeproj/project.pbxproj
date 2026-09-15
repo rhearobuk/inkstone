@@ -254,7 +254,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sources/AuthorApp/AuthorApp-macOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 37;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
@@ -302,7 +302,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sources/AuthorApp/AuthorApp-macOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 37;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
