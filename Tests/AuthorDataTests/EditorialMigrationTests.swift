@@ -80,5 +80,89 @@ final class EditorialMigrationTests: XCTestCase {
         try migrated.save()
         XCTAssertEqual(migratedDoc.actualWordCount, 3)
     }
-}
 
+    func testCurrentModelMeetsCloudKitAttributeRequirements() throws {
+        let store = try AuthorDataStore(inMemory: true)
+        let invalidAttributes = store.container.managedObjectModel.entities.flatMap { entity in
+            entity.attributesByName.values.compactMap { attribute in
+                !attribute.isOptional && attribute.defaultValue == nil
+                    ? "\(entity.name ?? "<unknown>").\(attribute.name)"
+                    : nil
+            }
+        }
+
+        XCTAssertEqual(invalidAttributes, [])
+    }
+
+    func testPopulatedV7StoreReopensWithV8Defaults() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let modelURL = root.appendingPathComponent(
+            "Sources/AuthorData/Resources/AuthorData.momd/AuthorDataV7.mom"
+        )
+        let model = try XCTUnwrap(NSManagedObjectModel(contentsOf: modelURL))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("test.sqlite")
+        let old = NSPersistentContainer(name: "AuthorData", managedObjectModel: model)
+        old.persistentStoreDescriptions = [NSPersistentStoreDescription(url: storeURL)]
+        var loadError: Error?
+        old.loadPersistentStores { _, error in loadError = error }
+        if let loadError { throw loadError }
+
+        let revisionID = UUID()
+        let revision = NSEntityDescription.insertNewObject(
+            forEntityName: "Revision",
+            into: old.viewContext
+        )
+        revision.setValue(revisionID, forKey: "id")
+        revision.setValue(7, forKey: "sequence")
+        revision.setValue(Date(), forKey: "createdAt")
+        revision.setValue("human", forKey: "source")
+        revision.setValue("hash", forKey: "contentHash")
+
+        let importID = UUID()
+        let importRun = NSEntityDescription.insertNewObject(
+            forEntityName: "ImportRun",
+            into: old.viewContext
+        )
+        importRun.setValue(importID, forKey: "id")
+        importRun.setValue("file:///book.scriv", forKey: "sourceURL")
+        importRun.setValue("fingerprint", forKey: "sourceFingerprint")
+        importRun.setValue(Date(), forKey: "startedAt")
+        importRun.setValue("completed", forKey: "status")
+        importRun.setValue(11, forKey: "insertedCount")
+        importRun.setValue(12, forKey: "updatedCount")
+        importRun.setValue(13, forKey: "warningCount")
+
+        let mentionID = UUID()
+        let mention = NSEntityDescription.insertNewObject(
+            forEntityName: "DocumentEntityMention",
+            into: old.viewContext
+        )
+        mention.setValue(mentionID, forKey: "id")
+        mention.setValue(17, forKey: "location")
+        mention.setValue(19, forKey: "length")
+        mention.setValue("Aidan", forKey: "surfaceText")
+        mention.setValue("human", forKey: "source")
+
+        try old.viewContext.save()
+        for store in old.persistentStoreCoordinator.persistentStores {
+            try old.persistentStoreCoordinator.remove(store)
+        }
+
+        let reopened = try AuthorDataStore(storeURL: storeURL)
+        XCTAssertEqual(try reopened.revisions.require(id: revisionID).sequence, 7)
+        let reopenedImport = try reopened.importRuns.require(id: importID)
+        XCTAssertEqual(reopenedImport.insertedCount, 11)
+        XCTAssertEqual(reopenedImport.updatedCount, 12)
+        XCTAssertEqual(reopenedImport.warningCount, 13)
+        let reopenedMention = try reopened.mentions.require(id: mentionID)
+        XCTAssertEqual(reopenedMention.location, 17)
+        XCTAssertEqual(reopenedMention.length, 19)
+    }
+}

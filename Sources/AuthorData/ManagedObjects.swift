@@ -37,6 +37,7 @@ public final class WritingProject: NSManagedObject, AuthorManagedObject {
     @NSManaged public var provenanceEvents: Set<ProvenanceEvent>
     @NSManaged public var characterProfiles: Set<CharacterProfile>
     @NSManaged public var galleryItems: Set<GalleryItem>
+    @NSManaged public var storyBibleCards: Set<StoryBibleCard>
 }
 
 @objc(Document)
@@ -225,6 +226,9 @@ public final class SemanticEntity: NSManagedObject, AuthorManagedObject {
     @NSManaged public var mentions: Set<DocumentEntityMention>
     @NSManaged public var characterProfile: CharacterProfile?
     @NSManaged public var galleryItems: Set<GalleryItem>
+    @NSManaged public var storyBibleCard: StoryBibleCard?
+    @NSManaged public var outgoingStoryBibleRelationships: Set<StoryBibleRelationship>
+    @NSManaged public var incomingStoryBibleRelationships: Set<StoryBibleRelationship>
 }
 
 @objc(EntityAlias)
@@ -354,6 +358,9 @@ public final class CharacterProfile: NSManagedObject, AuthorManagedObject {
     @NSManaged public var incomingRelationships: Set<CharacterRelationship>
     @NSManaged public var conflicts: Set<CharacterConflict>
     @NSManaged public var conflictsInvolving: Set<CharacterConflict>
+    @NSManaged public var placeCards: Set<StoryBibleCard>
+    @NSManaged public var artifactCards: Set<StoryBibleCard>
+    @NSManaged public var organizationCards: Set<StoryBibleCard>
 }
 
 @objc(CharacterMeasurement)
@@ -406,6 +413,49 @@ public final class CharacterConflict: NSManagedObject, AuthorManagedObject {
     @NSManaged public var modifiedAt: Date
     @NSManaged public var characterProfile: CharacterProfile
     @NSManaged public var relatedCharacters: Set<CharacterProfile>
+}
+
+@objc(StoryBibleCard)
+public final class StoryBibleCard: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var id: UUID
+    @NSManaged public var details: String?
+    @NSManaged public var uniqueFeatures: String?
+    @NSManaged public var locationDescription: String?
+    @NSManaged public var streetAddress: String?
+    @NSManaged public var gpsCoordinates: String?
+    @NSManaged public var sights: String?
+    @NSManaged public var sounds: String?
+    @NSManaged public var smells: String?
+    @NSManaged public var createdAt: Date
+    @NSManaged public var modifiedAt: Date
+    @NSManaged public var project: WritingProject
+    @NSManaged public var semanticEntity: SemanticEntity
+    @NSManaged public var notes: Set<StoryBibleNote>
+    @NSManaged public var relatedCharacters: Set<CharacterProfile>
+    @NSManaged public var owners: Set<CharacterProfile>
+    @NSManaged public var linkedCharacters: Set<CharacterProfile>
+}
+
+@objc(StoryBibleNote)
+public final class StoryBibleNote: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var id: UUID
+    @NSManaged public var title: String?
+    @NSManaged public var body: String
+    @NSManaged public var orderIndex: Int64
+    @NSManaged public var createdAt: Date
+    @NSManaged public var modifiedAt: Date
+    @NSManaged public var card: StoryBibleCard
+}
+
+@objc(StoryBibleRelationship)
+public final class StoryBibleRelationship: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var id: UUID
+    @NSManaged public var kind: String
+    @NSManaged public var notes: String?
+    @NSManaged public var createdAt: Date
+    @NSManaged public var modifiedAt: Date
+    @NSManaged public var sourceEntity: SemanticEntity
+    @NSManaged public var targetEntity: SemanticEntity
 }
 
 public enum DocumentKind: String, CaseIterable, Sendable {

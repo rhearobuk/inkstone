@@ -119,4 +119,26 @@ final class EditorialReviewControllerTests: XCTestCase {
         persona.instructions = "Changed"; store.context.delete(persona); try store.save()
         XCTAssertNil(review.persona); XCTAssertEqual(review.personaInstructions, rubric)
     }
+    func testPersonaSeedUpdatesBuiltInsAndRemovesOnlyBuiltInDuplicates() throws {
+        let (store, _, _, _) = try setup()
+        _ = store.editorPersonas.create {
+            $0.presetKey = "technical"; $0.name = "Technical / Copy"; $0.instructions = "Old rubric"
+            $0.version = 1; $0.isBuiltIn = true; $0.createdAt = Date(); $0.modifiedAt = Date()
+        }
+        _ = store.editorPersonas.create {
+            $0.presetKey = "technical"; $0.name = "My technical editor"; $0.instructions = "Custom rubric"
+            $0.version = 1; $0.isBuiltIn = false; $0.createdAt = Date(); $0.modifiedAt = Date()
+        }
+        try store.save()
+
+        try EditorPersonaLibrary.seed(in: store)
+
+        let personas = try store.editorPersonas.fetchAll()
+        let builtIns = personas.filter(\.isBuiltIn)
+        XCTAssertEqual(builtIns.count, 6)
+        XCTAssertEqual(builtIns.filter { $0.presetKey == "technical" }.count, 1)
+        XCTAssertEqual(personas.filter { $0.name == "My technical editor" && !$0.isBuiltIn }.count, 1)
+        XCTAssertTrue(try XCTUnwrap(builtIns.first { $0.presetKey == "technical" }).instructions.contains("senior copy editor"))
+        XCTAssertEqual(try XCTUnwrap(builtIns.first { $0.presetKey == "technical" }).version, 2)
+    }
 }

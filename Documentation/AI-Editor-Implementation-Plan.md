@@ -11,7 +11,7 @@ Approve the scope, architecture, and staged delivery below. Approval authorizes 
 
 ## Outcome
 
-Provide an editorial review panel for scenes, chapters, and entire novels, with configurable personas, explicit model selection, and durable review history. Reviews identify issues, explain their effect, cite manuscript evidence, and recommend actions. They do not rewrite passages or change manuscript content.
+Provide an editorial review panel for scenes, chapters, and entire novels, with configurable personas, explicit model selection, and durable review history. For OpenAI, populate the model picker from the authenticated account's `/v1/models` response, showing GPT-family models and retaining manual entry for a model not returned by that endpoint. Keep fallback choices while the catalog loads; surface account, network, and API errors rather than silently changing the selected model. Reviews identify issues, explain their effect, cite manuscript evidence, and recommend actions. They do not rewrite passages or change manuscript content.
 
 Apple Intelligence on-device is the default when no other model is selected. Implement Apple first. Other models are explicit user choices; never silently upload content to a different provider.
 
@@ -25,7 +25,7 @@ The original checkout has uncommitted AIProviderSettings.swift, AppPreferencesVi
 
 ### Personas
 
-Ship Technical / Copy, Story / Developmental, Character & Continuity, Line & Style, Academic, and Genre & Reader Experience presets. Allow duplication and customization of rubric, focus, feedback depth, and additional instructions. Keep a versioned snapshot of the effective persona with each review. Custom instructions cannot enable automatic manuscript edits. Academic reviews identify unsupported claims without inventing references.
+Ship Technical / Copy, Story / Developmental, Character & Continuity, Line & Style, Academic, and Genre & Reader Experience presets. Each preset must have a distinct professional remit: copy editors apply grammar and house-style conventions; developmental editors address manuscript architecture; continuity editors track the established record; line editors assess the reading experience at paragraph and sentence level; academic editors assess argument and evidence as presented; and acquiring editors assess genre promise and target-reader experience without making market guarantees. Seed exactly one versioned built-in persona per preset key, update it when the rubric changes, and remove duplicate built-in records while preserving custom personas and historical review snapshots. Allow duplication and customization of rubric, focus, feedback depth, and additional instructions. Custom instructions cannot enable automatic manuscript edits. Academic reviews identify unsupported claims without inventing references.
 
 ### Panel
 

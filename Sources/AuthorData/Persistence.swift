@@ -9,17 +9,27 @@ public enum PersistenceError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .modelNotFound: "AuthorData.momd was not found in package resources."
-        case .modelInvalid(let detail): "The Core Data model is invalid: \(detail)"
-        case .storeLoadFailed(let error): "The persistent store failed to load: \(error.localizedDescription)"
-        case .objectNotFound(let entity, let id): "\(entity) \(id) was not found."
+        case .modelNotFound:
+            return "AuthorData.momd was not found in package resources."
+        case .modelInvalid(let detail):
+            return "The Core Data model is invalid: \(detail)"
+        case .storeLoadFailed(let error):
+            let nsError = error as NSError
+            return "The persistent store failed to load: \(nsError.localizedDescription) (\(nsError.domain) \(nsError.code)) \(nsError.userInfo)"
+        case .objectNotFound(let entity, let id):
+            return "\(entity) \(id) was not found."
         }
     }
 }
 
 @MainActor
 public final class AuthorDataStore {
-    public let container: NSPersistentContainer
+    /// The iCloud container used to mirror the store via CloudKit. Must match the
+    /// `com.apple.developer.icloud-container-identifiers` entry in the app's entitlements.
+    public static let cloudKitContainerIdentifier = "iCloud.com.robertrhea.scribe"
+
+    public let container: NSPersistentCloudKitContainer
+    public let cloudKitSyncEnabled: Bool
     public var context: NSManagedObjectContext { container.viewContext }
 
     public let editorPersonas: EntityRepository<EditorPersona>
@@ -51,8 +61,56 @@ public final class AuthorDataStore {
     public let characterRelationships: EntityRepository<CharacterRelationship>
     public let characterConflicts: EntityRepository<CharacterConflict>
     public let galleryItems: EntityRepository<GalleryItem>
+    public let storyBibleCards: EntityRepository<StoryBibleCard>
+    public let storyBibleNotes: EntityRepository<StoryBibleNote>
+    public let storyBibleRelationships: EntityRepository<StoryBibleRelationship>
 
-    public init(storeURL: URL? = nil, inMemory: Bool = false) throws {
+    /// Opens the on-disk store, mirroring it to iCloud via CloudKit. Plain `swift run` builds
+    /// aren't code-signed with the iCloud entitlement, so only that specific development-only
+    /// failure falls back to a local store. Schema, migration, and corruption errors are surfaced
+    /// instead of silently disabling sync.
+    public static func open(storeURL: URL) throws -> AuthorDataStore {
+        do {
+            return try AuthorDataStore(storeURL: storeURL, cloudKitSyncEnabled: true)
+        } catch {
+            guard isMissingCloudKitEntitlementError(error) else { throw error }
+            #if DEBUG
+            print("AuthorDataStore: this unsigned build has no iCloud entitlement; opening a local-only store.")
+            #endif
+            return try AuthorDataStore(storeURL: storeURL, cloudKitSyncEnabled: false)
+        }
+    }
+
+    private static func isMissingCloudKitEntitlementError(_ error: Error) -> Bool {
+        var current: NSError? = error as NSError
+        var visited = Set<ObjectIdentifier>()
+        while let candidate = current, visited.insert(ObjectIdentifier(candidate)).inserted {
+            let detail = [
+                candidate.localizedDescription,
+                candidate.localizedFailureReason,
+                candidate.userInfo[NSLocalizedFailureReasonErrorKey] as? String
+            ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .lowercased()
+            if detail.contains("entitlement"),
+               detail.contains("icloud") || detail.contains("cloudkit") {
+                return true
+            }
+            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
+
+    /// - Parameters:
+    ///   - storeURL: Location of the on-disk SQLite store. Ignored when `inMemory` is `true`.
+    ///   - inMemory: Uses a throwaway in-memory store (previews/tests) with CloudKit sync disabled.
+    ///   - cloudKitSyncEnabled: Mirrors the store to the user's private iCloud database via
+    ///     CloudKit so changes propagate instantly across their devices. Defaults to `false` so
+    ///     unsigned contexts (unit tests, SwiftPM command-line tools) keep working without an
+    ///     iCloud entitlement; the shipping app opts in explicitly. Automatically disabled when
+    ///     `inMemory` is `true`, since `NSInMemoryStoreType` cannot be mirrored.
+    public init(storeURL: URL? = nil, inMemory: Bool = false, cloudKitSyncEnabled: Bool = false) throws {
         guard let modelURL = Bundle.module.url(forResource: "AuthorData", withExtension: "momd"),
               let model = NSManagedObjectModel(contentsOf: modelURL) else {
             throw PersistenceError.modelNotFound
@@ -61,7 +119,9 @@ public final class AuthorDataStore {
             throw PersistenceError.modelInvalid("one or more entities have no managed object class")
         }
 
-        container = NSPersistentContainer(name: "AuthorData", managedObjectModel: model)
+        let syncsToCloudKit = cloudKitSyncEnabled && !inMemory
+        self.cloudKitSyncEnabled = syncsToCloudKit
+        container = NSPersistentCloudKitContainer(name: "AuthorData", managedObjectModel: model)
         let description = NSPersistentStoreDescription()
         if inMemory {
             description.type = NSInMemoryStoreType
@@ -71,8 +131,14 @@ public final class AuthorDataStore {
             description.url = storeURL
             description.shouldMigrateStoreAutomatically = true
             description.shouldInferMappingModelAutomatically = true
-            description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         }
+        // CloudKit mirroring requires persistent history tracking and remote change
+        // notifications so every device can replay and merge one another's changes.
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        description.cloudKitContainerOptions = syncsToCloudKit
+            ? NSPersistentCloudKitContainerOptions(containerIdentifier: Self.cloudKitContainerIdentifier)
+            : nil
         container.persistentStoreDescriptions = [description]
 
         var loadError: Error?
@@ -111,6 +177,9 @@ public final class AuthorDataStore {
         characterRelationships = EntityRepository(context: container.viewContext)
         characterConflicts = EntityRepository(context: container.viewContext)
         galleryItems = EntityRepository(context: container.viewContext)
+        storyBibleCards = EntityRepository(context: container.viewContext)
+        storyBibleNotes = EntityRepository(context: container.viewContext)
+        storyBibleRelationships = EntityRepository(context: container.viewContext)
     }
 
     public func save() throws {

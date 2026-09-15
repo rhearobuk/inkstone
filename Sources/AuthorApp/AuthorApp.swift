@@ -5,6 +5,7 @@ import SwiftUI
 @main
 @MainActor
 struct ScribeApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var controller: WorkspaceController
     @StateObject private var aiSettings = AISettingsStore()
 
@@ -20,9 +21,11 @@ struct ScribeApp: App {
             #else
             let preview = false
             #endif
-            let store = try preview ? AuthorDataStore(inMemory: true) : AuthorDataStore(storeURL: Self.storeURL())
+            let store = try preview
+                ? AuthorDataStore(inMemory: true)
+                : AuthorDataStore.open(storeURL: Self.storeURL())
             let workspace = WorkspaceController(store: store)
-            if workspace.projects.isEmpty {
+            if workspace.projects.isEmpty && !store.cloudKitSyncEnabled {
                 try workspace.createProject(title: "My Novel")
             }
             #if DEBUG
@@ -45,6 +48,13 @@ struct ScribeApp: App {
             AuthorWorkspaceView(controller: controller)
                 .environmentObject(aiSettings)
                 .frame(minWidth: 900, minHeight: 600)
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active {
+                        controller.refresh()
+                    } else {
+                        controller.flushPendingChanges()
+                    }
+                }
         }
 
         #if os(macOS)

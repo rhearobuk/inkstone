@@ -17,6 +17,7 @@
 		A10000000000000000000002 /* AuthorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000007 /* Scribe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Scribe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A10000000000000000000019 /* AuthorApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AuthorApp.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,6 +46,7 @@
 			children = (
 				A10000000000000000000002 /* AuthorApp.swift */,
 				A10000000000000000000018 /* Assets.xcassets */,
+				A10000000000000000000019 /* AuthorApp.entitlements */,
 			);
 			name = App;
 			path = Sources/AuthorApp;
@@ -249,6 +251,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sources/AuthorApp/AuthorApp-macOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -264,9 +268,8 @@
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Scribe;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Configuration/AuthorApp-Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 0.1.0;
@@ -296,6 +299,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sources/AuthorApp/AuthorApp-macOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -311,9 +316,8 @@
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Scribe;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Configuration/AuthorApp-Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 0.1.0;

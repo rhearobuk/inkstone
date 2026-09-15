@@ -16,12 +16,24 @@ public enum WorkspaceSelection: Hashable, Sendable {
     case narrative(UUID)
     case characterProfile(UUID)
     case semanticEntity(UUID)
+    case storyBibleCard(UUID)
     case document(UUID)
     case trash(UUID)
 }
 
+private extension StoryBibleCharacterRelationship {
+    var kind: String {
+        switch self {
+        case .place: "associated with"
+        case .artifact: "owned by"
+        case .organization: "member"
+        }
+    }
+}
+
 public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     case people = "People"
+    case organizations = "Organizations"
     case places = "Places"
     case artifacts = "Artifacts"
     case events = "Events, Conflicts & Timelines"
@@ -33,19 +45,22 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     public var systemImage: String {
         switch self {
         case .people: "person.2"
+        case .organizations: "building.2"
         case .places: "map"
         case .artifacts: "shippingbox"
         case .events: "point.3.connected.trianglepath.dotted"
         case .worldbuilding: "globe"
         case .research: "books.vertical"
         }
+
     }
 
     public func contains(kind: String) -> Bool {
         switch self {
         case .people:
-            kind == SemanticEntityKind.character.rawValue ||
-                kind == SemanticEntityKind.organization.rawValue
+            kind == SemanticEntityKind.character.rawValue
+        case .organizations:
+            kind == SemanticEntityKind.organization.rawValue
         case .places:
             kind == SemanticEntityKind.location.rawValue
         case .artifacts:
@@ -66,6 +81,7 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
     public var defaultEntityKind: SemanticEntityKind {
         switch self {
         case .people: .character
+        case .organizations: .organization
         case .places: .location
         case .artifacts: .object
         case .events: .event
@@ -73,6 +89,12 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
         case .research: .concept
         }
     }
+}
+
+public enum StoryBibleCharacterRelationship {
+    case place
+    case artifact
+    case organization
 }
 
 public enum DropPosition: String, Sendable, Equatable {
@@ -125,6 +147,7 @@ public struct BinderItem: Identifiable {
     public let labelTitle: String?
     public let statusTitle: String?
     public let sectionTypeTitle: String?
+    public let storyBibleCategory: StoryBibleCategory?
     public var children: [BinderItem]?
 
     public init(
@@ -143,6 +166,7 @@ public struct BinderItem: Identifiable {
         labelTitle: String? = nil,
         statusTitle: String? = nil,
         sectionTypeTitle: String? = nil,
+        storyBibleCategory: StoryBibleCategory? = nil,
         children: [BinderItem]? = nil
     ) {
         self.id = id
@@ -160,6 +184,7 @@ public struct BinderItem: Identifiable {
         self.labelTitle = labelTitle
         self.statusTitle = statusTitle
         self.sectionTypeTitle = sectionTypeTitle
+        self.storyBibleCategory = storyBibleCategory
         self.children = children
     }
 }
@@ -168,6 +193,7 @@ public enum WorkspaceError: LocalizedError {
     case missingProject(UUID)
     case missingDocument(UUID)
     case invalidMove
+    case invalidStoryBibleMove
     case noScrivenerProject(URL)
     case multipleScrivenerProjects(URL)
     case invalidImage(URL)
@@ -177,6 +203,8 @@ public enum WorkspaceError: LocalizedError {
         case .missingProject(let id): "Project \(id) no longer exists."
         case .missingDocument(let id): "Document \(id) no longer exists."
         case .invalidMove: "A binder item cannot be moved inside itself or one of its descendants."
+        case .invalidStoryBibleMove:
+            "Story Bible entries can only be reorganized within their own Story Bible section."
         case .noScrivenerProject(let url):
             "No Scrivener project XML and Files folder were found in \(url.path)."
         case .multipleScrivenerProjects(let url):
@@ -194,9 +222,11 @@ public final class WorkspaceController: ObservableObject {
     @Published public var editorialPassage: EditorialPassage?
     private let projectListPreferences: UserDefaults
     private var pendingCharacterSave: Task<Void, Never>?
+    private var pendingDocumentSave: Task<Void, Never>?
     private var labelLookup: [String: LabelDefinition] = [:]
     private var statusLookup: [String: StatusDefinition] = [:]
     private var sectionTypeLookup: [String: SectionTypeDefinition] = [:]
+    private var cancellables = Set<AnyCancellable>()
 
     @Published public private(set) var projects: [WritingProject] = []
     @Published public var showsHiddenProjects = false
@@ -223,6 +253,20 @@ public final class WorkspaceController: ObservableObject {
         self.editorialReviews = EditorialReviewController(store: store)
         self.projectListPreferences = projectListPreferences
         refresh()
+        observeRemoteStoreChanges()
+    }
+
+    private func observeRemoteStoreChanges() {
+        guard store.cloudKitSyncEnabled else { return }
+        NotificationCenter.default.publisher(
+            for: .NSPersistentStoreRemoteChange,
+            object: store.container.persistentStoreCoordinator
+        )
+        .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
+        .sink { [weak self] _ in
+            self?.refresh()
+        }
+        .store(in: &cancellables)
     }
 
     public var selectedProject: WritingProject? {
@@ -248,6 +292,11 @@ public final class WorkspaceController: ObservableObject {
     public var selectedGalleryItem: GalleryItem? {
         guard case .galleryItem(let id) = selection else { return nil }
         return try? store.galleryItems.fetch(id: id)
+    }
+
+    public var selectedStoryBibleCard: StoryBibleCard? {
+        guard case .storyBibleCard(let id) = selection else { return nil }
+        return try? store.storyBibleCards.fetch(id: id)
     }
 
     public var galleryItems: [GalleryItem] {
@@ -367,8 +416,17 @@ public final class WorkspaceController: ObservableObject {
 
     public var otherCharacterProfiles: [CharacterProfile] {
         guard let selectedCharacterProfile, let project = selectedProject else { return [] }
-        return project.characterProfiles
+        return characterProfiles(in: project)
             .filter { $0.id != selectedCharacterProfile.id }
+    }
+
+    public var storyBibleCharacterProfiles: [CharacterProfile] {
+        guard let project = selectedProject else { return [] }
+        return characterProfiles(in: project)
+    }
+
+    private func characterProfiles(in project: WritingProject) -> [CharacterProfile] {
+        project.characterProfiles
             .sorted {
                 $0.semanticEntity.canonicalName.localizedCaseInsensitiveCompare(
                     $1.semanticEntity.canonicalName
@@ -820,7 +878,8 @@ public final class WorkspaceController: ObservableObject {
     @discardableResult
     public func addStoryBibleEntry(
         named name: String,
-        category: StoryBibleCategory
+        category: StoryBibleCategory,
+        kind: SemanticEntityKind? = nil
     ) throws -> SemanticEntity {
         guard let project = selectedProject else {
             throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
@@ -828,13 +887,19 @@ public final class WorkspaceController: ObservableObject {
         let now = Date()
         let entity = store.semanticEntities.create {
             $0.canonicalName = name
-            $0.kind = category.defaultEntityKind.rawValue
+            $0.kind = (kind ?? category.defaultEntityKind).rawValue
             $0.source = ProvenanceAgent.human.rawValue
             $0.createdAt = now
             $0.modifiedAt = now
             $0.project = project
         }
-        if category == .people {
+        let card = store.storyBibleCards.create {
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.project = project
+            $0.semanticEntity = entity
+        }
+        if entity.kind == SemanticEntityKind.character.rawValue {
             let nameComponents = name.split(whereSeparator: \.isWhitespace).map(String.init)
             let profile = store.characterProfiles.create {
                 $0.firstName = nameComponents.first ?? name
@@ -850,12 +915,127 @@ public final class WorkspaceController: ObservableObject {
             }
             selection = .characterProfile(profile.id)
         } else {
-            selection = .semanticEntity(entity.id)
+            selection = .storyBibleCard(card.id)
         }
         project.modifiedAt = now
         try store.save()
         refresh()
         return entity
+    }
+
+    public func saveStoryBibleCard(_ card: StoryBibleCard) {
+        card.modifiedAt = Date()
+        card.semanticEntity.modifiedAt = card.modifiedAt
+        card.project.modifiedAt = card.modifiedAt
+        saveAndRefresh()
+    }
+
+    public func setCharacters(
+        _ characters: Set<CharacterProfile>,
+        for card: StoryBibleCard,
+        relationship: StoryBibleCharacterRelationship
+    ) {
+        let previousCharacters: Set<CharacterProfile>
+        switch relationship {
+        case .place:
+            previousCharacters = card.relatedCharacters
+            card.relatedCharacters = characters
+        case .artifact:
+            previousCharacters = card.owners
+            card.owners = characters
+        case .organization:
+            previousCharacters = card.linkedCharacters
+            card.linkedCharacters = characters
+        }
+
+        let kind = relationship.kind
+        for profile in characters.subtracting(previousCharacters) {
+            guard !card.semanticEntity.outgoingStoryBibleRelationships.contains(where: {
+                $0.targetEntity.id == profile.semanticEntity.id && $0.kind == kind
+            }) else {
+                continue
+            }
+            let now = Date()
+            store.storyBibleRelationships.create {
+                $0.kind = kind
+                $0.createdAt = now
+                $0.modifiedAt = now
+                $0.sourceEntity = card.semanticEntity
+                $0.targetEntity = profile.semanticEntity
+            }
+        }
+        for profile in previousCharacters.subtracting(characters) {
+            for link in card.semanticEntity.outgoingStoryBibleRelationships where
+                link.targetEntity.id == profile.semanticEntity.id && link.kind == kind {
+                store.context.delete(link)
+            }
+        }
+        saveStoryBibleCard(card)
+    }
+
+    public func addStoryBibleNote(title: String?, body: String, to card: StoryBibleCard) throws {
+        let now = Date()
+        store.storyBibleNotes.create {
+            $0.title = title?.nilIfBlank
+            $0.body = body
+            $0.orderIndex = Int64(card.notes.count)
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.card = card
+        }
+        try store.save()
+        refresh()
+    }
+
+    public func saveStoryBibleNote(_ note: StoryBibleNote) {
+        note.modifiedAt = Date()
+        saveStoryBibleCard(note.card)
+    }
+
+    public func deleteStoryBibleNote(_ note: StoryBibleNote) {
+        store.context.delete(note)
+        saveAndRefresh()
+    }
+
+    public var storyBibleRelationshipTargets: [SemanticEntity] {
+        guard let project = selectedProject else { return [] }
+        return project.semanticEntities.sorted {
+            $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
+        }
+    }
+
+    public func addStoryBibleRelationship(
+        kind: String,
+        notes: String?,
+        from source: SemanticEntity,
+        to target: SemanticEntity
+    ) throws {
+        guard source.project.id == target.project.id, source.id != target.id else {
+            throw WorkspaceError.invalidMove
+        }
+        let now = Date()
+        store.storyBibleRelationships.create {
+            $0.kind = kind.nilIfBlank ?? "related to"
+            $0.notes = notes?.nilIfBlank
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.sourceEntity = source
+            $0.targetEntity = target
+        }
+        try store.save()
+        refresh()
+    }
+
+    public func saveStoryBibleRelationship(_ relationship: StoryBibleRelationship) {
+        relationship.modifiedAt = Date()
+        relationship.sourceEntity.modifiedAt = relationship.modifiedAt
+        relationship.targetEntity.modifiedAt = relationship.modifiedAt
+        saveAndRefresh()
+    }
+
+    public func deleteStoryBibleRelationship(_ relationship: StoryBibleRelationship) {
+        store.context.delete(relationship)
+        saveAndRefresh()
     }
 
     public func updateProject(title: String, author: String?) {
@@ -1022,23 +1202,30 @@ public final class WorkspaceController: ObservableObject {
         saveAndRefresh()
     }
 
-    public func updateDocument(title: String, synopsis: String?, plainText: String?) {
-        guard let document = selectedDocument else { return }
+    public func updateDocument(
+        documentID: UUID,
+        title: String,
+        synopsis: String?,
+        plainText: String?
+    ) {
+        guard let document = try? store.documents.fetch(id: documentID) else { return }
         document.title = title
         document.synopsis = synopsis?.nilIfBlank
         document.plainText = plainText
         WordCountService.recomputeOwnWordCount(for: document)
         document.modifiedAt = Date()
         document.project.modifiedAt = Date()
-        saveAndRefresh()
+        scheduleDocumentSave(after: .seconds(3))
     }
 
-    public func updateDocumentRichText(rtfData: Data, plainText: String) {
-        guard let document = selectedDocument else {
+    public func updateDocumentRichText(documentID: UUID, rtfData: Data, plainText: String) {
+        guard let document = try? store.documents.fetch(id: documentID) else {
             return
         }
         let resource = document.resources.first {
-            $0.role == "content" && $0.mediaType == "application/rtf"
+            $0.role == "content"
+                && $0.mediaType == "application/rtf"
+                && !$0.isSourcePreserved
         } ?? store.resources.create {
             $0.sourcePath = "Native/Documents/\(document.id.uuidString)/content.rtf"
             $0.role = "content"
@@ -1057,7 +1244,34 @@ public final class WorkspaceController: ObservableObject {
         resource.textContent = plainText
         resource.byteCount = Int64(rtfData.count)
         resource.sha256 = SHA256.hash(data: rtfData).map { String(format: "%02x", $0) }.joined()
-        saveAndRefresh()
+        scheduleDocumentSave(after: .milliseconds(250))
+    }
+
+    public func flushPendingChanges() {
+        pendingDocumentSave?.cancel()
+        pendingDocumentSave = nil
+        do {
+            try store.save()
+        } catch {
+            report(error)
+        }
+    }
+
+    private func scheduleDocumentSave(after delay: Duration) {
+        pendingDocumentSave?.cancel()
+        pendingDocumentSave = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self else { return }
+                self.pendingDocumentSave = nil
+                try self.store.save()
+                self.lastError = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.report(error)
+            }
+        }
     }
 
     // MARK: - Narrative Metadata (Book/Section/Chapter/Scene)
@@ -1128,6 +1342,33 @@ public final class WorkspaceController: ObservableObject {
         saveAndRefresh()
     }
 
+    public func openStoryBibleCard(for entity: SemanticEntity) {
+        guard entity.kind != SemanticEntityKind.character.rawValue else {
+            selection = entity.characterProfile.map { .characterProfile($0.id) } ?? .semanticEntity(entity.id)
+            return
+        }
+        if let card = entity.storyBibleCard {
+            selection = .storyBibleCard(card.id)
+            return
+        }
+        let now = Date()
+        let card = store.storyBibleCards.create {
+            $0.createdAt = now
+            $0.modifiedAt = now
+            $0.project = entity.project
+            $0.semanticEntity = entity
+        }
+        entity.modifiedAt = now
+        entity.project.modifiedAt = now
+        do {
+            try store.save()
+            selection = .storyBibleCard(card.id)
+            refresh()
+        } catch {
+            report(error)
+        }
+    }
+
     public func saveCharacterProfile(_ profile: CharacterProfile) {
         profile.semanticEntity.canonicalName = [
             profile.firstName, profile.middleName, profile.lastName
@@ -1144,6 +1385,19 @@ public final class WorkspaceController: ObservableObject {
         profile.source = ProvenanceAgent.human.rawValue
         profile.project.modifiedAt = Date()
         scheduleCharacterSave()
+    }
+
+    public func deleteCharacterProfile(_ profile: CharacterProfile) {
+        let sourceDocument = profile.sourceDocument
+        let entity = profile.semanticEntity
+        let projectID = profile.project.id
+        if let sourceDocument {
+            store.context.delete(sourceDocument)
+        }
+        store.context.delete(profile)
+        store.context.delete(entity)
+        selection = .storyBibleCategory(projectID: projectID, category: .people)
+        saveAndRefresh()
     }
 
     public func saveAlias(_ alias: EntityAlias, for profile: CharacterProfile) {
@@ -1345,8 +1599,10 @@ public final class WorkspaceController: ObservableObject {
         }
 
         let oldParent = document.parent
+        let sourceCategory = storyBibleCategory(for: document)
         let targetIsContainer = target.kind == DocumentKind.folder.rawValue ||
-            target.kind == DocumentKind.draftFolder.rawValue
+            target.kind == DocumentKind.draftFolder.rawValue ||
+            !target.children.isEmpty
 
         let newParent: Document?
         let insertionIndex: Int
@@ -1384,6 +1640,9 @@ public final class WorkspaceController: ObservableObject {
             WordCountService.removeSubtree(document, from: oldParent)
         }
         document.parent = newParent
+        if newParent == nil, let sourceCategory {
+            document.sectionTypeIdentifier = "storyBible.\(sourceCategory.id)"
+        }
         if oldParent?.id != newParent?.id {
             WordCountService.addSubtree(document, to: newParent)
         }
@@ -1410,6 +1669,37 @@ public final class WorkspaceController: ObservableObject {
 
     public func moveDocument(_ documentID: UUID, onto targetID: UUID) throws {
         try moveDocument(documentID, relativeTo: targetID, position: .inside)
+    }
+
+    public func moveDocument(_ documentID: UUID, toStoryBibleCategory category: StoryBibleCategory) throws {
+        guard let document = try store.documents.fetch(id: documentID) else {
+            throw WorkspaceError.missingDocument(documentID)
+        }
+        guard document.project.id == selectedProjectID else {
+            throw WorkspaceError.invalidMove
+        }
+
+        let oldParent = document.parent
+        if oldParent?.id != nil {
+            WordCountService.removeSubtree(document, from: oldParent)
+        }
+        document.parent = nil
+        document.sectionTypeIdentifier = "storyBible.\(category.id)"
+        let roots = documents(in: document.project)
+            .filter { $0.parent == nil && $0.id != document.id }
+            .sorted(by: documentOrder)
+        document.orderIndex = (roots.map(\.orderIndex).max() ?? -1) + 1
+        if let oldParent {
+            reindex(
+                documents(in: document.project)
+                    .filter { $0.parent?.id == oldParent.id && $0.id != document.id }
+                    .sorted(by: documentOrder)
+            )
+        }
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        try store.save()
+        refresh()
     }
 
     public func selectProject(_ projectID: UUID) {
@@ -1540,7 +1830,8 @@ public final class WorkspaceController: ObservableObject {
                         selection: entity.characterProfile.map {
                             .characterProfile($0.id)
                         } ?? .semanticEntity(entity.id),
-                        kind: entity.characterProfile == nil ? .semanticEntity : .characterProfile
+                        kind: entity.characterProfile == nil ? .semanticEntity : .characterProfile,
+                        storyBibleCategory: category
                     )
                 }
             )
@@ -1605,6 +1896,7 @@ public final class WorkspaceController: ObservableObject {
                         systemImage: category.systemImage,
                         selection: .storyBibleCategory(projectID: project.id, category: category),
                         kind: .storyBibleCategory(category),
+                        storyBibleCategory: category,
                         children: semanticItems + documentItems
                     )
                 }
@@ -1644,17 +1936,20 @@ public final class WorkspaceController: ObservableObject {
         let label = document.labelIdentifier.flatMap { labelLookup[$0] }
         let status = document.statusIdentifier.flatMap { statusLookup[$0] }
         let sectionType = document.sectionTypeIdentifier.flatMap { sectionTypeLookup[$0] }
-        let isContainer = document.kind == DocumentKind.folder.rawValue ||
-            document.kind == DocumentKind.draftFolder.rawValue
         let isHidden = isDocumentHidden(document)
         let validChildren = document.orderedChildren.filter {
             if isTrashed { return true }
             return !isDocumentTrashed($0) && (showsHiddenDocuments || !isDocumentHidden($0))
         }
+        let isContainer = document.kind == DocumentKind.folder.rawValue ||
+            document.kind == DocumentKind.draftFolder.rawValue ||
+            !validChildren.isEmpty
         return BinderItem(
             id: document.id.uuidString,
             title: document.title,
-            systemImage: documentSystemImage(document),
+            systemImage: profile == nil
+                ? documentSystemImage(document)
+                : StoryBibleCategory.people.systemImage,
             selection: profile.map { .characterProfile($0.id) } ?? .document(document.id),
             kind: profile == nil ? .document : .characterProfile,
             documentID: document.id,
@@ -1667,6 +1962,7 @@ public final class WorkspaceController: ObservableObject {
             labelTitle: label?.title,
             statusTitle: status?.title,
             sectionTypeTitle: sectionType?.title,
+            storyBibleCategory: storyBibleCategory(for: document),
             children: validChildren.isEmpty
                 ? nil
                 : validChildren.map { makeDocumentItem($0, isTrashed: isTrashed) }
@@ -1686,11 +1982,43 @@ public final class WorkspaceController: ObservableObject {
         return false
     }
 
-    private func storyBibleCategory(for document: Document) -> StoryBibleCategory? {
-        let title = document.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    public func storyBibleCategory(for document: Document) -> StoryBibleCategory? {
+        if !document.sourceCharacterProfiles.isEmpty {
+            return .people
+        }
+        if containsCharacterProfile(in: document) {
+            return .people
+        }
+        for candidate in [document] + document.ancestors {
+            if let identifier = candidate.sectionTypeIdentifier,
+               let category = StoryBibleCategory.allCases.first(
+                   where: { identifier == "storyBible.\($0.id)" }
+               ) {
+                return category
+            }
+            if let category = storyBibleCategory(forFolderNamed: candidate.title, kind: candidate.kind) {
+                return category
+            }
+        }
+        return nil
+    }
+
+    private func containsCharacterProfile(in document: Document) -> Bool {
+        for child in document.children where !child.isDeleted {
+            if !child.sourceCharacterProfiles.isEmpty || containsCharacterProfile(in: child) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func storyBibleCategory(forFolderNamed name: String, kind: String) -> StoryBibleCategory? {
+        let title = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch title {
         case "characters", "character":
             return .people
+        case "organizations", "organisation", "organisations":
+            return .organizations
         case "places", "locations", "settings":
             return .places
         case "artifacts", "objects", "items":
@@ -1700,7 +2028,7 @@ public final class WorkspaceController: ObservableObject {
         case "research", "template sheets", "templates":
             return .research
         default:
-            return document.kind == "ResearchFolder" ? .research : nil
+            return kind == "ResearchFolder" ? .research : nil
         }
     }
 

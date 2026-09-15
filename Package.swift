@@ -36,6 +36,10 @@ let package = Package(
             name: "ScribePrototype",
             dependencies: ["AuthorUI"],
             path: "Sources/AuthorApp",
+            exclude: [
+                "AuthorApp.entitlements",
+                "AuthorApp-macOS.entitlements"
+            ],
             resources: [
                 .process("Assets.xcassets")
             ]

@@ -241,15 +241,126 @@ final class WorkspaceControllerTests: XCTestCase {
         try controller.createProject(title: "World")
 
         let character = try controller.addStoryBibleEntry(named: "Mara", category: .people)
+        let organization = try controller.addStoryBibleEntry(
+            named: "The Guild",
+            category: .organizations
+        )
         let artifact = try controller.addStoryBibleEntry(named: "The Key", category: .artifacts)
 
         XCTAssertEqual(character.kind, SemanticEntityKind.character.rawValue)
+        XCTAssertEqual(organization.kind, SemanticEntityKind.organization.rawValue)
         XCTAssertEqual(artifact.kind, SemanticEntityKind.object.rawValue)
         let storyBible = try XCTUnwrap(controller.binderItems.first { $0.title == "Story Bible" })
         let people = try XCTUnwrap(storyBible.children?.first { $0.title == "People" })
+        let organizations = try XCTUnwrap(storyBible.children?.first { $0.title == "Organizations" })
         let artifacts = try XCTUnwrap(storyBible.children?.first { $0.title == "Artifacts" })
         XCTAssertEqual(people.children?.map(\.title), ["Mara"])
+        XCTAssertEqual(organizations.children?.map(\.title), ["The Guild"])
         XCTAssertEqual(artifacts.children?.map(\.title), ["The Key"])
+    }
+
+    func testStoryBibleCardsPersistTypedCharacterLinksAndNotes() throws {
+        let controller = try makeController()
+        try controller.createProject(title: "World")
+        let character = try controller.addStoryBibleEntry(named: "Mara", category: .people)
+        let place = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        let card = try XCTUnwrap(place.storyBibleCard)
+        let profile = try XCTUnwrap(character.characterProfile)
+
+        card.details = "A silver arch at the city edge."
+        card.streetAddress = "1 Moon Gate Way\nLume, LX 10001"
+        card.gpsCoordinates = "51.5074, -0.1278"
+        controller.setCharacters([profile], for: card, relationship: .place)
+        try controller.addStoryBibleNote(title: "Continuity", body: "It only opens at dawn.", to: card)
+
+        let persisted = try controller.store.storyBibleCards.require(id: card.id)
+        XCTAssertEqual(persisted.details, "A silver arch at the city edge.")
+        XCTAssertEqual(persisted.relatedCharacters.map(\.id), [profile.id])
+        XCTAssertEqual(persisted.notes.first?.body, "It only opens at dawn.")
+    }
+
+    func testDeletingCharacterRemovesItsProfileEntityAndImportedSourceEntry() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let character = try controller.addStoryBibleEntry(named: "Mara", category: .people)
+        let profile = try XCTUnwrap(character.characterProfile)
+        let source = try controller.addDocument(title: "Mara Source", kind: .text, parentID: nil)
+        let profileID = profile.id
+        let sourceID = source.id
+        let entityID = character.id
+        profile.sourceDocument = source
+        try controller.store.save()
+
+        controller.deleteCharacterProfile(profile)
+
+        XCTAssertNil(try controller.store.characterProfiles.fetch(id: profileID))
+        XCTAssertNil(try controller.store.semanticEntities.fetch(id: entityID))
+        XCTAssertNil(try controller.store.documents.fetch(id: sourceID))
+        XCTAssertEqual(controller.selection, .storyBibleCategory(projectID: project.id, category: .people))
+    }
+
+    func testStoryBibleRelationshipsAreSharedByBothEndpoints() throws {
+        let controller = try makeController()
+        try controller.createProject(title: "World")
+        let organization = try controller.addStoryBibleEntry(
+            named: "The Guild",
+            category: .organizations
+        )
+        let artifact = try controller.addStoryBibleEntry(
+            named: "The Key",
+            category: .artifacts
+        )
+
+        try controller.addStoryBibleRelationship(
+            kind: "owns",
+            notes: "Held in the archive.",
+            from: organization,
+            to: artifact
+        )
+
+        let relationship = try XCTUnwrap(organization.outgoingStoryBibleRelationships.first)
+        XCTAssertEqual(relationship.targetEntity.id, artifact.id)
+        XCTAssertEqual(artifact.incomingStoryBibleRelationships.map(\.id), [relationship.id])
+        XCTAssertEqual(relationship.kind, "owns")
+    }
+
+    func testOrganizationMembersAppearAsSharedCharacterRelationships() throws {
+        let controller = try makeController()
+        try controller.createProject(title: "World")
+        let character = try controller.addStoryBibleEntry(named: "Aidan", category: .people)
+        let organization = try controller.addStoryBibleEntry(
+            named: "The Guild",
+            category: .organizations
+        )
+        let profile = try XCTUnwrap(character.characterProfile)
+        let card = try XCTUnwrap(organization.storyBibleCard)
+
+        controller.setCharacters([profile], for: card, relationship: .organization)
+
+        let link = try XCTUnwrap(organization.outgoingStoryBibleRelationships.first)
+        XCTAssertEqual(link.kind, "member")
+        XCTAssertEqual(link.targetEntity.id, character.id)
+        XCTAssertEqual(character.incomingStoryBibleRelationships.map(\.id), [link.id])
+    }
+
+    func testOpeningLegacyOrganizationCreatesItsCardTemplate() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let organization = controller.store.semanticEntities.create {
+            $0.canonicalName = "The Guild"
+            $0.kind = SemanticEntityKind.organization.rawValue
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+        }
+        try controller.store.save()
+
+        controller.openStoryBibleCard(for: organization)
+
+        let card = try XCTUnwrap(organization.storyBibleCard)
+        XCTAssertEqual(card.semanticEntity.id, organization.id)
+        XCTAssertEqual(controller.selection, .storyBibleCard(card.id))
     }
 
     func testMovesDocumentIntoFolderAndRejectsHierarchyCycle() throws {
@@ -271,6 +382,33 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertThrowsError(try controller.moveDocument(script.id, onto: scene.id)) { error in
             XCTAssertEqual(error.localizedDescription, WorkspaceError.invalidMove.localizedDescription)
         }
+
+        func testImportedTextContainerAcceptsChildrenAsAFolder() throws {
+            let controller = try makeController()
+            let project = try controller.createProject(title: "Imported")
+            let group = controller.store.documents.create {
+                $0.sourceIdentifier = "legacy-group"
+                $0.title = "Leads"
+                $0.kind = DocumentKind.text.rawValue
+                $0.orderIndex = 2
+                $0.project = project
+            }
+            let existing = controller.store.documents.create {
+                $0.sourceIdentifier = "legacy-character"
+                $0.title = "Existing"
+                $0.kind = DocumentKind.text.rawValue
+                $0.orderIndex = 0
+                $0.project = project
+                $0.parent = group
+            }
+            let moved = try controller.addDocument(title: "Moved", kind: .text, parentID: nil)
+            try controller.store.save()
+
+            try controller.moveDocument(moved.id, onto: group.id)
+
+            XCTAssertEqual(moved.parent?.id, group.id)
+            XCTAssertEqual(group.orderedChildren.map(\.id), [existing.id, moved.id])
+        }
     }
 
     func testUpdatesDocumentTextThroughPersistenceContract() throws {
@@ -282,6 +420,7 @@ final class WorkspaceControllerTests: XCTestCase {
         controller.selection = .document(scene.id)
 
         controller.updateDocument(
+            documentID: scene.id,
             title: "Arrival",
             synopsis: "The protagonist arrives.",
             plainText: "Rain covered the station."
@@ -293,6 +432,30 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.plainText, "Rain covered the station.")
     }
 
+    func testFlushPendingChangesPersistsDebouncedDocumentEdit() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let scene = try XCTUnwrap(
+            project.documents.first { $0.kind == DocumentKind.text.rawValue }
+        )
+        controller.selection = .document(scene.id)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Saved when leaving the editor."
+        )
+
+        XCTAssertTrue(controller.store.context.hasChanges)
+        controller.flushPendingChanges()
+        XCTAssertFalse(controller.store.context.hasChanges)
+        XCTAssertEqual(
+            try controller.store.documents.require(id: scene.id).plainText,
+            "Saved when leaving the editor."
+        )
+    }
+
     func testWordCountRollsUpIncrementallyThroughAncestorsOnTextEdit() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Draft")
@@ -301,14 +464,14 @@ final class WorkspaceControllerTests: XCTestCase {
         let scene = try XCTUnwrap(book.orderedChildren.first)
         controller.selection = .document(scene.id)
 
-        controller.updateDocument(title: scene.title, synopsis: nil, plainText: "one two three four five")
+        controller.updateDocument(documentID: scene.id, title: scene.title, synopsis: nil, plainText: "one two three four five")
 
         XCTAssertEqual(scene.ownWordCount, 5)
         XCTAssertEqual(scene.actualWordCount, 5)
         XCTAssertEqual(book.actualWordCount, 5)
         XCTAssertEqual(narrative.actualWordCount, 5)
 
-        controller.updateDocument(title: scene.title, synopsis: nil, plainText: "one two")
+        controller.updateDocument(documentID: scene.id, title: scene.title, synopsis: nil, plainText: "one two")
 
         XCTAssertEqual(scene.actualWordCount, 2)
         XCTAssertEqual(book.actualWordCount, 2)
@@ -322,7 +485,7 @@ final class WorkspaceControllerTests: XCTestCase {
         let book = try XCTUnwrap(narrative.orderedChildren.first)
         let scene = try XCTUnwrap(book.orderedChildren.first)
         controller.selection = .document(scene.id)
-        controller.updateDocument(title: scene.title, synopsis: nil, plainText: "alpha beta gamma")
+        controller.updateDocument(documentID: scene.id, title: scene.title, synopsis: nil, plainText: "alpha beta gamma")
         let otherChapter = try controller.addDocument(title: "Chapter Two", kind: .folder, parentID: book.id)
 
         try controller.moveDocument(scene.id, onto: otherChapter.id)
@@ -479,11 +642,35 @@ final class WorkspaceControllerTests: XCTestCase {
             $0.orderIndex = 1
             $0.project = project
         }
-        controller.store.documents.create {
+        let jacob = controller.store.documents.create {
             $0.sourceIdentifier = "character"
-            $0.title = "Mara"
+            $0.title = "Jacob"
             $0.kind = DocumentKind.text.rawValue
-            $0.orderIndex = 0
+            $0.orderIndex = 2
+            $0.project = project
+        }
+        let jacobEntity = controller.store.semanticEntities.create {
+            $0.canonicalName = "Jacob"
+            $0.kind = SemanticEntityKind.character.rawValue
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+        }
+        let jacobProfile = controller.store.characterProfiles.create {
+            $0.firstName = "Jacob"
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+            $0.semanticEntity = jacobEntity
+            $0.sourceDocument = jacob
+        }
+        let leads = controller.store.documents.create {
+            $0.sourceIdentifier = "leads"
+            $0.title = "Leads"
+            $0.kind = DocumentKind.folder.rawValue
+            $0.orderIndex = 1
             $0.project = project
             $0.parent = characters
         }
@@ -500,8 +687,23 @@ final class WorkspaceControllerTests: XCTestCase {
         let storyBible = try XCTUnwrap(controller.binderItems.first { $0.title == "Story Bible" })
         let people = try XCTUnwrap(storyBible.children?.first { $0.title == "People" })
         let narrative = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
-        XCTAssertEqual(people.children?.map(\.title), ["Characters"])
+        XCTAssertEqual(people.children?.map(\.title), ["Characters", "Jacob"])
         XCTAssertEqual(narrative.children?.map(\.title), ["Novel"])
+        XCTAssertEqual(controller.storyBibleCategory(for: characters), .people)
+        try controller.moveDocument(jacob.id, onto: leads.id)
+        XCTAssertEqual(jacob.parent?.id, leads.id)
+        XCTAssertEqual(controller.storyBibleCategory(for: jacob), .people)
+        XCTAssertTrue(jacob.sourceCharacterProfiles.contains(jacobProfile))
+
+        try controller.moveDocument(leads.id, toStoryBibleCategory: .people)
+        XCTAssertNil(leads.parent)
+        XCTAssertEqual(controller.storyBibleCategory(for: leads), .people)
+
+        leads.sectionTypeIdentifier = nil
+        try controller.moveDocument(leads.id, relativeTo: characters.id, position: .after)
+        XCTAssertNil(leads.parent)
+        XCTAssertEqual(leads.sectionTypeIdentifier, "storyBible.people")
+        XCTAssertEqual(controller.storyBibleCategory(for: leads), .people)
     }
 
     func testRearrangeNarrativeScenesBeforeAndAfter() throws {
@@ -590,7 +792,7 @@ final class WorkspaceControllerTests: XCTestCase {
         controller.selection = .document(scene.id)
 
         let data = Data(#"{\rtf1\ansi Hello}"#.utf8)
-        controller.updateDocumentRichText(rtfData: data, plainText: "Hello")
+        controller.updateDocumentRichText(documentID: scene.id, rtfData: data, plainText: "Hello")
 
         let resource = try XCTUnwrap(scene.resources.first {
             $0.role == "content" && $0.mediaType == "application/rtf"
@@ -602,6 +804,62 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(resource.document?.id, scene.id)
         XCTAssertEqual(resource.project.id, project.id)
         XCTAssertFalse(resource.isSourcePreserved)
+    }
+
+    func testRichTextUpdateDoesNotOverwriteSourcePreservedResource() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported Text")
+        let scene = try XCTUnwrap(project.documents.first { $0.kind == DocumentKind.text.rawValue })
+        let originalData = Data(#"{\rtf1\ansi Imported original}"#.utf8)
+        let sourceResource = controller.store.resources.create {
+            $0.sourcePath = "Files/Data/original.rtf"
+            $0.role = "content"
+            $0.mediaType = "application/rtf"
+            $0.byteCount = Int64(originalData.count)
+            $0.sha256 = "original"
+            $0.isSourcePreserved = true
+            $0.data = originalData
+            $0.textContent = "Imported original"
+            $0.project = project
+            $0.document = scene
+        }
+        let editedData = Data(#"{\rtf1\ansi Edited text}"#.utf8)
+
+        controller.updateDocumentRichText(
+            documentID: scene.id,
+            rtfData: editedData,
+            plainText: "Edited text"
+        )
+
+        XCTAssertEqual(sourceResource.data, originalData)
+        XCTAssertEqual(sourceResource.textContent, "Imported original")
+        let nativeResource = try XCTUnwrap(scene.resources.first { !$0.isSourcePreserved })
+        XCTAssertEqual(nativeResource.data, editedData)
+        XCTAssertEqual(nativeResource.textContent, "Edited text")
+    }
+
+    func testDelayedRichTextUpdateTargetsOriginatingDocumentAfterSelectionChanges() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Delayed Edit")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let script = try XCTUnwrap(narrative.orderedChildren.first)
+        let firstScene = try XCTUnwrap(script.orderedChildren.first)
+        let secondScene = try controller.addDocument(title: "Second Scene", kind: .text, parentID: script.id)
+        firstScene.plainText = "First original"
+        secondScene.plainText = "Second original"
+
+        controller.selection = .document(secondScene.id)
+        let delayedData = Data(#"{\rtf1\ansi First edited}"#.utf8)
+        controller.updateDocumentRichText(
+            documentID: firstScene.id,
+            rtfData: delayedData,
+            plainText: "First edited"
+        )
+
+        XCTAssertEqual(firstScene.plainText, "First edited")
+        XCTAssertEqual(secondScene.plainText, "Second original")
+        XCTAssertEqual(firstScene.resources.first { $0.mediaType == "application/rtf" }?.data, delayedData)
+        XCTAssertNil(secondScene.resources.first { $0.mediaType == "application/rtf" })
     }
 
     private func makeController() throws -> WorkspaceController {

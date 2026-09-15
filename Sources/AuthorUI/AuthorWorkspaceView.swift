@@ -236,7 +236,12 @@ public struct AuthorWorkspaceView: View {
     private var projectList: some View {
         List(selection: Binding(
             get: { controller.selectedProjectID },
-            set: { if let id = $0 { controller.selectProject(id) } }
+            set: { id in
+                guard let id, id != controller.selectedProjectID else { return }
+                DispatchQueue.main.async {
+                    controller.selectProject(id)
+                }
+            }
         )) {
             let activeProjects = controller.projects.filter { !controller.isProjectTrashed($0.id) }
             let trashedProjects = controller.trashedProjects
@@ -375,7 +380,16 @@ public struct AuthorWorkspaceView: View {
         VStack(spacing: 0) {
             filterBar
             Divider()
-            List(selection: $controller.selection) {
+            List(selection: Binding(
+                get: { controller.selection },
+                set: { selection in
+                    guard selection != controller.selection else { return }
+                    DispatchQueue.main.async {
+                        controller.selection = selection
+                        controller.activeDropTarget = nil
+                    }
+                }
+            )) {
                 OutlineGroup(controller.displayedBinderItems, children: \.children) { item in
                     BinderRow(item: item, controller: controller)
                         .tag(item.selection)
@@ -386,9 +400,6 @@ public struct AuthorWorkspaceView: View {
                     controller.activeDropTarget = nil
                 }
             }
-        }
-        .onChange(of: controller.selection) { _ in
-            controller.activeDropTarget = nil
         }
         .navigationTitle(controller.selectedProject?.title ?? "Binder")
         .toolbar {
@@ -708,7 +719,12 @@ private struct BinderDropModifier: ViewModifier {
     let rowHeight: CGFloat
 
     func body(content: Content) -> some View {
-        if !item.isTrashed, let targetID = item.documentID {
+        if let category = item.storyBibleCategory, item.documentID == nil {
+            content.onDrop(
+                of: [.plainText, .text],
+                delegate: StoryBibleCategoryDropDelegate(category: category, controller: controller)
+            )
+        } else if !item.isTrashed, let targetID = item.documentID {
             content
                 .onDrop(
                     of: [.plainText, .text],
@@ -722,6 +738,33 @@ private struct BinderDropModifier: ViewModifier {
         } else {
             content
         }
+
+    }
+}
+
+private struct StoryBibleCategoryDropDelegate: DropDelegate {
+    let category: StoryBibleCategory
+    let controller: WorkspaceController
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let providers = info.itemProviders(for: [.plainText, .text])
+        guard let provider = providers.first else { return false }
+
+        _ = provider.loadObject(ofClass: String.self) { string, _ in
+            guard let string, let documentID = UUID(uuidString: string) else { return }
+            Task { @MainActor in
+                do {
+                    try controller.moveDocument(documentID, toStoryBibleCategory: category)
+                } catch {
+                    controller.report(error)
+                }
+            }
+        }
+        return true
     }
 }
 
@@ -816,6 +859,8 @@ private struct WorkspaceDetailView: View {
                 CharacterDossierView(controller: controller)
             case .semanticEntity:
                 SemanticEntityEditor(controller: controller)
+            case .storyBibleCard:
+                StoryBibleCardView(controller: controller)
             case .document:
                 DocumentEditor(controller: controller)
             case .trash:
@@ -990,12 +1035,15 @@ private struct StoryBibleCategoryView: View {
     @ObservedObject var controller: WorkspaceController
     @State private var showsNewEntry = false
     @State private var entryName = ""
+    @State private var entryKind: SemanticEntityKind?
 
     var body: some View {
         List {
             ForEach(entities, id: \.id) { entity in
                 Button(entity.canonicalName) {
-                    controller.selection = .semanticEntity(entity.id)
+                    controller.selection = entity.storyBibleCard
+                        .map { .storyBibleCard($0.id) }
+                        ?? .semanticEntity(entity.id)
                 }
                 .buttonStyle(.plain)
             }
@@ -1010,10 +1058,22 @@ private struct StoryBibleCategoryView: View {
         }
         .navigationTitle(category.rawValue)
         .toolbar {
-            Button {
-                showsNewEntry = true
-            } label: {
-                Label("Add Entry", systemImage: "plus")
+            if category == .people {
+                Menu {
+                    Button("Character") {
+                        entryKind = .character
+                        showsNewEntry = true
+                    }
+                } label: {
+                    Label("Add Entry", systemImage: "plus")
+                }
+            } else {
+                Button {
+                    entryKind = category.defaultEntityKind
+                    showsNewEntry = true
+                } label: {
+                    Label("Add Entry", systemImage: "plus")
+                }
             }
         }
         .alert("New \(category.rawValue) Entry", isPresented: $showsNewEntry) {
@@ -1023,11 +1083,16 @@ private struct StoryBibleCategoryView: View {
                 let name = entryName.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else { return }
                 do {
-                    _ = try controller.addStoryBibleEntry(named: name, category: category)
+                    _ = try controller.addStoryBibleEntry(
+                        named: name,
+                        category: category,
+                        kind: entryKind
+                    )
                 } catch {
                     controller.report(error)
                 }
                 entryName = ""
+                entryKind = nil
             }
         }
     }
@@ -1090,6 +1155,9 @@ private struct SemanticEntityEditor: View {
             }
             .formStyle(.grouped)
             .navigationTitle(entity.canonicalName)
+            .onAppear {
+                controller.openStoryBibleCard(for: entity)
+            }
             .fileImporter(
                 isPresented: $showsImageImporter,
                 allowedContentTypes: [.image],
@@ -1108,6 +1176,9 @@ private struct SemanticEntityEditor: View {
 private struct DocumentEditor: View {
     @ObservedObject var controller: WorkspaceController
     @State private var showsImageImporter = false
+    @State private var showsNewStoryBibleEntry = false
+    @State private var storyBibleEntryName = ""
+    @State private var storyBibleEntryKind: SemanticEntityKind?
 
     var body: some View {
         if let document = controller.selectedDocument {
@@ -1151,6 +1222,7 @@ private struct DocumentEditor: View {
                         get: { document.title },
                         set: {
                             controller.updateDocument(
+                                documentID: document.id,
                                 title: $0,
                                 synopsis: document.synopsis,
                                 plainText: document.plainText
@@ -1189,23 +1261,27 @@ private struct DocumentEditor: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button("New Scene") {
-                            addDocument(
-                                title: "New Scene",
-                                kind: .text,
-                                parentID: insertionParentID(for: document)
-                            )
+                    if let category = controller.storyBibleCategory(for: document) {
+                        storyBibleAddMenu(category)
+                    } else {
+                        Menu {
+                            Button("New Scene") {
+                                addDocument(
+                                    title: "New Scene",
+                                    kind: .text,
+                                    parentID: insertionParentID(for: document)
+                                )
+                            }
+                            Button("New Folder") {
+                                addDocument(
+                                    title: "New Folder",
+                                    kind: .folder,
+                                    parentID: insertionParentID(for: document)
+                                )
+                            }
+                        } label: {
+                            Label("Add Binder Item", systemImage: "plus")
                         }
-                        Button("New Folder") {
-                            addDocument(
-                                title: "New Folder",
-                                kind: .folder,
-                                parentID: insertionParentID(for: document)
-                            )
-                        }
-                    } label: {
-                        Label("Add Binder Item", systemImage: "plus")
                     }
                 }
             }
@@ -1220,12 +1296,48 @@ private struct DocumentEditor: View {
                     controller.report(error)
                 }
             }
+            .alert("New Story Bible Entry", isPresented: $showsNewStoryBibleEntry) {
+                TextField("Name", text: $storyBibleEntryName)
+                Button("Cancel", role: .cancel) { resetStoryBibleEntry() }
+                Button("Create") {
+                    guard let category = controller.storyBibleCategory(for: document) else { return }
+                    let name = storyBibleEntryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else { return }
+                    do {
+                        _ = try controller.addStoryBibleEntry(
+                            named: name,
+                            category: category,
+                            kind: storyBibleEntryKind
+                        )
+                        resetStoryBibleEntry()
+                    } catch {
+                        controller.report(error)
+                    }
+                }
+            }
         }
+    }
+
+    @ViewBuilder
+    private func storyBibleAddMenu(_ category: StoryBibleCategory) -> some View {
+        Button {
+            storyBibleEntryKind = category.defaultEntityKind
+            showsNewStoryBibleEntry = true
+        } label: {
+            Label("Add Story Bible Card", systemImage: "plus")
+        }
+    }
+
+    private func resetStoryBibleEntry() {
+        storyBibleEntryName = ""
+        storyBibleEntryKind = nil
+        showsNewStoryBibleEntry = false
     }
 
     private func insertionParentID(for document: Document) -> UUID? {
         let isContainer = document.kind == DocumentKind.folder.rawValue ||
-            document.kind == DocumentKind.draftFolder.rawValue
+            document.kind == DocumentKind.draftFolder.rawValue ||
+            !document.children.isEmpty
         return isContainer ? document.id : document.parent?.id
     }
 

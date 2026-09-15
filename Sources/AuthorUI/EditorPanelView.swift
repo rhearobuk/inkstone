@@ -19,6 +19,9 @@ struct EditorPanelView: View {
     @State private var instructions = ""
     @State private var provider = AIProvider.appleIntelligence
     @AppStorage("AIEditor.openAIModel") private var modelID = "gpt-4.1-mini"
+    @State private var openAIModels = ModelCatalog.openAI
+    @State private var isLoadingOpenAIModels = false
+    @State private var openAIModelError: String?
     @State private var showingOptions = false
     @State private var showingHistory = false
     @State private var filter = ""
@@ -263,12 +266,28 @@ struct EditorPanelView: View {
             if provider == .appleIntelligence {
                 Text("Apple Intelligence — On Device").font(.caption)
             } else if provider == .openAI {
-                Picker("Model", selection: $modelID) {
-                    ForEach(ModelCatalog.openAI) { Text($0.name).tag($0.id) }
-                    if !ModelCatalog.openAI.contains(where: { $0.id == modelID }) { Text(modelID.isEmpty ? "Enter a model ID" : modelID).tag(modelID) }
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("Model", selection: $modelID) {
+                        ForEach(openAIModels) { Text($0.name).tag($0.id) }
+                        if !openAIModels.contains(where: { $0.id == modelID }) {
+                            Text(modelID.isEmpty ? "Enter a model ID" : modelID).tag(modelID)
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        if isLoadingOpenAIModels { ProgressView().controlSize(.small) }
+                        Button("Refresh models") {
+                            Task { await refreshOpenAIModels() }
+                        }
+                        .font(.caption)
+                        .disabled(isLoadingOpenAIModels || !settings.hasAPIKey(for: .openAI))
+                    }
                 }
                 DisclosureGroup("Use another model") { TextField("Model name", text: $modelID).textFieldStyle(.roundedBorder) }
+                if let openAIModelError { Text(openAIModelError).font(.caption).foregroundStyle(.orange) }
                 Text("Your selected text will be sent to OpenAI. API charges may apply.").font(.caption).foregroundStyle(.secondary)
+                    .task(id: settings.apiKey(for: .openAI)) {
+                        await refreshOpenAIModels()
+                    }
             }
             if let unavailable { Text(unavailable).font(.caption).foregroundStyle(.orange) }
             Picker("Review", selection: $scope) { ForEach(EditorialScope.allCases, id: \.self) { Text(EditorStyle.scopeName($0)).tag($0) } }
@@ -312,6 +331,20 @@ struct EditorPanelView: View {
         editor.start(project: project, root: root, scope: scope, persona: persona, inputs: inputs,
                      providerID: provider.rawValue, modelID: provider == .appleIntelligence ? "apple-system-on-device" : modelID,
                      instructions: instructions, previousReviewID: previousID, client: client)
+    }
+    private func refreshOpenAIModels() async {
+        guard provider == .openAI, settings.hasAPIKey(for: .openAI), !isLoadingOpenAIModels else { return }
+        isLoadingOpenAIModels = true
+        defer { isLoadingOpenAIModels = false }
+        do {
+            let models = try await OpenAIModelCatalog.fetch(apiKey: settings.apiKey(for: .openAI))
+            openAIModels = models
+            openAIModelError = models.isEmpty
+                ? "OpenAI returned no GPT models available to this account. Enter a model name manually."
+                : nil
+        } catch {
+            openAIModelError = error.localizedDescription
+        }
     }
     @ViewBuilder private var history: some View {
         TextField("Filter target, persona, model or date", text: $filter).textFieldStyle(.roundedBorder)

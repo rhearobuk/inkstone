@@ -25,8 +25,14 @@ struct DocumentContentView: View {
             richTextEditor(attributedText: NSAttributedString(string: document.plainText ?? ""))
         } else {
             PlainDocumentEditor(text: document.plainText ?? "", passage: passage) { text in
-                controller.updateDocument(title: document.title, synopsis: document.synopsis, plainText: text)
+                controller.updateDocument(
+                    documentID: document.id,
+                    title: document.title,
+                    synopsis: document.synopsis,
+                    plainText: text
+                )
             }
+            .id(document.id)
 
         }
     }
@@ -40,13 +46,17 @@ struct DocumentContentView: View {
                         documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
                     )
                     controller.updateDocumentRichText(
+                        documentID: document.id,
                         rtfData: data,
                         plainText: updatedText.string
                     )
                 } catch {
                     controller.report(error)
                 }
+            } onCommit: {
+                controller.flushPendingChanges()
             }
+            .id(document.id)
     }
 
     private var passage: EditorialPassage? {
@@ -55,6 +65,10 @@ struct DocumentContentView: View {
 
     private var rtfResource: ContentResource? {
         document.resources.first {
+            $0.role == "content"
+                && $0.mediaType == "application/rtf"
+                && !$0.isSourcePreserved
+        } ?? document.resources.first {
             $0.role == "content" && $0.mediaType == "application/rtf"
         }
     }
@@ -71,9 +85,10 @@ private struct RichTextEditor: NSViewRepresentable {
     let attributedText: NSAttributedString
     let passage: EditorialPassage?
     let onChange: (NSAttributedString) -> Void
+    let onCommit: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onChange: onChange)
+        Coordinator(onChange: onChange, onCommit: onCommit)
     }
 
     func makeNSView(context: Context) -> RichTextEditorContainerView {
@@ -102,12 +117,16 @@ private struct RichTextEditor: NSViewRepresentable {
 
     func updateNSView(_ editorView: RichTextEditorContainerView, context: Context) {
         context.coordinator.onChange = onChange
+        context.coordinator.onCommit = onCommit
         guard let textView = editorView.textView else { return }
         // Only re-apply the model's text when its characters actually differ from what the
         // editor shows. Comparing attributed strings would never match, because saving round-trips
         // the text through RTF, which normalises attributes — that mismatch fed an endless
         // save -> publish -> setAttributedString -> save loop.
-        if !textView.hasMarkedText(), textView.string != attributedText.string {
+        if !textView.hasMarkedText(),
+           (textView.window?.firstResponder !== textView
+                || !context.coordinator.hasUncommittedChanges),
+           textView.string != attributedText.string {
             textView.backgroundColor = .textBackgroundColor
             textView.textColor = .labelColor
             textView.insertionPointColor = .labelColor
@@ -115,8 +134,10 @@ private struct RichTextEditor: NSViewRepresentable {
             context.coordinator.isUpdating = true
             textView.textStorage?.setAttributedString(attributedText)
             textView.textStorage?.delegate = context.coordinator
+            context.coordinator.hasUncommittedChanges = false
             context.coordinator.isUpdating = false
         }
+
         if let passage, passage.token != context.coordinator.lastPassage,
            passage.location >= 0, passage.length >= 0,
            passage.location + passage.length <= textView.string.utf16.count {
@@ -127,21 +148,35 @@ private struct RichTextEditor: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ editorView: RichTextEditorContainerView, coordinator: Coordinator) {
+        coordinator.commitPendingChange()
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, @preconcurrency NSTextStorageDelegate {
         var onChange: (NSAttributedString) -> Void
+        var onCommit: () -> Void
         var isUpdating = false
+        var hasUncommittedChanges = false
         var lastPassage: UUID?
-        var hasPendingAttributeChange = false
+        private var pendingChange: DispatchWorkItem?
         weak var textView: NSTextView?
 
-        init(onChange: @escaping (NSAttributedString) -> Void) {
+        init(onChange: @escaping (NSAttributedString) -> Void, onCommit: @escaping () -> Void) {
             self.onChange = onChange
+            self.onCommit = onCommit
+            super.init()
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(applicationWillResignActive),
+                name: NSApplication.willResignActiveNotification,
+                object: nil,
+            )
         }
 
         func textDidChange(_ notification: Notification) {
             guard !isUpdating, let textView = notification.object as? NSTextView else { return }
-            onChange(textView.attributedString())
+            scheduleChange(from: textView)
         }
 
         func textStorage(
@@ -159,18 +194,36 @@ private struct RichTextEditor: NSViewRepresentable {
                   !editedMask.contains(.editedCharacters),
                   let textView,
                   textView.window?.firstResponder === textView else { return }
-            scheduleAttributeChangeNotification()
+            scheduleChange(from: textView)
         }
 
-        private func scheduleAttributeChangeNotification() {
-            guard !hasPendingAttributeChange else { return }
-            hasPendingAttributeChange = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                hasPendingAttributeChange = false
-                guard !isUpdating, let textView else { return }
+        private func scheduleChange(from textView: NSTextView) {
+            pendingChange?.cancel()
+            hasUncommittedChanges = true
+            let work = DispatchWorkItem { [weak self, weak textView] in
+                guard let self, !isUpdating, let textView else { return }
                 onChange(textView.attributedString())
+                pendingChange = nil
+                hasUncommittedChanges = false
             }
+            pendingChange = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
+        }
+
+        func commitPendingChange() {
+            pendingChange?.cancel()
+            pendingChange = nil
+            guard !isUpdating else { return }
+            if hasUncommittedChanges, let textView {
+                onChange(textView.attributedString())
+                hasUncommittedChanges = false
+            }
+            onCommit()
+        }
+
+        @objc
+        private func applicationWillResignActive() {
+            commitPendingChange()
         }
 
         @objc
@@ -567,9 +620,11 @@ private struct RichTextEditor: UIViewRepresentable {
     let attributedText: NSAttributedString
     let passage: EditorialPassage?
     let onChange: (NSAttributedString) -> Void
+    let onCommit: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onChange: onChange)
+        Coordinator(onChange: onChange, onCommit: onCommit)
     }
 
     func makeUIView(context: Context) -> UITextView {
@@ -581,19 +636,34 @@ private struct RichTextEditor: UIViewRepresentable {
         textView.tintColor = .tintColor
         textView.textContainerInset = UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
         textView.delegate = context.coordinator
-        textView.attributedText = attributedText
+        textView.attributedText = Self.displayText(attributedText, colorScheme: colorScheme)
+        context.coordinator.textView = textView
+        context.coordinator.colorScheme = colorScheme
         return textView
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.onChange = onChange
+        context.coordinator.onCommit = onCommit
         textView.backgroundColor = .systemBackground
         textView.textColor = .label
-        if textView.markedTextRange == nil, textView.attributedText != attributedText {
+        let storedEditorText = Self.storageText(from: textView.attributedText, colorScheme: context.coordinator.colorScheme)
+        if textView.markedTextRange == nil,
+           (!textView.isFirstResponder || !context.coordinator.hasUncommittedChanges),
+           storedEditorText != attributedText {
             context.coordinator.isUpdating = true
-            textView.attributedText = attributedText
+            textView.attributedText = Self.displayText(attributedText, colorScheme: colorScheme)
+            context.coordinator.hasUncommittedChanges = false
+            context.coordinator.isUpdating = false
+        } else if context.coordinator.colorScheme != colorScheme {
+            let selection = textView.selectedRange
+            context.coordinator.isUpdating = true
+            textView.attributedText = Self.displayText(storedEditorText, colorScheme: colorScheme)
+            textView.selectedRange = selection
             context.coordinator.isUpdating = false
         }
+        context.coordinator.colorScheme = colorScheme
+
         if let passage, passage.token != context.coordinator.lastPassage,
            passage.location >= 0, passage.length >= 0,
            passage.location + passage.length <= textView.text.utf16.count {
@@ -604,18 +674,148 @@ private struct RichTextEditor: UIViewRepresentable {
         }
     }
 
+    private static let originalForegroundColor = NSAttributedString.Key(
+        "com.robertrhea.scribe.originalForegroundColor"
+    )
+    private static let missingForegroundColor = "missing"
+
+    private static func displayText(
+        _ attributedText: NSAttributedString,
+        colorScheme: ColorScheme
+    ) -> NSAttributedString {
+        let displayText = NSMutableAttributedString(attributedString: attributedText)
+        let fullRange = NSRange(location: 0, length: displayText.length)
+        displayText.enumerateAttribute(.foregroundColor, in: fullRange) { value, range, _ in
+            guard let color = value as? UIColor else {
+                displayText.addAttribute(
+                    originalForegroundColor,
+                    value: missingForegroundColor,
+                    range: range
+                )
+                displayText.addAttribute(.foregroundColor, value: UIColor.label, range: range)
+                return
+            }
+            guard shouldAdapt(color, for: colorScheme) else { return }
+            displayText.addAttribute(originalForegroundColor, value: color, range: range)
+            displayText.addAttribute(.foregroundColor, value: UIColor.label, range: range)
+        }
+        return displayText
+    }
+
+    private static func storageText(
+        from attributedText: NSAttributedString,
+        colorScheme: ColorScheme
+    ) -> NSAttributedString {
+        let storageText = NSMutableAttributedString(attributedString: attributedText)
+        let fullRange = NSRange(location: 0, length: storageText.length)
+        storageText.enumerateAttribute(originalForegroundColor, in: fullRange) { value, range, _ in
+            defer { storageText.removeAttribute(originalForegroundColor, range: range) }
+            if value as? String == missingForegroundColor {
+                storageText.removeAttribute(.foregroundColor, range: range)
+                return
+            }
+            guard let originalColor = value as? UIColor,
+                  let displayedColor = storageText.attribute(
+                    .foregroundColor,
+                    at: range.location,
+                    effectiveRange: nil
+                  ) as? UIColor,
+                  colorsMatch(displayedColor, UIColor.label, colorScheme: colorScheme) else {
+                return
+            }
+            storageText.addAttribute(.foregroundColor, value: originalColor, range: range)
+        }
+        return storageText
+    }
+
+    private static func shouldAdapt(_ color: UIColor, for colorScheme: ColorScheme) -> Bool {
+        guard let luminance = luminance(of: color, colorScheme: colorScheme) else { return false }
+        return colorScheme == .dark ? luminance < 0.15 : luminance > 0.85
+    }
+
+    private static func colorsMatch(
+        _ lhs: UIColor,
+        _ rhs: UIColor,
+        colorScheme: ColorScheme
+    ) -> Bool {
+        guard let lhsLuminance = luminance(of: lhs, colorScheme: colorScheme),
+              let rhsLuminance = luminance(of: rhs, colorScheme: colorScheme) else {
+            return lhs == rhs
+        }
+        return abs(lhsLuminance - rhsLuminance) < 0.01
+    }
+
+    private static func luminance(of color: UIColor, colorScheme: ColorScheme) -> CGFloat? {
+        let style: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+        let resolvedColor = color.resolvedColor(
+            with: UITraitCollection(userInterfaceStyle: style)
+        )
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard resolvedColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+    }
+
+    static func dismantleUIView(_ textView: UITextView, coordinator: Coordinator) {
+        coordinator.textView = textView
+        coordinator.commitPendingChange()
+    }
+
     final class Coordinator: NSObject, UITextViewDelegate {
         var onChange: (NSAttributedString) -> Void
+        var onCommit: () -> Void
         var isUpdating = false
+        var hasUncommittedChanges = false
         var lastPassage: UUID?
+        var colorScheme: ColorScheme = .light
+        private var pendingChange: DispatchWorkItem?
+        weak var textView: UITextView?
 
-        init(onChange: @escaping (NSAttributedString) -> Void) {
+        init(onChange: @escaping (NSAttributedString) -> Void, onCommit: @escaping () -> Void) {
             self.onChange = onChange
+            self.onCommit = onCommit
+            super.init()
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(applicationWillResignActive),
+                name: UIApplication.willResignActiveNotification,
+                object: nil,
+            )
         }
 
         func textViewDidChange(_ textView: UITextView) {
             guard !isUpdating else { return }
-            onChange(textView.attributedText)
+            self.textView = textView
+            pendingChange?.cancel()
+            hasUncommittedChanges = true
+            let work = DispatchWorkItem { [weak self, weak textView] in
+                guard let self, !isUpdating, let textView else { return }
+                onChange(RichTextEditor.storageText(from: textView.attributedText, colorScheme: colorScheme))
+                pendingChange = nil
+                hasUncommittedChanges = false
+            }
+            pendingChange = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
+        }
+
+        func commitPendingChange() {
+            pendingChange?.cancel()
+            pendingChange = nil
+            guard !isUpdating else { return }
+            if hasUncommittedChanges, let textView {
+                onChange(RichTextEditor.storageText(from: textView.attributedText, colorScheme: colorScheme))
+                hasUncommittedChanges = false
+            }
+            onCommit()
+        }
+
+        @objc
+        private func applicationWillResignActive() {
+            commitPendingChange()
         }
     }
 }

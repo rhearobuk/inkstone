@@ -6,6 +6,7 @@ struct CharacterDossierView: View {
     @ObservedObject var controller: WorkspaceController
     @State private var editor: DossierEditor?
     @State private var showsImageImporter = false
+    @State private var confirmsDeletion = false
 
     var body: some View {
         if let profile = controller.selectedCharacterProfile {
@@ -194,7 +195,16 @@ struct CharacterDossierView: View {
                     }
                     Button("Add Relationship") { editor = .relationship }
                         .disabled(controller.otherCharacterProfiles.isEmpty)
+
+                    ForEach(sortedIncomingRelationships(profile), id: \.id) { relationship in
+                        LabeledContent(
+                            relationship.sourceCharacter.semanticEntity.canonicalName,
+                            value: relationship.kind
+                        )
+                    }
                 }
+
+                StoryBibleRelationshipsSection(entity: profile.semanticEntity, controller: controller)
 
                 Section("Conflicts") {
                     ForEach(sortedConflicts(profile), id: \.id) { conflict in
@@ -271,6 +281,21 @@ struct CharacterDossierView: View {
             }
             .formStyle(.grouped)
             .navigationTitle(profile.semanticEntity.canonicalName)
+            .toolbar {
+                Button(role: .destructive) {
+                    confirmsDeletion = true
+                } label: {
+                    Label("Delete Character", systemImage: "trash")
+                }
+            }
+            .alert("Delete Character?", isPresented: $confirmsDeletion) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    controller.deleteCharacterProfile(profile)
+                }
+            } message: {
+                Text("This permanently deletes this character and its profile, notes, relationships, and imported source entry.")
+            }
             .sheet(item: $editor) { editor in
                 DossierEditorSheet(
                     editor: editor,
@@ -351,6 +376,14 @@ struct CharacterDossierView: View {
         profile.outgoingRelationships.sorted {
             $0.targetCharacter.semanticEntity.canonicalName.localizedCaseInsensitiveCompare(
                 $1.targetCharacter.semanticEntity.canonicalName
+            ) == .orderedAscending
+        }
+    }
+
+    private func sortedIncomingRelationships(_ profile: CharacterProfile) -> [CharacterRelationship] {
+        profile.incomingRelationships.sorted {
+            $0.sourceCharacter.semanticEntity.canonicalName.localizedCaseInsensitiveCompare(
+                $1.sourceCharacter.semanticEntity.canonicalName
             ) == .orderedAscending
         }
     }

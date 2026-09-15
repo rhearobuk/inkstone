@@ -42,3 +42,27 @@ final class OpenAITransportTests: XCTestCase {
         XCTAssertEqual(result.summary, "No supported issues.")
     }
 }
+
+private final class ModelURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        XCTAssertEqual(request.url?.absoluteString, "https://api.openai.com/v1/models")
+        XCTAssertEqual(request.httpMethod, "GET")
+        let data = Data(#"{"object":"list","data":[{"id":"gpt-5-mini"},{"id":"text-embedding-3-small"},{"id":"gpt-4.1"}]}"#.utf8)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+extension OpenAITransportTests {
+    func testAccountModelCatalogListsAvailableGPTModels() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ModelURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let models = try await OpenAIModelCatalog.fetch(apiKey: "test-key", session: session)
+        XCTAssertEqual(models.map(\.id), ["gpt-4.1", "gpt-5-mini"])
+    }
+}

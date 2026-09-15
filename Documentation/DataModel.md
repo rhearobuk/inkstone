@@ -35,6 +35,23 @@ objects whose source and target are both profiles. Both profile inverses use
 cascade deletion so deleting either endpoint deletes the relationship object
 instead of leaving a relationship with an invalid endpoint.
 
+`StoryBibleCard` is the native, non-RTF card for a Story Bible entry. It
+belongs to one project and one `SemanticEntity`, cascade-owns ordered
+`StoryBibleNote` records, and reuses the entity's gallery items for photos.
+Location cards record a description, unique features, freeform location,
+international street address, GPS coordinates, and sight/sound/smell
+descriptors. Their related characters, artifact owners, and organization
+members are separate to-many foreign-key relationships to `CharacterProfile`;
+they are nullified if a character is removed. All newly created Story Bible
+entries use cards rather than narrative scene documents.
+
+`StoryBibleRelationship` is a single, typed link between any two
+`SemanticEntity` records in the same project. Each endpoint exposes the same
+link through outgoing or incoming relationships, so an organization owning an
+artifact, a character belonging to an organization, or a place containing an
+artifact is visible from both cards without duplicating data. Deleting either
+endpoint cascades to delete its relationship links.
+
 `Annotation` has a controlled kind (`note`, `comment`, `highlight`, `todo`, `question`, `warning`, or `modelSuggestion`), lifecycle status, author/source, and optional document range. `Revision` records immutable text snapshots with sequence and content hash.
 
 Generated interpretations should be stored as typed semantic entities, mentions, annotations, metadata values, or revisions with `source = "model"` and a `ProvenanceEvent`. They must not be embedded in opaque binary payloads. `ProvenanceEvent` records agent, version, timestamp, source URI/identifier, content hash, and concise human-readable details.
@@ -53,11 +70,24 @@ These four definitions back `ProjectPreferencesView` (`AuthorUI`), a project-lev
 
 ## Identity and migration
 
-Every entity has a UUID `id` uniqueness constraint. Source-owned UUIDs remain unchanged. Derived IDs are deterministic within the project namespace, making imports repeatable. Source identifier/path compound constraints provide additional conflict protection.
+Source-owned UUIDs remain unchanged. Derived IDs are deterministic within the project namespace, making imports repeatable. Source identifier/path compound constraints provided additional conflict protection through `AuthorDataV6`; as of `AuthorDataV7` these are enforced only in the Swift API (via `upsert`), not as Core Data uniqueness constraints, since CloudKit mirroring does not support them (see "iCloud sync" below).
 
-The persistent container enables automatic model migration and inferred mappings. `AuthorDataV1` preserves the original schema, and additive `AuthorDataV5` is current; the compiled `AuthorData.momd` contains V1–V5 versions so existing SQLite stores migrate through an inferred lightweight mapping. Future schema changes should add a new version under `AuthorData.xcdatamodeld`, select it in `.xccurrentversion`, regenerate `AuthorData.momd`, and add a migration test opening a store created from the previous model. Use explicit mapping models when a change cannot be inferred without data loss.
+The persistent container enables automatic model migration and inferred mappings. `AuthorDataV1` preserves the original schema, and `AuthorDataV8` is current; the compiled `AuthorData.momd` contains V1–V8 versions so existing SQLite stores migrate through an inferred lightweight mapping. Future schema changes should add a new version under `AuthorData.xcdatamodeld`, select it in `.xccurrentversion`, regenerate `AuthorData.momd`, and add a migration test opening a store created from the previous model. Use explicit mapping models when a change cannot be inferred without data loss.
 
-Core Data requires inverse destinations of uniqueness-constrained entities to be optional in the model. The Swift API and importer treat aggregate relationships as required and validate them before saving imported data.
+The Swift API and importer treat aggregate relationships as required and validate them before saving imported data, even though every relationship is modeled as optional (required for CloudKit compatibility, see below).
+
+## iCloud sync (V7–V8)
+
+`AuthorDataStore` uses `NSPersistentCloudKitContainer` so every project, document, and related record mirrors to the signed-in user's private iCloud database and stays in sync across their devices in near real time. `AuthorDataStore.open(storeURL:)` is the app entry point: it enables CloudKit mirroring and surfaces schema, migration, and corruption failures rather than silently disabling sync. It falls back to a local-only store only when an unsigned development process (for example, a plain `swift run`) lacks the iCloud/CloudKit entitlement. Call `AuthorDataStore.init(storeURL:inMemory:cloudKitSyncEnabled:)` directly only when you need explicit control (tests default `cloudKitSyncEnabled` to `false`).
+
+`AuthorDataV7` made the schema CloudKit-compatible:
+- Removed all `uniquenessConstraints` (unsupported by CloudKit; the `id` uniqueness constraint from earlier versions is gone).
+- Every non-optional attribute lacking a default value either gained an empty-string default (`String`) or became optional (`UUID`/`Date`); the generated Swift classes still expose these as non-optional properties, so callers must keep setting them immediately on creation, as `EntityRepository.create`/`upsert` already do.
+- Relationships were already modeled as optional going back to `AuthorDataV1`, which CloudKit also requires.
+
+`AuthorDataV8` completes that compatibility work by assigning zero defaults to the six required scalar attributes that V7 missed: `DocumentEntityMention.location`, `DocumentEntityMention.length`, `Revision.sequence`, and the three `ImportRun` counters. `testCurrentModelMeetsCloudKitAttributeRequirements` audits every model attribute so future required attributes cannot omit a default unnoticed.
+
+The Xcode app target (`Scribe`) declares `com.apple.developer.icloud-container-identifiers` (`iCloud.com.robertrhea.scribe`) and `com.apple.developer.icloud-services` (`CloudKit`) in `Sources/AuthorApp/AuthorApp.entitlements`, wired in via `CODE_SIGN_ENTITLEMENTS`. The container must be registered under the signing team (already done via [developer.apple.com](https://developer.apple.com) → Certificates, Identifiers & Profiles → iCloud Containers) for sync to work on a real device/build.
 
 
 ## AI Editor reviews (V5)

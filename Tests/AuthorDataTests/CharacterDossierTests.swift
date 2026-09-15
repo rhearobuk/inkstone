@@ -128,6 +128,9 @@ final class CharacterDossierTests: XCTestCase {
         XCTAssertTrue(sourceDocument.sourceCharacterProfiles.contains(protagonist))
         XCTAssertTrue(protagonist.outgoingRelationships.contains { $0.id == relationshipID })
         XCTAssertTrue(rival.incomingRelationships.contains { $0.id == relationshipID })
+        let mirroredRelationship = try XCTUnwrap(rival.incomingRelationships.first { $0.id == relationshipID })
+        XCTAssertEqual(mirroredRelationship.sourceCharacter.semanticEntity.canonicalName, "Aidan Vale")
+        XCTAssertEqual(mirroredRelationship.kind, "rival")
         XCTAssertTrue(protagonist.conflicts.contains { $0.id == conflictID })
         XCTAssertTrue(rival.conflictsInvolving.contains { $0.id == conflictID })
 

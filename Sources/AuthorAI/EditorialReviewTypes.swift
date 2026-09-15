@@ -49,7 +49,7 @@ public enum ReviewClientError: LocalizedError, Sendable {
     }
 }
 public enum EditorPromptBuilder {
-    public static let version = "2"
+    public static let version = "3"
     public static let contract = """
     You are an editor reviewing user-supplied literary material, not an author.
     Analyze and critique only. Never write replacement prose, continue the story, or supply rewritten passages.
