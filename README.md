@@ -13,7 +13,9 @@ runnable macOS prototype.
 - A deterministic, idempotent Scrivener 3 importer for the supplied project XML and `Files` tree.
 - Explicit import runs, validation, errors, warnings, source hashes, and provenance.
 - Structured semantic entities, aliases, mentions, annotations, document links, revisions, and typed metadata values for agent-safe querying.
-- A three-column SwiftUI workspace for project selection, a draggable binder, story-bible navigation, and text editing.
+- A three-column SwiftUI workspace for project selection, a draggable binder, story-bible navigation, text editing, and project-wide body-text find and replace with match previews and escaped special characters.
+- Per-format Book ISBN metadata. Authors add only the formats they publish—Hardback, Paperback, E-Book, Audiobook, Large Print, Board Book, or Library Binding—and record one ISBN for each. The edition remains separate metadata because it is not a product format.
+- Three named book-cover assets for future publishing output: Front Cover, Back Cover, and Full Cover (front, spine, back, and overleaves).
 
 ## Run the UI prototype
 

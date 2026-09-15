@@ -1,5 +1,9 @@
 import AuthorData
 import SwiftUI
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 /// Shown above the editor for any document under the Narrative tree. Lets the author mark a
 /// folder as a Book, Section, or Chapter (text documents are always Scenes), fill in
@@ -53,6 +57,10 @@ struct NarrativeMetadataPanel: View {
                 if !fields.isEmpty {
                     Divider()
                     NarrativeFieldsGrid(controller: controller, document: document, fields: fields)
+                    if narrativeType == .book {
+                        BookISBNsSection(controller: controller, document: document)
+                        BookCoversSection(controller: controller, document: document)
+                    }
                 }
             }
         }
@@ -94,6 +102,164 @@ struct NarrativeMetadataPanel: View {
         CheckboxToggleStyle()
         #else
         SwitchToggleStyle()
+        #endif
+    }
+}
+
+private struct BookISBNsSection: View {
+    @ObservedObject var controller: WorkspaceController
+    let document: Document
+
+    private var isbnEntries: [BookISBN] {
+        controller.bookISBNs(on: document)
+    }
+
+    private var availableFormats: [BookFormat] {
+        BookFormat.allCases.filter { format in
+            format.isUserSelectable &&
+            !isbnEntries.contains { $0.format == format }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("ISBNs by Format")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 120, alignment: .leading)
+
+                Menu("Add Format") {
+                    ForEach(availableFormats) { format in
+                        Button(format.displayName) {
+                            controller.addBookISBN(for: format, on: document)
+                        }
+                    }
+                }
+                .disabled(availableFormats.isEmpty)
+            }
+
+            ForEach(isbnEntries) { entry in
+                HStack(spacing: 8) {
+                    Text(entry.format.displayName)
+                        .font(.body)
+                        .frame(width: 120, alignment: .leading)
+                    TextField("978-0-000-00000-0", text: Binding(
+                        get: { entry.number },
+                        set: { controller.setBookISBN($0, for: entry.format, on: document) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    Button {
+                        controller.removeBookISBN(for: entry.format, on: document)
+                    } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Remove \(entry.format.displayName) ISBN")
+                }
+            }
+        }
+    }
+}
+
+private struct BookCoversSection: View {
+    @ObservedObject var controller: WorkspaceController
+    let document: Document
+    @State private var coverToUpload: BookCoverKind?
+    @State private var showsCoverImporter = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Publishing Covers")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(BookCoverKind.allCases) { kind in
+                coverRow(kind)
+            }
+        }
+        .fileImporter(
+            isPresented: $showsCoverImporter,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let kind = coverToUpload else { return }
+            defer { coverToUpload = nil }
+            do {
+                guard let url = try result.get().first else {
+                    throw WorkspaceError.noImageSelected
+                }
+                try controller.setBookCover(from: url, kind: kind, on: document)
+            } catch {
+                controller.report(error)
+            }
+        }
+    }
+
+    private func coverRow(_ kind: BookCoverKind) -> some View {
+        let cover = controller.bookCover(kind, on: document)
+        return HStack(spacing: 8) {
+            if let cover {
+                Button {
+                    controller.selection = .galleryItem(cover.id)
+                } label: {
+                    GalleryImage(data: cover.resource.data)
+                        .frame(width: 72, height: 54)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.plain)
+                .help("Open \(kind.displayName)")
+            } else {
+                Image(systemName: "photo")
+                    .frame(width: 72, height: 54)
+                    .foregroundStyle(.secondary)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(kind.displayName)
+                Text(kind.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button(cover == nil ? "Upload" : "Replace") {
+                uploadCover(kind)
+            }
+            if cover != nil {
+                Button(role: .destructive) {
+                    controller.removeBookCover(kind, on: document)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Remove \(kind.displayName)")
+            }
+        }
+    }
+
+    private func uploadCover(_ kind: BookCoverKind) {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.title = "Select \(kind.displayName)"
+        panel.prompt = "Choose"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try controller.setBookCover(from: url, kind: kind, on: document)
+            } catch {
+                controller.report(error)
+            }
+        }
+        #else
+        coverToUpload = kind
+        showsCoverImporter = true
         #endif
     }
 }
@@ -163,4 +329,3 @@ private struct NarrativeFieldsGrid: View {
         }
     }
 }
-

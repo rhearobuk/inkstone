@@ -9,13 +9,26 @@ import AppKit
 /// a compact icon-labeled tab strip above a grouped, inset form.
 public struct AppPreferencesView: View {
     @ObservedObject private var settings: AISettingsStore
+    @ObservedObject private var authorInformation: AuthorInformationSettings
 
-    public init(settings: AISettingsStore) {
+    public init(
+        settings: AISettingsStore,
+        authorInformation: AuthorInformationSettings = AuthorInformationSettings()
+    ) {
         self.settings = settings
+        self.authorInformation = authorInformation
     }
 
     public var body: some View {
         TabView {
+            AuthorInformationPane(authorInformation: authorInformation)
+                .tabItem {
+                    Label("Author Information", systemImage: "person.text.rectangle")
+                }
+            AgentInformationPane(authorInformation: authorInformation)
+                .tabItem {
+                    Label("Agent Information", systemImage: "person.2")
+                }
             AIProvidersPane(settings: settings)
                 .tabItem {
                     Label("AI & Automation", systemImage: "sparkles")
@@ -58,14 +71,95 @@ private struct LocalAISettingsPane: View {
     }
 }
 
+private struct AuthorInformationPane: View {
+    @ObservedObject var authorInformation: AuthorInformationSettings
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Author's name", text: $authorInformation.name)
+                TextField("Pen name", text: $authorInformation.penName)
+            } header: {
+                Text("Identity")
+            } footer: {
+                Text("Use your legal name for correspondence and your pen name when your work is published under a different byline.")
+            }
+
+            Section {
+                TextField("Address line 1", text: $authorInformation.addressLine1)
+                TextField("Address line 2", text: $authorInformation.addressLine2)
+                TextField("City or locality", text: $authorInformation.locality)
+                TextField("State, province, or region", text: $authorInformation.region)
+                TextField("Postal or ZIP code", text: $authorInformation.postalCode)
+                TextField("Country or region", text: $authorInformation.country)
+            } header: {
+                Text("Postal Address")
+            } footer: {
+                Text("Use the address format required by your country. State/province and postal-code fields are optional.")
+            }
+
+            Section {
+                TextField("Email address", text: $authorInformation.email)
+                TextField("Phone number", text: $authorInformation.phone)
+                TextField("Website", text: $authorInformation.website)
+            } header: {
+                Text("Contact")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct AgentInformationPane: View {
+    @ObservedObject var authorInformation: AuthorInformationSettings
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Agent's name", text: $authorInformation.agentName)
+                TextField("Agency", text: $authorInformation.agency)
+            } header: {
+                Text("Identity")
+            }
+
+            Section {
+                TextField("Address line 1", text: $authorInformation.agentAddressLine1)
+                TextField("Address line 2", text: $authorInformation.agentAddressLine2)
+                TextField("City or locality", text: $authorInformation.agentLocality)
+                TextField("State, province, or region", text: $authorInformation.agentRegion)
+                TextField("Postal or ZIP code", text: $authorInformation.agentPostalCode)
+                TextField("Country or region", text: $authorInformation.agentCountry)
+            } header: {
+                Text("Postal Address")
+            } footer: {
+                Text("Use the address format required by your agent's country. State/province and postal-code fields are optional.")
+            }
+
+            Section {
+                TextField("Email address", text: $authorInformation.agentEmail)
+                TextField("Phone number", text: $authorInformation.agentPhone)
+                TextField("Website", text: $authorInformation.agentWebsite)
+            } header: {
+                Text("Contact")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
 /// A sheet-hosted variant of ``AppPreferencesView`` for platforms or contexts where the native
 /// macOS `Settings` scene (Cmd-,) isn't the entry point, e.g. presenting from a toolbar button.
 public struct AppPreferencesSheet: View {
     @ObservedObject private var settings: AISettingsStore
+    @ObservedObject private var authorInformation: AuthorInformationSettings
     @Environment(\.dismiss) private var dismiss
 
-    public init(settings: AISettingsStore) {
+    public init(
+        settings: AISettingsStore,
+        authorInformation: AuthorInformationSettings = AuthorInformationSettings()
+    ) {
         self.settings = settings
+        self.authorInformation = authorInformation
     }
 
     public var body: some View {
@@ -84,7 +178,7 @@ public struct AppPreferencesSheet: View {
             }
             .padding()
             Divider()
-            AppPreferencesView(settings: settings)
+            AppPreferencesView(settings: settings, authorInformation: authorInformation)
         }
     }
 }

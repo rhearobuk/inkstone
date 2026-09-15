@@ -13,8 +13,12 @@ public struct AuthorWorkspaceView: View {
     @State private var showsNewProject = false
     @State private var showsImporter = false
     @State private var showsPreferences = false
-    @State private var showsAppPreferences = false
+    @State private var showsExportStudio = false
+    @State private var showsBinderFind = false
+    @State private var showsFindReplace = false
+    @State private var projectFindText = ""
     @State private var newProjectTitle = ""
+    @FocusState private var isBinderFindFocused: Bool
 
     public init(controller: WorkspaceController, editorInitiallyVisible: Bool = false) {
         self.controller = controller
@@ -30,11 +34,13 @@ public struct AuthorWorkspaceView: View {
     public var body: some View {
         NavigationSplitView {
             projectList
-        } content: {
-            binder
         } detail: {
-            GeometryReader { geometry in
-                HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                binder
+                    .frame(minWidth: 260, idealWidth: 320, maxWidth: 380)
+                Divider()
+                GeometryReader { geometry in
+                    HStack(spacing: 0) {
                     WorkspaceDetailView(controller: controller)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if showsEditor && editorIsInline(width: geometry.size.width) {
@@ -46,44 +52,100 @@ public struct AuthorWorkspaceView: View {
                         )
                         .frame(width: min(420, max(350, geometry.size.width * 0.43)))
                     }
-                }
-                .sheet(
-                    isPresented: Binding(
-                        get: { showsEditor && !editorIsInline(width: geometry.size.width) },
-                        set: { if !$0 { showsEditor = false } }
-                    )
-                ) {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button("Done") { showsEditor = false }
-                        }
-                        .padding()
-                        EditorPanelView(
-                            workspace: controller,
-                            editor: controller.editorialReviews,
-                            settings: aiSettings
-                        )
                     }
-                    .frame(minWidth: 340, minHeight: 480)
+                    .sheet(
+                        isPresented: Binding(
+                            get: { showsEditor && !editorIsInline(width: geometry.size.width) },
+                            set: { if !$0 { showsEditor = false } }
+                        )
+                    ) {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Button("Done") { showsEditor = false }
+                            }
+                            .padding()
+                            EditorPanelView(
+                                workspace: controller,
+                                editor: controller.editorialReviews,
+                                settings: aiSettings
+                            )
+                        }
+                        .frame(minWidth: 340, minHeight: 480)
+                    }
                 }
             }
             .toolbar {
-                Button { showsEditor.toggle() } label: {
-                    Label("AI Editor", systemImage: "text.magnifyingglass")
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showsNewProject = true
+                    } label: {
+                        Label("New Project", systemImage: "plus")
+                    }
+                    .help("Create a new project")
+
+                    Button {
+                        showsImporter = true
+                    } label: {
+                        Label("Import Project", systemImage: "square.and.arrow.down")
+                    }
+                    .help("Import a Scrivener project")
+                    .disabled(controller.isImporting)
+
+                    Button {
+                        showsBinderFind = true
+                        DispatchQueue.main.async {
+                            isBinderFindFocused = true
+                        }
+                    } label: {
+                        Label("Find in Project", systemImage: "magnifyingglass")
+                    }
+                    .help("Find text in the selected project")
+                    .disabled(controller.selectedProject == nil)
+
+                    Button {
+                        showsFindReplace = true
+                    } label: {
+                        Label("Find & Replace", systemImage: "rectangle.and.pencil.and.ellipsis")
+                    }
+                    .help("Find and replace text across the selected project")
+                    .disabled(controller.selectedProject == nil)
+
+                    Button {
+                        showsPreferences = true
+                    } label: {
+                        Label("Project Preferences", systemImage: "gearshape")
+                    }
+                    .help("Edit selected project preferences")
+                    .disabled(controller.selectedProject == nil)
+
+                    Button {
+                        showsExportStudio = true
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Export the selected narrative item")
+                    .disabled(controller.exportScopeCandidates().isEmpty)
+
+                    Button { showsEditor.toggle() } label: {
+                        Label("AI Editor", systemImage: "wand.and.stars")
+                    }
+                    .help("Open AI Editor to review the manuscript and browse editorial history")
                 }
-                .help("Review manuscript and browse editorial history")
             }
         }
         .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showsPreferences) {
             ProjectPreferencesView(controller: controller)
         }
-        .sheet(isPresented: $showsAppPreferences) {
-            AppPreferencesSheet(settings: aiSettings)
-        }
         .sheet(isPresented: $showsImporter) {
             ScrivenerImportView(controller: controller)
+        }
+        .sheet(isPresented: $showsExportStudio) {
+            ExportStudioView(controller: controller)
+        }
+        .sheet(isPresented: $showsFindReplace) {
+            ProjectFindReplaceView(controller: controller, findText: $projectFindText)
         }
         .alert("New Project", isPresented: $showsNewProject) {
             TextField("Project title", text: $newProjectTitle)
@@ -234,19 +296,29 @@ public struct AuthorWorkspaceView: View {
     }
 
     private var projectList: some View {
-        List(selection: Binding(
-            get: { controller.selectedProjectID },
-            set: { id in
-                guard let id, id != controller.selectedProjectID else { return }
-                DispatchQueue.main.async {
-                    controller.selectProject(id)
-                }
+        VStack(spacing: 0) {
+            HStack {
+                Text("Projects")
+                    .font(.headline)
+                Spacer()
             }
-        )) {
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+
+            List(selection: Binding(
+                get: { controller.selectedProjectID },
+                set: { id in
+                    guard let id, id != controller.selectedProjectID else { return }
+                    DispatchQueue.main.async {
+                        controller.selectProject(id)
+                    }
+                }
+            )) {
             let activeProjects = controller.projects.filter { !controller.isProjectTrashed($0.id) }
             let trashedProjects = controller.trashedProjects
 
-            Section("Projects") {
+            Section {
                 ForEach(activeProjects, id: \.id) { project in
                     Label {
                         HStack {
@@ -326,61 +398,35 @@ public struct AuthorWorkspaceView: View {
             }
         }
         .navigationTitle("Projects")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    showsImporter = true
-                } label: {
-                    Label("Import Scrivener Project", systemImage: "square.and.arrow.down")
-                }
-                .help("Import a Scrivener project")
-                .disabled(controller.isImporting)
-
-                Button {
-                    showsNewProject = true
-                } label: {
-                    Label("New Project", systemImage: "plus")
-                }
-                .help("Create a new project")
-
-                Menu {
-                    Button(controller.showsHiddenProjects ? "Hide Hidden Projects" : "Show Hidden Projects") {
-                        controller.showsHiddenProjects.toggle()
-                        controller.refresh()
-                    }
-                    Button(controller.showsTrashedProjects ? "Hide Trashed Projects" : "Show Trashed Projects") {
-                        controller.showsTrashedProjects.toggle()
-                        controller.refresh()
-                    }
-                    if !controller.trashedProjects.isEmpty {
-                        Divider()
-                        Button(role: .destructive) {
-                            controller.showsEmptyProjectTrashAlert = true
-                        } label: {
-                            Label("Empty Project Trash...", systemImage: "trash")
-                        }
-                    }
-                } label: {
-                    Label("Project Options", systemImage: "ellipsis.circle")
-                }
-                .help("Project list options")
-            }
-            ToolbarItemGroup(placement: .automatic) {
-                Button {
-                    showsAppPreferences = true
-                } label: {
-                    Label("Preferences", systemImage: "gearshape.2")
-                }
-                .help("Application Preferences")
-                #if !os(macOS)
-                .keyboardShortcut(",", modifiers: .command)
-                #endif
-            }
         }
     }
 
     private var binder: some View {
         VStack(spacing: 0) {
+            if showsBinderFind {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Find in Project", text: $controller.binderSearchText)
+                        .focused($isBinderFindFocused)
+                    Button {
+                        controller.binderSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Clear find text")
+                    Button("Done") {
+                        controller.binderSearchText = ""
+                        showsBinderFind = false
+                    }
+                    .help("Close Find in Project")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                Divider()
+            }
             filterBar
             Divider()
             List(selection: Binding(
@@ -405,45 +451,16 @@ public struct AuthorWorkspaceView: View {
             }
         }
         .navigationTitle(controller.selectedProject?.title ?? "Binder")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Menu {
-                    Button(controller.showsHiddenDocuments ? "Hide Hidden Scenes" : "Show Hidden Scenes") {
-                        controller.showsHiddenDocuments.toggle()
-                        controller.refresh()
-                    }
-                    if let project = controller.selectedProject, !controller.trashedDocuments(in: project).isEmpty {
-                        Divider()
-                        Button(role: .destructive) {
-                            controller.showsEmptyTrashAlert = true
-                        } label: {
-                            Label("Empty Trash...", systemImage: "trash")
-                        }
-                    }
-                } label: {
-                    Label("Binder Options", systemImage: "ellipsis.circle")
-                }
-                .help("Binder options")
-
-                Button {
-                    showsPreferences = true
-                } label: {
-                    Label("Project Preferences", systemImage: "gearshape")
-                }
-                .help("Project preferences")
-                .disabled(controller.selectedProject == nil)
-            }
-        }
     }
 
     private var filterBar: some View {
         HStack(spacing: 8) {
             Menu {
                 Button("All Statuses") { controller.statusFilter = nil }
-                if !controller.sortedStatusDefinitions.isEmpty {
+                if !controller.filterStatusDefinitions.isEmpty {
                     Divider()
                 }
-                ForEach(controller.sortedStatusDefinitions, id: \.sourceIdentifier) { status in
+                ForEach(controller.filterStatusDefinitions, id: \.sourceIdentifier) { status in
                     Button {
                         controller.statusFilter = status.sourceIdentifier
                     } label: {
@@ -464,13 +481,14 @@ public struct AuthorWorkspaceView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .help("Filter binder items by status")
 
             Menu {
                 Button("All Labels") { controller.labelFilter = nil }
-                if !controller.sortedLabelDefinitions.isEmpty {
+                if !controller.filterLabelDefinitions.isEmpty {
                     Divider()
                 }
-                ForEach(controller.sortedLabelDefinitions, id: \.sourceIdentifier) { label in
+                ForEach(controller.filterLabelDefinitions, id: \.sourceIdentifier) { label in
                     Button {
                         controller.labelFilter = label.sourceIdentifier
                     } label: {
@@ -491,6 +509,7 @@ public struct AuthorWorkspaceView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .help("Filter binder items by label")
 
             if controller.statusFilter != nil || controller.labelFilter != nil {
                 Button {
@@ -539,7 +558,7 @@ public struct AuthorWorkspaceView: View {
 
     private var statusFilterTitle: String {
         guard let identifier = controller.statusFilter,
-              let status = controller.sortedStatusDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
+              let status = controller.filterStatusDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
             return "Status"
         }
         return status.title
@@ -547,7 +566,7 @@ public struct AuthorWorkspaceView: View {
 
     private var labelFilterTitle: String {
         guard let identifier = controller.labelFilter,
-              let label = controller.sortedLabelDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
+              let label = controller.filterLabelDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
             return "Label"
         }
         return label.title
@@ -555,7 +574,7 @@ public struct AuthorWorkspaceView: View {
 
     private var labelFilterTint: Color {
         guard let identifier = controller.labelFilter,
-              let label = controller.sortedLabelDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
+              let label = controller.filterLabelDefinitions.first(where: { $0.sourceIdentifier == identifier }) else {
             return .secondary
         }
         return label.swiftUIColor ?? .secondary

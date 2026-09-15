@@ -1,0 +1,47 @@
+{
+  "id": "com.rhearobuk.scribe.template.proof.reading",
+  "version": 1,
+  "displayName": "Reading Proof",
+  "description": "Comfortable human-readable proof layout, not a print-production interior.",
+  "purpose": "readingProof",
+  "supportedFormats": ["pdf"],
+  "supportedPageSizes": ["usLetter", "a4"],
+  "pageLayout": {"marginTop": 0.8, "marginBottom": 0.8, "marginLeading": 0.85, "marginTrailing": 0.85},
+  "metadataRequirements": {"requiredTags": ["book.title"], "recommendedTags": ["book.author", "book.subtitle", "book.language", "book.copyright"]},
+  "frontMatter": [
+    {"id": "cover.front", "style": "cover", "tag": "publication.cover", "condition": {"requiresTag": "publication.cover"}},
+    {"id": "title.book", "style": "bookTitle", "tag": "book.title"},
+    {"id": "title.subtitle", "style": "bookSubtitle", "tag": "book.subtitle", "condition": {"requiresTag": "book.subtitle"}},
+    {"id": "title.author", "style": "author", "tag": "book.author"},
+    {"id": "copyright.statement", "style": "frontMatterBody", "tag": "publication.copyrightStatement", "condition": {"requiresTag": "book.author"}},
+    {"id": "copyright.notice", "style": "frontMatterBody", "tag": "book.copyright", "condition": {"requiresTag": "book.copyright"}},
+    {"id": "copyright.isbns", "style": "frontMatterBody", "tag": "publication.isbns", "condition": {"requiresTag": "publication.isbns"}},
+    {"id": "copyright.fictionDisclaimer", "style": "frontMatterBody", "tag": "publication.fictionDisclaimer"},
+    {"id": "copyright.rights", "style": "frontMatterBody", "tag": "publication.allRightsReserved"}
+  ],
+  "backMatter": [],
+  "headerFooter": {
+    "header": [{"id": "header.title", "style": "header", "tag": "book.title"}],
+    "footer": [{"id": "footer.page", "style": "footer", "tag": "page.number"}]
+  },
+  "styles": {
+    "body": {"fontFamily": "Literata", "fontSize": 11, "alignment": "justified", "firstLineIndent": 0.25, "lineSpacing": 1.4},
+    "cover": {"alignment": "center"},
+    "bookTitle": {"fontFamily": "Literata", "fontSize": 24, "weight": "semibold", "alignment": "center"},
+    "bookSubtitle": {"fontFamily": "Literata", "fontSize": 15, "alignment": "center"},
+    "author": {"fontFamily": "Literata", "fontSize": 14, "alignment": "center"},
+    "frontMatterBody": {"fontFamily": "Literata", "fontSize": 10, "alignment": "leading"},
+    "sectionHeading": {"fontFamily": "Literata", "fontSize": 16, "alignment": "center"},
+    "chapterHeading": {"fontFamily": "Literata", "fontSize": 18, "alignment": "center"},
+    "epigraph": {"fontFamily": "Literata", "fontSize": 10, "alignment": "center", "spacingAfter": 1.2},
+    "sceneBreak": {"fontFamily": "Literata", "fontSize": 12, "alignment": "center"},
+    "header": {"fontFamily": "Literata", "fontSize": 9, "alignment": "center"},
+    "footer": {"fontFamily": "Literata", "fontSize": 9, "alignment": "center"}
+  },
+  "narrativeRules": {
+    "book": {"displaysTitle": false, "displaysSubtitle": false, "headingStyle": null, "breakBefore": "none", "appearsInNavigation": false, "numbering": "none", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "section": {"displaysTitle": true, "displaysSubtitle": true, "headingStyle": "sectionHeading", "breakBefore": "page", "appearsInNavigation": false, "numbering": "roman", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "chapter": {"displaysTitle": true, "displaysSubtitle": true, "headingStyle": "chapterHeading", "breakBefore": "page", "appearsInNavigation": false, "numbering": "arabic", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "scene": {"displaysTitle": false, "displaysSubtitle": false, "headingStyle": null, "breakBefore": "none", "appearsInNavigation": false, "numbering": "none", "insertsSceneBreakBefore": true, "sceneBreakMarker": "* * *"}
+  }
+}

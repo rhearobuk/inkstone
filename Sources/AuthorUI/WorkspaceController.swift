@@ -21,6 +21,13 @@ public enum WorkspaceSelection: Hashable, Sendable {
     case trash(UUID)
 }
 
+private func normalizedSearchText(_ text: String) -> String {
+    text.folding(
+        options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+        locale: .current
+    )
+}
+
 private extension StoryBibleCharacterRelationship {
     var kind: String {
         switch self {
@@ -134,6 +141,7 @@ public struct BinderItem: Identifiable {
 
     public let id: String
     public let title: String
+    public let searchableText: String
     public let systemImage: String
     public let selection: WorkspaceSelection
     public let kind: Kind
@@ -153,6 +161,7 @@ public struct BinderItem: Identifiable {
     public init(
         id: String,
         title: String,
+        searchableText: String? = nil,
         systemImage: String,
         selection: WorkspaceSelection,
         kind: Kind,
@@ -171,6 +180,10 @@ public struct BinderItem: Identifiable {
     ) {
         self.id = id
         self.title = title
+        self.searchableText = (searchableText ?? title).folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: .current
+        )
         self.systemImage = systemImage
         self.selection = selection
         self.kind = kind
@@ -189,6 +202,33 @@ public struct BinderItem: Identifiable {
     }
 }
 
+public struct ProjectTextSearchResult: Identifiable, Equatable {
+    public let documentID: UUID
+    public let title: String
+    public let matchCount: Int
+
+    public var id: UUID { documentID }
+}
+
+public struct ProjectTextReplacementSummary: Equatable {
+    public let documentCount: Int
+    public let replacementCount: Int
+}
+
+/// A narrative root offered by Export Studio. It deliberately carries no managed object so the
+/// studio can hand only IDs to the export pipeline.
+public struct ExportScopeCandidate: Identifiable, Hashable {
+    public let id: UUID
+    public let title: String
+    public let scope: ExportScope
+
+    public init(id: UUID, title: String, scope: ExportScope) {
+        self.id = id
+        self.title = title
+        self.scope = scope
+    }
+}
+
 public enum WorkspaceError: LocalizedError {
     case missingProject(UUID)
     case missingDocument(UUID)
@@ -197,6 +237,10 @@ public enum WorkspaceError: LocalizedError {
     case noScrivenerProject(URL)
     case multipleScrivenerProjects(URL)
     case invalidImage(URL)
+    case bookCoverRequiresBook
+    case noImageSelected
+    case emptySearchText
+    case unreadableRichText(UUID)
 
     public var errorDescription: String? {
         switch self {
@@ -211,6 +255,14 @@ public enum WorkspaceError: LocalizedError {
             "More than one XML file exists in \(url.path). Select a folder containing one Scrivener project."
         case .invalidImage(let url):
             "\(url.lastPathComponent) is not a supported image file."
+        case .bookCoverRequiresBook:
+            "Book cover images can only be attached to a Book."
+        case .noImageSelected:
+            "Select an image to use as the book cover."
+        case .emptySearchText:
+            "Enter text to find before replacing."
+        case .unreadableRichText(let id):
+            "The rich text content for document \(id) could not be read."
         }
     }
 }
@@ -244,6 +296,12 @@ public final class WorkspaceController: ObservableObject {
     @Published public var activeDropTarget: ActiveDropTarget?
     @Published public var labelFilter: String?
     @Published public var statusFilter: String?
+    @Published public var binderSearchText = "" {
+        didSet {
+            guard binderSearchText != oldValue else { return }
+            rebuildBinder()
+        }
+    }
     @Published public private(set) var lastError: String?
     @Published public private(set) var importSummary: String?
     @Published public private(set) var isImporting = false
@@ -277,6 +335,32 @@ public final class WorkspaceController: ObservableObject {
     public var selectedDocument: Document? {
         guard case .document(let id) = selection else { return nil }
         return try? store.documents.fetch(id: id)
+    }
+
+    /// Returns only publication roots matching the selected narrative object's level. This keeps
+    /// Book, Section, Chapter, and Scene export choices semantically separate in Export Studio.
+    public func exportScopeCandidates(for selectedDocument: Document? = nil) -> [ExportScopeCandidate] {
+        guard let selectedDocument = selectedDocument ?? self.selectedDocument,
+              let scope = selectedDocument.narrativeType.flatMap(ExportScope.init(rawValue:)) else {
+            return []
+        }
+        return exportScopeCandidates(for: scope)
+    }
+
+    /// Lists every valid narrative root for an explicit Export Studio scope level.
+    public func exportScopeCandidates(for scope: ExportScope) -> [ExportScopeCandidate] {
+        guard let project = selectedProject else {
+            return []
+        }
+        return documents(in: project)
+            .filter {
+                !$0.isDeleted &&
+                !isDocumentTrashed($0) &&
+                isNarrativeDocument($0) &&
+                $0.narrativeType == scope.rawValue
+            }
+            .sorted(by: documentOrder)
+            .map { ExportScopeCandidate(id: $0.id, title: $0.title, scope: scope) }
     }
 
     public var selectedSemanticEntity: SemanticEntity? {
@@ -325,7 +409,9 @@ public final class WorkspaceController: ObservableObject {
     public func addGalleryImages(
         from urls: [URL],
         to sourceDocument: Document? = nil,
-        relatedTo semanticEntity: SemanticEntity? = nil
+        relatedTo semanticEntity: SemanticEntity? = nil,
+        resourceRole: String = "galleryImage",
+        title: String? = nil
     ) throws -> [GalleryItem] {
         guard let project = selectedProject else {
             throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
@@ -357,7 +443,7 @@ public final class WorkspaceController: ObservableObject {
                 .joined()
             let resource = store.resources.create(id: resourceID) {
                 $0.sourcePath = "Native/Gallery/\(resourceID.uuidString).\(extensionName)"
-                $0.role = "galleryImage"
+                $0.role = resourceRole
                 $0.mediaType = image.type.preferredMIMEType ?? "application/octet-stream"
                 $0.byteCount = Int64(image.data.count)
                 $0.sha256 = digest
@@ -367,7 +453,7 @@ public final class WorkspaceController: ObservableObject {
                 $0.document = sourceDocument
             }
             let item = store.galleryItems.create {
-                $0.title = image.url.deletingPathExtension().lastPathComponent
+                $0.title = title ?? image.url.deletingPathExtension().lastPathComponent
                 $0.source = ProvenanceAgent.human.rawValue
                 $0.orderIndex = orderIndex
                 $0.createdAt = now
@@ -386,13 +472,132 @@ public final class WorkspaceController: ObservableObject {
         return items
     }
 
+    public func bookCover(_ kind: BookCoverKind, on document: Document) -> GalleryItem? {
+        document.sourceGalleryItems.first { $0.resource.role == kind.resourceRole }
+    }
+
+    public func setBookCover(from url: URL, kind: BookCoverKind, on document: Document) throws {
+        guard document.narrativeType == NarrativeType.book.rawValue else {
+            throw WorkspaceError.bookCoverRequiresBook
+        }
+        if let existing = bookCover(kind, on: document) {
+            let resource = existing.resource
+            store.context.delete(existing)
+            if !resource.isSourcePreserved {
+                store.context.delete(resource)
+            }
+        }
+        _ = try addGalleryImages(
+            from: [url],
+            to: document,
+            resourceRole: kind.resourceRole,
+            title: kind.displayName
+        )
+    }
+
+    private func replacingText(
+        in rtfData: Data,
+        searchText: String,
+        replacementText: String,
+        caseSensitive: Bool
+    ) throws -> Data {
+        let attributedText = try NSAttributedString(
+            data: rtfData,
+            options: [.documentType: NSAttributedString.DocumentType.rtf],
+            documentAttributes: nil
+        )
+        let mutableText = NSMutableAttributedString(attributedString: attributedText)
+        let options: String.CompareOptions = caseSensitive ? [] : [.caseInsensitive]
+        var ranges: [Range<String.Index>] = []
+        var searchRange = attributedText.string.startIndex..<attributedText.string.endIndex
+        while let range = attributedText.string.range(
+            of: searchText,
+            options: options,
+            range: searchRange
+        ) {
+            ranges.append(range)
+            searchRange = range.upperBound..<attributedText.string.endIndex
+        }
+        for range in ranges.reversed() {
+            mutableText.replaceCharacters(
+                in: NSRange(range, in: attributedText.string),
+                with: replacementText
+            )
+        }
+        return try mutableText.data(
+            from: NSRange(location: 0, length: mutableText.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+    }
+
+    private func interpretedSearchText(_ text: String) -> String {
+        var result = ""
+        var iterator = text.makeIterator()
+        while let character = iterator.next() {
+            guard character == "\\", let escaped = iterator.next() else {
+                result.append(character)
+                continue
+            }
+            switch escaped {
+            case "n": result.append("\n")
+            case "r": result.append("\r")
+            case "t": result.append("\t")
+            case "\\": result.append("\\")
+            default:
+                result.append("\\")
+                result.append(escaped)
+            }
+        }
+        return result
+    }
+
+    private func occurrenceCount(of searchText: String, in text: String, caseSensitive: Bool) -> Int {
+        guard !searchText.isEmpty else { return 0 }
+        let options: String.CompareOptions = caseSensitive ? [] : [.caseInsensitive]
+        var count = 0
+        var searchRange = text.startIndex..<text.endIndex
+        while let range = text.range(of: searchText, options: options, range: searchRange) {
+            count += 1
+            searchRange = range.upperBound..<text.endIndex
+        }
+        return count
+    }
+
+    private func replacingOccurrences(
+        of searchText: String,
+        with replacementText: String,
+        in text: String,
+        caseSensitive: Bool
+    ) -> String {
+        text.replacingOccurrences(
+            of: searchText,
+            with: replacementText,
+            options: caseSensitive ? [] : [.caseInsensitive]
+        )
+    }
+
+    public func removeBookCover(_ kind: BookCoverKind, on document: Document) {
+        guard let item = bookCover(kind, on: document) else { return }
+        let resource = item.resource
+        store.context.delete(item)
+        if !resource.isSourcePreserved {
+            store.context.delete(resource)
+        }
+        do {
+            try store.save()
+            refresh()
+        } catch {
+            report(error)
+        }
+    }
+
     public func deleteGalleryItem(_ item: GalleryItem) {
         let projectID = item.project.id
         let sourceDocument = item.sourceDocument
         let relatedEntity = item.semanticEntity
         let resource = item.resource
         store.context.delete(item)
-        if resource.role == "galleryImage" {
+        if !resource.isSourcePreserved {
             store.context.delete(resource)
         }
         do {
@@ -1069,6 +1274,14 @@ public final class WorkspaceController: ObservableObject {
         }
     }
 
+    public var filterLabelDefinitions: [LabelDefinition] {
+        uniqueDefinitions(sortedLabelDefinitions)
+    }
+
+    public var filterStatusDefinitions: [StatusDefinition] {
+        uniqueDefinitions(sortedStatusDefinitions)
+    }
+
     public var sortedCustomMetadataFields: [MetadataField] {
         guard let project = selectedProject else { return [] }
         return project.metadataFields
@@ -1215,6 +1428,9 @@ public final class WorkspaceController: ObservableObject {
         WordCountService.recomputeOwnWordCount(for: document)
         document.modifiedAt = Date()
         document.project.modifiedAt = Date()
+        if !binderSearchText.isEmpty {
+            rebuildBinder()
+        }
         scheduleDocumentSave(after: .seconds(3))
     }
 
@@ -1244,7 +1460,114 @@ public final class WorkspaceController: ObservableObject {
         resource.textContent = plainText
         resource.byteCount = Int64(rtfData.count)
         resource.sha256 = SHA256.hash(data: rtfData).map { String(format: "%02x", $0) }.joined()
+        if !binderSearchText.isEmpty {
+            rebuildBinder()
+        }
         scheduleDocumentSave(after: .milliseconds(250))
+    }
+
+    public func projectTextSearchResults(
+        for searchText: String,
+        caseSensitive: Bool = false
+    ) -> [ProjectTextSearchResult] {
+        let searchText = interpretedSearchText(searchText)
+        guard !searchText.isEmpty, let project = selectedProject else { return [] }
+        return documents(in: project)
+            .filter { !isDocumentTrashed($0) }
+            .compactMap { document in
+                let count = occurrenceCount(
+                    of: searchText,
+                    in: document.plainText ?? "",
+                    caseSensitive: caseSensitive
+                )
+                guard count > 0 else { return nil }
+                return ProjectTextSearchResult(
+                    documentID: document.id,
+                    title: document.title,
+                    matchCount: count
+                )
+            }
+    }
+
+    @discardableResult
+    public func replaceProjectText(
+        searchText: String,
+        with replacementText: String,
+        caseSensitive: Bool = false
+    ) throws -> ProjectTextReplacementSummary {
+        let searchText = interpretedSearchText(searchText)
+        guard !searchText.isEmpty else { throw WorkspaceError.emptySearchText }
+        guard let project = selectedProject else {
+            throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
+        }
+
+        flushPendingChanges()
+        let replacementText = interpretedSearchText(replacementText)
+        let matchingDocuments = documents(in: project)
+            .filter { !isDocumentTrashed($0) }
+            .compactMap { document -> (Document, Int)? in
+                let count = occurrenceCount(
+                    of: searchText,
+                    in: document.plainText ?? "",
+                    caseSensitive: caseSensitive
+                )
+                return count > 0 ? (document, count) : nil
+            }
+        guard !matchingDocuments.isEmpty else {
+            return ProjectTextReplacementSummary(documentCount: 0, replacementCount: 0)
+        }
+
+        for (document, _) in matchingDocuments {
+            let updatedText = replacingOccurrences(
+                of: searchText,
+                with: replacementText,
+                in: document.plainText ?? "",
+                caseSensitive: caseSensitive
+            )
+            if let sourceResource = document.resources.first(where: {
+                $0.role == "content" && $0.mediaType == "application/rtf"
+            }) {
+                guard let sourceData = sourceResource.data else {
+                    throw WorkspaceError.unreadableRichText(document.id)
+                }
+                let updatedData = try replacingText(
+                    in: sourceData,
+                    searchText: searchText,
+                    replacementText: replacementText,
+                    caseSensitive: caseSensitive
+                )
+                let resource = document.resources.first {
+                    $0.role == "content"
+                        && $0.mediaType == "application/rtf"
+                        && !$0.isSourcePreserved
+                } ?? store.resources.create {
+                    $0.sourcePath = "Native/Documents/\(document.id.uuidString)/content.rtf"
+                    $0.role = "content"
+                    $0.mediaType = "application/rtf"
+                    $0.byteCount = 0
+                    $0.sha256 = ""
+                    $0.isSourcePreserved = false
+                    $0.project = document.project
+                    $0.document = document
+                }
+                resource.data = updatedData
+                resource.textContent = updatedText
+                resource.byteCount = Int64(updatedData.count)
+                resource.sha256 = SHA256.hash(data: updatedData)
+                    .map { String(format: "%02x", $0) }
+                    .joined()
+            }
+            document.plainText = updatedText
+            WordCountService.recomputeOwnWordCount(for: document)
+            document.modifiedAt = Date()
+        }
+        project.modifiedAt = Date()
+        try store.save()
+        refresh()
+        return ProjectTextReplacementSummary(
+            documentCount: matchingDocuments.count,
+            replacementCount: matchingDocuments.reduce(0) { $0 + $1.1 }
+        )
     }
 
     public func flushPendingChanges() {
@@ -1305,6 +1628,31 @@ public final class WorkspaceController: ObservableObject {
 
     public func setNarrativeFieldValue(_ rawValue: String, for descriptor: NarrativeFieldDescriptor, on document: Document) {
         NarrativeMetadataStore.setValue(rawValue, for: descriptor, on: document, store: store)
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func bookISBNs(on document: Document) -> [BookISBN] {
+        NarrativeMetadataStore.bookISBNs(on: document)
+    }
+
+    public func addBookISBN(for format: BookFormat, on document: Document) {
+        NarrativeMetadataStore.addBookISBN(for: format, on: document, store: store)
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func setBookISBN(_ rawValue: String, for format: BookFormat, on document: Document) {
+        NarrativeMetadataStore.setBookISBN(rawValue, for: format, on: document, store: store)
+        document.modifiedAt = Date()
+        document.project.modifiedAt = Date()
+        saveAndRefresh()
+    }
+
+    public func removeBookISBN(for format: BookFormat, on document: Document) {
+        NarrativeMetadataStore.removeBookISBN(for: format, on: document, store: store)
         document.modifiedAt = Date()
         document.project.modifiedAt = Date()
         saveAndRefresh()
@@ -1711,28 +2059,61 @@ public final class WorkspaceController: ObservableObject {
         rebuildBinder()
     }
 
-    /// The binder tree narrowed to `labelFilter`/`statusFilter`, if either is set. Organizational
-    /// nodes (Project Definition, Story Bible, Gallery, Narrative, and their categories) always
-    /// remain visible so the tree stays navigable; only actual binder documents (folders and
-    /// scenes) are matched against the active filters, with ancestors of a match kept so context
-    /// is preserved.
+    /// The binder tree narrowed by the active metadata filters, retaining ancestors of matching
+    /// documents so their location remains clear.
     public var displayedBinderItems: [BinderItem] {
-        guard labelFilter != nil || statusFilter != nil else { return binderItems }
-        return binderItems.compactMap(filteredBinderItem)
+        let searchText = normalizedSearchText(binderSearchText)
+        if !searchText.isEmpty {
+            return binderSearchResults(matching: searchText)
+        }
+        guard labelFilter != nil || statusFilter != nil else {
+            return binderItems
+        }
+        return binderItems.compactMap { filteredBinderItem($0) }
+    }
+
+    private func binderSearchResults(matching searchText: String) -> [BinderItem] {
+        binderItems.flatMap { matchingItems(in: $0, searchText: searchText) }
+    }
+
+    private func matchingItems(in item: BinderItem, searchText: String) -> [BinderItem] {
+        let childResults = (item.children ?? []).flatMap {
+            matchingItems(in: $0, searchText: searchText)
+        }
+        guard isProjectSearchItem(item),
+              !item.isTrashed,
+              item.searchableText.contains(searchText) else {
+            return childResults
+        }
+        var result = item
+        result.children = nil
+        return [result] + childResults
+    }
+
+    private func isProjectSearchItem(_ item: BinderItem) -> Bool {
+        switch item.kind {
+        case .document, .characterProfile, .semanticEntity, .galleryItem:
+            true
+        case .projectDefinition, .storyBible, .storyBibleCategory, .gallery, .narrative, .trash:
+            false
+        }
     }
 
     private func filteredBinderItem(_ item: BinderItem) -> BinderItem? {
         var item = item
-        let filteredChildren = item.children?.compactMap(filteredBinderItem)
-        item.children = filteredChildren
-        let matchesSelf: Bool
-        if item.documentID != nil {
-            let labelOK = labelFilter == nil || item.labelIdentifier == labelFilter
-            let statusOK = statusFilter == nil || item.statusIdentifier == statusFilter
-            matchesSelf = labelOK && statusOK
-        } else {
-            matchesSelf = true
+        let filteredChildren = item.children?.compactMap {
+            filteredBinderItem($0)
         }
+        item.children = filteredChildren
+        let matchesMetadata: Bool
+        if item.documentID != nil {
+            let labelOK = matchesLabelFilter(item.labelIdentifier)
+            let statusOK = matchesStatusFilter(item.statusIdentifier)
+            matchesMetadata = labelOK && statusOK
+        } else {
+            matchesMetadata = true
+        }
+        let matchesSelf = matchesMetadata
         let hasMatchingChildren = !(filteredChildren?.isEmpty ?? true)
         return (matchesSelf || hasMatchingChildren) ? item : nil
     }
@@ -1826,6 +2207,10 @@ public final class WorkspaceController: ObservableObject {
                     BinderItem(
                         id: entity.id.uuidString,
                         title: entity.canonicalName,
+                        searchableText: [
+                            entity.canonicalName,
+                            entity.storyBibleCard?.details
+                        ].compactMap { $0 }.joined(separator: "\n"),
                         systemImage: category.systemImage,
                         selection: entity.characterProfile.map {
                             .characterProfile($0.id)
@@ -1911,6 +2296,9 @@ public final class WorkspaceController: ObservableObject {
                     BinderItem(
                         id: item.id.uuidString,
                         title: item.title,
+                        searchableText: [item.title, item.caption]
+                            .compactMap { $0 }
+                            .joined(separator: "\n"),
                         systemImage: "photo",
                         selection: .galleryItem(item.id),
                         kind: .galleryItem
@@ -1947,6 +2335,11 @@ public final class WorkspaceController: ObservableObject {
         return BinderItem(
             id: document.id.uuidString,
             title: document.title,
+            searchableText: [
+                document.title,
+                document.synopsis,
+                document.plainText
+            ].compactMap { $0 }.joined(separator: "\n"),
             systemImage: profile == nil
                 ? documentSystemImage(document)
                 : StoryBibleCategory.people.systemImage,
@@ -1971,6 +2364,64 @@ public final class WorkspaceController: ObservableObject {
 
     private func documents(in project: WritingProject) -> [Document] {
         project.documents.filter { !$0.isDeleted }
+    }
+
+    private func uniqueDefinitions<T: NSManagedObject>(_ definitions: [T]) -> [T]
+    where T: AuthorManagedObject {
+        var titles = Set<String>()
+        return definitions.filter { definition in
+            let title: String
+            if let label = definition as? LabelDefinition {
+                title = label.title
+            } else if let status = definition as? StatusDefinition {
+                title = status.title
+            } else {
+                return true
+            }
+            return titles.insert(normalizedDefinitionTitle(title)).inserted
+        }
+    }
+
+    private func matchesLabelFilter(_ identifier: String?) -> Bool {
+        matchesDefinitionFilter(
+            identifier,
+            selectedIdentifier: labelFilter,
+            definitions: labelLookup,
+            title: \.title
+        )
+    }
+
+    private func matchesStatusFilter(_ identifier: String?) -> Bool {
+        matchesDefinitionFilter(
+            identifier,
+            selectedIdentifier: statusFilter,
+            definitions: statusLookup,
+            title: \.title
+        )
+    }
+
+    private func matchesDefinitionFilter<T>(
+        _ identifier: String?,
+        selectedIdentifier: String?,
+        definitions: [String: T],
+        title: KeyPath<T, String>
+    ) -> Bool {
+        guard let selectedIdentifier else { return true }
+        guard let selected = definitions[selectedIdentifier] else {
+            return identifier == selectedIdentifier
+        }
+        guard let identifier, let candidate = definitions[identifier] else {
+            return false
+        }
+        return normalizedDefinitionTitle(candidate[keyPath: title]) ==
+            normalizedDefinitionTitle(selected[keyPath: title])
+    }
+
+    private func normalizedDefinitionTitle(_ title: String) -> String {
+        title.folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: .current
+        )
     }
 
     private func isDescendant(_ candidate: Document, of ancestor: Document) -> Bool {

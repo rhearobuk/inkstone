@@ -27,6 +27,94 @@ public struct NarrativeFieldDescriptor: Sendable {
     }
 }
 
+/// Standard publishing product formats. Each published format requires its own ISBN; edition is
+/// recorded separately because it identifies a version of a format rather than a format itself.
+public enum BookFormat: String, CaseIterable, Identifiable, Sendable {
+    case unspecified
+    case hardback
+    case paperback
+    case ebook
+    case audiobook
+    case largePrint
+    case boardBook
+    case libraryBinding
+
+    public var id: Self { self }
+
+    public var displayName: String {
+        switch self {
+        case .unspecified: "Unspecified (Legacy)"
+        case .hardback: "Hardback"
+        case .paperback: "Paperback"
+        case .ebook: "E-Book"
+        case .audiobook: "Audiobook"
+        case .largePrint: "Large Print"
+        case .boardBook: "Board Book"
+        case .libraryBinding: "Library Binding"
+        }
+    }
+
+    public var isbnMetadataKey: String {
+        if self == .unspecified {
+            return "system.book.isbn"
+        }
+        return "system.book.isbn.\(rawValue)"
+    }
+
+    public var isUserSelectable: Bool {
+        self != .unspecified
+    }
+
+    public var isbnFieldDescriptor: NarrativeFieldDescriptor {
+        NarrativeFieldDescriptor(
+            key: isbnMetadataKey,
+            displayName: "\(displayName) ISBN",
+            valueKind: .text,
+            placeholder: "978-0-000-00000-0"
+        )
+    }
+}
+
+public struct BookISBN: Identifiable, Sendable {
+    public let format: BookFormat
+    public let number: String
+
+    public var id: BookFormat { format }
+
+    public init(format: BookFormat, number: String) {
+        self.format = format
+        self.number = number
+    }
+}
+
+public enum BookCoverKind: String, CaseIterable, Identifiable, Sendable {
+    case front
+    case back
+    case full
+
+    public var id: Self { self }
+
+    public var displayName: String {
+        switch self {
+        case .front: "Front Cover"
+        case .back: "Back Cover"
+        case .full: "Full Cover"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .front: "Front artwork"
+        case .back: "Back artwork"
+        case .full: "Front, spine, back, and overleaves"
+        }
+    }
+
+    public var resourceRole: String {
+        "bookCover.\(rawValue)"
+    }
+}
+
 /// The fixed set of system-defined metadata fields shown for each `NarrativeType`, plus the
 /// shared "Target Word Count" field every level gets.
 public enum NarrativeMetadataSchema {
@@ -43,11 +131,9 @@ public enum NarrativeMetadataSchema {
         case .book:
             return [
                 NarrativeFieldDescriptor(key: "system.book.subtitle", displayName: "Subtitle", valueKind: .text),
-                NarrativeFieldDescriptor(key: "system.book.isbn", displayName: "ISBN", valueKind: .text),
                 NarrativeFieldDescriptor(key: "system.book.seriesName", displayName: "Series Name", valueKind: .text),
                 NarrativeFieldDescriptor(key: "system.book.volumeNumber", displayName: "Volume Number", valueKind: .number),
                 NarrativeFieldDescriptor(key: "system.book.volumeCount", displayName: "Number of Volumes", valueKind: .number),
-                NarrativeFieldDescriptor(key: "system.book.author", displayName: "Author / Byline", valueKind: .text),
                 NarrativeFieldDescriptor(key: "system.book.publisher", displayName: "Publisher", valueKind: .text),
                 NarrativeFieldDescriptor(key: "system.book.publicationDate", displayName: "Publication Date", valueKind: .date),
                 NarrativeFieldDescriptor(key: "system.book.copyright", displayName: "Copyright Notice", valueKind: .text),
@@ -155,6 +241,58 @@ public enum NarrativeMetadataStore {
         case .text, .longText:
             metadataValue.stringValue = trimmed
         }
+    }
+
+    public static func bookISBNs(on document: Document) -> [BookISBN] {
+        BookFormat.allCases.compactMap { format in
+            guard let value = document.metadataValues.first(where: { $0.field.key == format.isbnMetadataKey }) else {
+                return nil
+            }
+            return BookISBN(format: format, number: value.stringValue ?? "")
+        }
+    }
+
+    public static func addBookISBN(
+        for format: BookFormat,
+        on document: Document,
+        store: AuthorDataStore
+    ) {
+        guard format.isUserSelectable else { return }
+        guard !document.metadataValues.contains(where: { $0.field.key == format.isbnMetadataKey }) else {
+            return
+        }
+        let field = self.field(
+            for: format.isbnMetadataKey,
+            displayName: format.isbnFieldDescriptor.displayName,
+            valueType: .text,
+            in: document.project,
+            store: store
+        )
+        _ = store.metadataValues.create {
+            $0.field = field
+            $0.document = document
+            $0.stringValue = ""
+        }
+    }
+
+    public static func setBookISBN(
+        _ rawValue: String,
+        for format: BookFormat,
+        on document: Document,
+        store: AuthorDataStore
+    ) {
+        addBookISBN(for: format, on: document, store: store)
+        guard let value = document.metadataValues.first(where: { $0.field.key == format.isbnMetadataKey }) else {
+            return
+        }
+        value.stringValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public static func removeBookISBN(for format: BookFormat, on document: Document, store: AuthorDataStore) {
+        guard let value = document.metadataValues.first(where: { $0.field.key == format.isbnMetadataKey }) else {
+            return
+        }
+        store.context.delete(value)
     }
 }
 

@@ -1,0 +1,46 @@
+{
+  "id": "com.rhearobuk.scribe.template.ebook.novel",
+  "version": 1,
+  "displayName": "Standard Novel Ebook",
+  "description": "Semantic, reflowable novel structure for a future EPUB 3.3 renderer.",
+  "purpose": "ebook",
+  "supportedFormats": ["epub"],
+  "supportedPageSizes": [],
+  "metadataRequirements": {"requiredTags": ["book.title", "book.author", "book.language"], "recommendedTags": ["book.cover.front", "book.isbn.ebook", "book.copyright", "book.publisher", "book.publicationDate", "book.series.name", "book.series.volume", "book.edition"]},
+  "frontMatter": [
+    {"id": "cover.front", "style": "cover", "tag": "publication.cover", "condition": {"requiresTag": "publication.cover"}},
+    {"id": "title.book", "style": "bookTitle", "tag": "book.title"},
+    {"id": "title.subtitle", "style": "bookSubtitle", "tag": "book.subtitle", "condition": {"requiresTag": "book.subtitle"}},
+    {"id": "title.author", "style": "author", "tag": "book.author"},
+    {"id": "title.series", "style": "frontMatterBody", "tag": "book.series.name", "condition": {"requiresTag": "book.series.name"}},
+    {"id": "title.seriesVolume", "style": "frontMatterBody", "tag": "book.series.volume", "condition": {"requiresTag": "book.series.volume"}},
+    {"id": "copyright.statement", "style": "frontMatterBody", "tag": "publication.copyrightStatement", "condition": {"requiresTag": "book.author"}},
+    {"id": "copyright.notice", "style": "frontMatterBody", "tag": "book.copyright", "condition": {"requiresTag": "book.copyright"}},
+    {"id": "copyright.publisher", "style": "frontMatterBody", "tag": "book.publisher", "condition": {"requiresTag": "book.publisher"}},
+    {"id": "copyright.date", "style": "frontMatterBody", "tag": "book.publicationDate", "formatter": "longDate", "condition": {"requiresTag": "book.publicationDate"}},
+    {"id": "copyright.edition", "style": "frontMatterBody", "tag": "book.edition", "condition": {"requiresTag": "book.edition"}},
+    {"id": "copyright.isbns", "style": "frontMatterBody", "tag": "publication.isbns", "condition": {"requiresTag": "publication.isbns"}},
+    {"id": "copyright.fictionDisclaimer", "style": "frontMatterBody", "tag": "publication.fictionDisclaimer"},
+    {"id": "copyright.rights", "style": "frontMatterBody", "tag": "publication.allRightsReserved"}
+  ],
+  "backMatter": [],
+  "headerFooter": {"header": [], "footer": []},
+  "styles": {
+    "body": {"fontFamily": "Literata", "fontSize": 1, "alignment": "leading", "lineSpacing": 1.4},
+    "cover": {"alignment": "center"},
+    "bookTitle": {"fontFamily": "Literata", "fontSize": 2, "weight": "semibold", "alignment": "center"},
+    "bookSubtitle": {"fontFamily": "Literata", "fontSize": 1.3, "alignment": "center"},
+    "author": {"fontFamily": "Literata", "fontSize": 1.2, "alignment": "center"},
+    "frontMatterBody": {"fontFamily": "Literata", "fontSize": 1, "alignment": "leading"},
+    "sectionHeading": {"fontFamily": "Literata", "fontSize": 1.5, "alignment": "center"},
+    "chapterHeading": {"fontFamily": "Literata", "fontSize": 1.5, "alignment": "center"},
+    "epigraph": {"fontFamily": "Literata", "fontSize": 1, "alignment": "center", "spacingAfter": 1.2},
+    "sceneBreak": {"fontFamily": "Literata", "fontSize": 1, "alignment": "center"}
+  },
+  "narrativeRules": {
+    "book": {"displaysTitle": false, "displaysSubtitle": false, "headingStyle": null, "breakBefore": "none", "appearsInNavigation": false, "numbering": "none", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "section": {"displaysTitle": true, "displaysSubtitle": true, "headingStyle": "sectionHeading", "breakBefore": "section", "appearsInNavigation": true, "numbering": "roman", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "chapter": {"displaysTitle": true, "displaysSubtitle": true, "headingStyle": "chapterHeading", "breakBefore": "section", "appearsInNavigation": true, "numbering": "arabic", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "scene": {"displaysTitle": false, "displaysSubtitle": false, "headingStyle": null, "breakBefore": "none", "appearsInNavigation": false, "numbering": "none", "insertsSceneBreakBefore": true, "sceneBreakMarker": "* * *"}
+  }
+}

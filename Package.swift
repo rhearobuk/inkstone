@@ -23,7 +23,8 @@ let package = Package(
                 "Resources/AuthorData.xcdatamodeld"
             ],
             resources: [
-                .copy("Resources/AuthorData.momd")
+                .copy("Resources/AuthorData.momd"),
+                .process("Resources/ExportTemplates")
             ]
         ),
         .target(name: "AuthorAI"),

@@ -8,6 +8,7 @@ struct ScribeApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var controller: WorkspaceController
     @StateObject private var aiSettings = AISettingsStore()
+    @StateObject private var authorInformation = AuthorInformationSettings()
 
     init() {
         #if os(macOS)
@@ -47,6 +48,7 @@ struct ScribeApp: App {
         WindowGroup {
             AuthorWorkspaceView(controller: controller)
                 .environmentObject(aiSettings)
+                .environmentObject(authorInformation)
                 .frame(minWidth: 900, minHeight: 600)
                 .onChange(of: scenePhase) { phase in
                     if phase == .active {
@@ -59,7 +61,7 @@ struct ScribeApp: App {
 
         #if os(macOS)
         Settings {
-            AppPreferencesView(settings: aiSettings)
+            AppPreferencesView(settings: aiSettings, authorInformation: authorInformation)
         }
         #endif
     }

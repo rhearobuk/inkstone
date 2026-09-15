@@ -1,0 +1,53 @@
+{
+  "id": "com.unit37.scribe.template.manuscript.standard",
+  "version": 1,
+  "displayName": "Standard Manuscript Submission",
+  "description": "Modern manuscript-submission conventions for agents, editors, and competitions.",
+  "purpose": "manuscriptSubmission",
+  "supportedFormats": ["docx", "pdf"],
+  "supportedPageSizes": ["a4", "usLetter"],
+  "pageLayout": {"marginTop": 1, "marginBottom": 1, "marginLeading": 1, "marginTrailing": 1},
+  "metadataRequirements": {"requiredTags": ["book.title", "book.author"], "recommendedTags": ["book.subtitle", "book.language", "manuscript.wordCount.approximate"]},
+  "frontMatter": [
+    {"id": "title.book", "style": "bookTitle", "tag": "book.title"},
+    {"id": "title.subtitle", "style": "bookSubtitle", "tag": "book.subtitle", "condition": {"requiresTag": "book.subtitle"}},
+    {"id": "title.author", "style": "author", "tag": "book.author"},
+    {"id": "contact.author.address", "style": "titlePageMetadata", "tag": "book.author.address", "condition": {"requiresTag": "book.author.address"}},
+    {"id": "contact.author.phone", "style": "titlePageMetadata", "tag": "book.author.phone", "condition": {"requiresTag": "book.author.phone"}},
+    {"id": "contact.author.email", "style": "titlePageMetadata", "tag": "book.author.email", "condition": {"requiresTag": "book.author.email"}},
+    {"id": "contact.agent.name", "style": "titlePageMetadata", "tag": "book.agent.name", "condition": {"requiresTag": "book.agent.name"}},
+    {"id": "contact.agent.agency", "style": "titlePageMetadata", "tag": "book.agent.agency", "condition": {"requiresTag": "book.agent.agency"}},
+    {"id": "contact.agent.address", "style": "titlePageMetadata", "tag": "book.agent.address", "condition": {"requiresTag": "book.agent.address"}},
+    {"id": "contact.agent.phone", "style": "titlePageMetadata", "tag": "book.agent.phone", "condition": {"requiresTag": "book.agent.phone"}},
+    {"id": "contact.agent.email", "style": "titlePageMetadata", "tag": "book.agent.email", "condition": {"requiresTag": "book.agent.email"}},
+    {"id": "title.wordCount", "style": "titlePageMetadata", "tag": "manuscript.wordCount.roundedHundred", "formatter": "roundedHundredWordCount"}
+  ],
+  "backMatter": [],
+  "headerFooter": {
+    "header": [
+      {"id": "header.author", "style": "header", "tag": "book.author"},
+      {"id": "header.title", "style": "header", "tag": "book.title"},
+      {"id": "header.page", "style": "header", "tag": "page.number"}
+    ],
+    "footer": []
+  },
+  "styles": {
+    "body": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "leading", "firstLineIndent": 0.5, "lineSpacing": 2},
+    "bookTitle": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center", "textTransform": "uppercase"},
+    "bookSubtitle": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center"},
+    "author": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center"},
+    "titlePageMetadata": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "leading"},
+    "sectionHeading": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center"},
+    "chapterHeading": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center"},
+    "epigraph": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center", "spacingAfter": 2},
+    "sceneBreak": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center"},
+    "header": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "trailing"},
+    "footer": {"fontFamily": "Times New Roman", "fontSize": 12, "alignment": "center"}
+  },
+  "narrativeRules": {
+    "book": {"displaysTitle": false, "displaysSubtitle": false, "headingStyle": null, "breakBefore": "none", "appearsInNavigation": false, "numbering": "none", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "section": {"displaysTitle": true, "displaysSubtitle": true, "headingStyle": "sectionHeading", "breakBefore": "page", "appearsInNavigation": false, "numbering": "roman", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "chapter": {"displaysTitle": true, "displaysSubtitle": true, "headingStyle": "chapterHeading", "breakBefore": "page", "appearsInNavigation": false, "numbering": "arabic", "insertsSceneBreakBefore": false, "sceneBreakMarker": null},
+    "scene": {"displaysTitle": false, "displaysSubtitle": false, "headingStyle": null, "breakBefore": "none", "appearsInNavigation": false, "numbering": "none", "insertsSceneBreakBefore": true, "sceneBreakMarker": "#"}
+  }
+}

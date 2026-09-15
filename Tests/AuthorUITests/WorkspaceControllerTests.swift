@@ -432,6 +432,100 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.plainText, "Rain covered the station.")
     }
 
+    func testProjectTextReplacementSupportsEscapedNewLines() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let scene = try XCTUnwrap(
+            project.documents.first { $0.kind == DocumentKind.text.rawValue }
+        )
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: nil,
+            plainText: "First line\nSecond line\nFirst line\nSecond line"
+        )
+
+        let summary = try controller.replaceProjectText(
+            searchText: "first line\\nsecond line",
+            with: "Opening\\nClosing"
+        )
+
+        XCTAssertEqual(summary, ProjectTextReplacementSummary(documentCount: 1, replacementCount: 2))
+        XCTAssertEqual(scene.plainText, "Opening\nClosing\nOpening\nClosing")
+    }
+
+    func testBinderFindShowsOnlyMatchingDocuments() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let manuscript = try XCTUnwrap(narrative.orderedChildren.first)
+        let firstScene = try XCTUnwrap(manuscript.orderedChildren.first)
+        let secondScene = try controller.addDocument(
+            title: "Second Scene",
+            kind: .text,
+            parentID: manuscript.id
+        )
+        controller.updateDocument(
+            documentID: firstScene.id,
+            title: "Arrival",
+            synopsis: nil,
+            plainText: "Rain covered the station."
+        )
+        controller.updateDocument(
+            documentID: secondScene.id,
+            title: "Departure",
+            synopsis: nil,
+            plainText: "Sunlight filled the platform."
+        )
+
+        controller.binderSearchText = "station"
+
+        XCTAssertEqual(controller.displayedBinderItems.map(\.title), ["Arrival"])
+        XCTAssertTrue(controller.displayedBinderItems.allSatisfy { $0.children == nil })
+    }
+
+    func testBinderFindIncludesStoryBibleEntries() throws {
+        let controller = try makeController()
+        try controller.createProject(title: "Draft")
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+
+        controller.binderSearchText = "mara"
+
+        XCTAssertEqual(controller.displayedBinderItems.map(\.title), ["Mara Venn"])
+        XCTAssertEqual(controller.displayedBinderItems.first?.kind, .characterProfile)
+    }
+
+    func testStatusFilterDeduplicatesTitlesAndMatchesDuplicateIdentifiers() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let manuscript = try XCTUnwrap(narrative.orderedChildren.first)
+        let firstScene = try XCTUnwrap(manuscript.orderedChildren.first)
+        let secondScene = try controller.addDocument(
+            title: "Second Scene",
+            kind: .text,
+            parentID: manuscript.id
+        )
+        let firstDraft = try XCTUnwrap(controller.addStatus(title: "First Draft"))
+        let duplicateFirstDraft = try XCTUnwrap(controller.addStatus(title: "First Draft"))
+        firstScene.statusIdentifier = firstDraft.sourceIdentifier
+        secondScene.statusIdentifier = duplicateFirstDraft.sourceIdentifier
+        try controller.store.save()
+        controller.refresh()
+
+        XCTAssertEqual(
+            controller.filterStatusDefinitions.filter { $0.title == "First Draft" }.count,
+            1
+        )
+        controller.statusFilter = firstDraft.sourceIdentifier
+
+        let narrativeItem = try XCTUnwrap(
+            controller.displayedBinderItems.first { $0.kind == .narrative }
+        )
+        let manuscriptItem = try XCTUnwrap(narrativeItem.children?.first)
+        XCTAssertEqual(manuscriptItem.children?.map(\.title), ["Opening Scene", "Second Scene"])
+    }
+
     func testFlushPendingChangesPersistsDebouncedDocumentEdit() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Draft")
@@ -566,12 +660,31 @@ final class WorkspaceControllerTests: XCTestCase {
         let book = try XCTUnwrap(narrative.orderedChildren.first)
         controller.setNarrativeType(book, to: .book)
 
-        let isbnField = try XCTUnwrap(
-            NarrativeMetadataSchema.fields(for: .book).first { $0.key == "system.book.isbn" }
-        )
-        controller.setNarrativeFieldValue("978-0-000-00000-0", for: isbnField, on: book)
+        controller.addBookISBN(for: .hardback, on: book)
+        controller.addBookISBN(for: .ebook, on: book)
+        controller.setBookISBN("978-0-000-00000-0", for: .hardback, on: book)
+        controller.setBookISBN("978-0-000-00000-1", for: .ebook, on: book)
 
-        XCTAssertEqual(controller.narrativeFieldValue(isbnField, on: book), "978-0-000-00000-0")
+        let isbnEntries = controller.bookISBNs(on: book)
+        XCTAssertEqual(isbnEntries.map(\.format), [.hardback, .ebook])
+        XCTAssertEqual(isbnEntries.first?.number, "978-0-000-00000-0")
+        XCTAssertEqual(isbnEntries.last?.number, "978-0-000-00000-1")
+        XCTAssertFalse(NarrativeMetadataSchema.fields(for: .book).contains { $0.key == "system.book.isbn" })
+        XCTAssertFalse(NarrativeMetadataSchema.fields(for: .book).contains { $0.key == "system.book.author" })
+        XCTAssertFalse(NarrativeMetadataSchema.fields(for: .book).contains { $0.key == "system.book.agentName" })
+        controller.removeBookISBN(for: .hardback, on: book)
+        XCTAssertEqual(controller.bookISBNs(on: book).map(\.format), [.ebook])
+
+        let legacyISBN = NarrativeFieldDescriptor(
+            key: "system.book.isbn",
+            displayName: "ISBN",
+            valueKind: .text
+        )
+        controller.setNarrativeFieldValue("978-0-000-00000-2", for: legacyISBN, on: book)
+        XCTAssertEqual(
+            controller.bookISBNs(on: book).first { $0.format == .unspecified }?.number,
+            "978-0-000-00000-2"
+        )
 
         let targetField = try XCTUnwrap(
             NarrativeMetadataSchema.fields(for: .book).first { $0.key == NarrativeMetadataSchema.targetWordCountKey }
@@ -607,6 +720,35 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(try controller.store.galleryItems.count(), 0)
         XCTAssertEqual(try controller.store.resources.count(), 0)
         XCTAssertEqual(controller.selection, .semanticEntity(place.id))
+    }
+
+    func testStoresOneNamedCoverForEachBookCoverSlot() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        controller.setNarrativeType(book, to: .book)
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).png")
+        let imageData = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        try imageData.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+
+        try controller.setBookCover(from: imageURL, kind: .front, on: book)
+        try controller.setBookCover(from: imageURL, kind: .back, on: book)
+        let frontCoverID = try XCTUnwrap(controller.bookCover(.front, on: book)?.id)
+        XCTAssertEqual(controller.bookCover(.front, on: book)?.resource.data, imageData)
+        XCTAssertEqual(controller.bookCover(.front, on: book)?.resource.role, "bookCover.front")
+        XCTAssertEqual(controller.bookCover(.back, on: book)?.resource.role, "bookCover.back")
+
+        try controller.setBookCover(from: imageURL, kind: .front, on: book)
+        XCTAssertNotEqual(controller.bookCover(.front, on: book)?.id, frontCoverID)
+        XCTAssertEqual(book.sourceGalleryItems.filter { $0.resource.role == "bookCover.front" }.count, 1)
+
+        controller.removeBookCover(.back, on: book)
+        XCTAssertNil(controller.bookCover(.back, on: book))
     }
 
     func testResolvesScrivPackageAndScrivxSource() throws {
