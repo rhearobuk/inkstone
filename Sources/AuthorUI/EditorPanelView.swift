@@ -19,6 +19,12 @@ struct EditorPanelView: View {
     @State private var instructions = ""
     @State private var provider = AIProvider.appleIntelligence
     @AppStorage("AIEditor.openAIModel") private var modelID = "gpt-4.1-mini"
+    @AppStorage("AIEditor.anthropicModel") private var anthropicModelID = "claude-sonnet-4-5"
+    @AppStorage("AIEditor.googleModel") private var googleModelID = "gemini-2.5-flash"
+    @AppStorage("AIEditor.mistralModel") private var mistralModelID = "mistral-large-latest"
+    @AppStorage("AIEditor.xaiModel") private var xAIModelID = "grok-4.6"
+    @AppStorage("AIEditor.cohereModel") private var cohereModelID = "command-a"
+    @AppStorage("AIEditor.ollamaModel") private var ollamaModelID = ""
     @State private var openAIModels = ModelCatalog.openAI
     @State private var isLoadingOpenAIModels = false
     @State private var openAIModelError: String?
@@ -61,9 +67,10 @@ struct EditorPanelView: View {
         switch provider {
         case .appleIntelligence:
             return settings.appleIntelligenceEnabled ? AppleIntelligenceReviewClient.unavailableReason : "Enable Apple Intelligence in app Preferences."
-        case .openAI:
-            return !settings.hasAPIKey(for: .openAI) ? "Add your OpenAI key in Preferences." : modelID.trimmingCharacters(in: .whitespaces).isEmpty ? "Enter a model ID." : nil
-        default: return "Reviews are currently available with Apple Intelligence or OpenAI."
+        case .openAI, .anthropic, .google, .mistral, .xai, .cohere:
+            return !settings.hasAPIKey(for: provider) ? "Add your \(provider.displayName) key in Preferences." : activeModelID.trimmingCharacters(in: .whitespaces).isEmpty ? "Enter a model ID." : nil
+        case .ollama:
+            return activeModelID.trimmingCharacters(in: .whitespaces).isEmpty ? "Choose an installed Ollama model." : nil
         }
     }
     private var projectReviews: [EditorialReview] {
@@ -90,7 +97,7 @@ struct EditorPanelView: View {
                                 scope = EditorialScope(rawValue: review.scope) ?? .document
                                 personaID = review.persona?.id ?? editor.personas.first?.id
                                 provider = AIProvider(rawValue: review.providerID) ?? .appleIntelligence
-                                if provider == .openAI { modelID = review.modelID }
+                                setModelID(review.modelID, for: provider)
                                 previousID = review.id
                                 showingOptions = true
                             }
@@ -288,6 +295,18 @@ struct EditorPanelView: View {
                     .task(id: settings.apiKey(for: .openAI)) {
                         await refreshOpenAIModels()
                     }
+            } else if provider == .ollama {
+                TextField("Model", text: activeModelBinding)
+                    .textFieldStyle(.roundedBorder)
+                Text("Enter the name of a model installed in Ollama, such as llama3.2.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                TextField("Model", text: activeModelBinding)
+                    .textFieldStyle(.roundedBorder)
+                Text("Your selected text will be sent to \(provider.displayName). API charges may apply.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             if let unavailable { Text(unavailable).font(.caption).foregroundStyle(.orange) }
             Picker("Review", selection: $scope) { ForEach(EditorialScope.allCases, id: \.self) { Text(EditorStyle.scopeName($0)).tag($0) } }
@@ -327,10 +346,64 @@ struct EditorPanelView: View {
         #endif
         guard case .success(let inputs) = snapshots else { return }
         guard let project = workspace.selectedProject, let root, let persona else { return }
-        let client: any EditorialReviewClient = provider == .appleIntelligence ? AppleIntelligenceReviewClient() : OpenAIReviewClient(apiKey: settings.apiKey(for: .openAI), modelID: modelID)
+        let client: any EditorialReviewClient
+        switch provider {
+        case .appleIntelligence:
+            client = AppleIntelligenceReviewClient()
+        case .openAI:
+            client = OpenAIReviewClient(apiKey: settings.apiKey(for: .openAI), modelID: activeModelID)
+        case .anthropic:
+            client = ExternalReviewClient(provider: .anthropic, apiKey: settings.apiKey(for: .anthropic), modelID: activeModelID)
+        case .google:
+            client = ExternalReviewClient(provider: .google, apiKey: settings.apiKey(for: .google), modelID: activeModelID)
+        case .mistral:
+            client = ExternalReviewClient(provider: .mistral, apiKey: settings.apiKey(for: .mistral), modelID: activeModelID)
+        case .xai:
+            client = ExternalReviewClient(provider: .xai, apiKey: settings.apiKey(for: .xai), modelID: activeModelID)
+        case .cohere:
+            client = ExternalReviewClient(provider: .cohere, apiKey: settings.apiKey(for: .cohere), modelID: activeModelID)
+        case .ollama:
+            client = ExternalReviewClient(provider: .ollama, apiKey: "", modelID: activeModelID)
+        }
         editor.start(project: project, root: root, scope: scope, persona: persona, inputs: inputs,
-                     providerID: provider.rawValue, modelID: provider == .appleIntelligence ? "apple-system-on-device" : modelID,
+                     providerID: provider.rawValue, modelID: provider == .appleIntelligence ? "apple-system-on-device" : activeModelID,
                      instructions: instructions, previousReviewID: previousID, client: client)
+    }
+    private var activeModelID: String {
+        switch provider {
+        case .openAI: modelID
+        case .anthropic: anthropicModelID
+        case .google: googleModelID
+        case .mistral: mistralModelID
+        case .xai: xAIModelID
+        case .cohere: cohereModelID
+        case .ollama: ollamaModelID
+        case .appleIntelligence: ""
+        }
+    }
+    private var activeModelBinding: Binding<String> {
+        switch provider {
+        case .openAI: $modelID
+        case .anthropic: $anthropicModelID
+        case .google: $googleModelID
+        case .mistral: $mistralModelID
+        case .xai: $xAIModelID
+        case .cohere: $cohereModelID
+        case .ollama: $ollamaModelID
+        case .appleIntelligence: .constant("")
+        }
+    }
+    private func setModelID(_ value: String, for provider: AIProvider) {
+        switch provider {
+        case .openAI: modelID = value
+        case .anthropic: anthropicModelID = value
+        case .google: googleModelID = value
+        case .mistral: mistralModelID = value
+        case .xai: xAIModelID = value
+        case .cohere: cohereModelID = value
+        case .ollama: ollamaModelID = value
+        case .appleIntelligence: break
+        }
     }
     private func refreshOpenAIModels() async {
         guard provider == .openAI, settings.hasAPIKey(for: .openAI), !isLoadingOpenAIModels else { return }

@@ -12,6 +12,7 @@ public enum AIProvider: String, CaseIterable, Identifiable, Codable, Sendable {
     case mistral
     case xai
     case cohere
+    case ollama
     case appleIntelligence
 
     public var id: String { rawValue }
@@ -24,6 +25,7 @@ public enum AIProvider: String, CaseIterable, Identifiable, Codable, Sendable {
         case .mistral: return "Mistral AI"
         case .xai: return "xAI (Grok)"
         case .cohere: return "Cohere"
+        case .ollama: return "Ollama"
         case .appleIntelligence: return "Apple Intelligence"
         }
     }
@@ -36,6 +38,7 @@ public enum AIProvider: String, CaseIterable, Identifiable, Codable, Sendable {
         case .mistral: return "Mistral and Mixtral models via La Plateforme."
         case .xai: return "Grok models via the xAI API."
         case .cohere: return "Command models via the Cohere API."
+        case .ollama: return "Models running locally through Ollama. No API key or network connection required."
         case .appleIntelligence: return "On-device models built into macOS. No API key or network connection required."
         }
     }
@@ -48,12 +51,13 @@ public enum AIProvider: String, CaseIterable, Identifiable, Codable, Sendable {
         case .mistral: return "wind"
         case .xai: return "bolt.fill"
         case .cohere: return "cube.transparent"
+        case .ollama: return "desktopcomputer"
         case .appleIntelligence: return "apple.logo"
         }
     }
 
     /// Apple Intelligence runs on-device and never needs a user-supplied credential.
-    public var requiresAPIKey: Bool { self != .appleIntelligence }
+    public var requiresAPIKey: Bool { self != .appleIntelligence && self != .ollama }
 
     public var apiKeyPlaceholder: String {
         switch self {
@@ -63,6 +67,7 @@ public enum AIProvider: String, CaseIterable, Identifiable, Codable, Sendable {
         case .mistral: return "API key"
         case .xai: return "xai-…"
         case .cohere: return "API key"
+        case .ollama: return ""
         case .appleIntelligence: return ""
         }
     }
@@ -76,6 +81,7 @@ public enum AIProvider: String, CaseIterable, Identifiable, Codable, Sendable {
         case .mistral: return URL(string: "https://console.mistral.ai/api-keys")
         case .xai: return URL(string: "https://console.x.ai")
         case .cohere: return URL(string: "https://dashboard.cohere.com/api-keys")
+        case .ollama: return nil
         case .appleIntelligence: return nil
         }
     }
@@ -222,6 +228,9 @@ public final class AISettingsStore: ObservableObject {
     public var isConfigured: Bool {
         if selectedProvider == .appleIntelligence {
             return appleIntelligenceEnabled
+        }
+        if selectedProvider == .ollama {
+            return true
         }
         return hasAPIKey(for: selectedProvider)
     }

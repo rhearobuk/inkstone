@@ -71,7 +71,7 @@ For long inputs, budget model context and output, split at document/paragraph bo
 
 The existing user-supplied-key design needs no hosted backend. Add credential-aware native request adapters, bounded retries, cancellation, rate-limit handling, and structured decoding. Keep API keys in Keychain; surface failed Keychain writes. Exclude credentials and manuscript content from routine logs.
 
-For the first release, implement Apple plus one external provider adapter (OpenAI, matching the existing provider settings). Expose only implemented, usable models. Remaining configured providers are subsequent adapters. Fetch/verify model capabilities during implementation rather than freezing a model name in this plan.
+Support Apple Intelligence plus every configured external provider: OpenAI, Anthropic, Google Gemini, Mistral, xAI, and Cohere. Each provider has its own authenticated request adapter and structured JSON response contract; model-specific capability or account errors remain visible to the writer. OpenAI lists the GPT-family models enabled for the authenticated account, while the other providers retain explicit, independently saved model IDs so writers can select models their accounts support. Also support keyless local Ollama models through its default `http://127.0.0.1:11434` server and JSON-schema chat output. Never silently switch providers or fall back to a different model.
 
 ## Persistence and migration
 

@@ -67,6 +67,27 @@ public enum EditorPromptBuilder {
             : "Review all supplied manuscript text. Context is reference material, not a separate review target.\n")
         + "BEGIN MATERIAL\n" + request.material + "\nEND MATERIAL"
     }
+
+    public enum EditorialReviewResponse {
+        public static func decode(_ text: String) throws -> ReviewResponse {
+            guard let response = try? JSONDecoder().decode(ReviewResponse.self, from: Data(text.utf8)) else {
+                throw ReviewClientError.invalidResponse
+            }
+            return response
+        }
+
+        public static var schema: [String: Any] {
+            let string: [String: Any] = ["type": "string"]
+            func object(_ properties: [String: Any]) -> [String: Any] {
+                ["type": "object", "properties": properties, "required": properties.keys.sorted(), "additionalProperties": false]
+            }
+            let evidence = object(["documentID": string, "excerpt": string])
+            let finding = object(["category": string, "severity": string, "title": string,
+                                  "explanation": string, "recommendation": string,
+                                  "evidence": ["type": "array", "items": evidence]])
+            return object(["summary": string, "findings": ["type": "array", "items": finding]])
+        }
+    }
 }
 
 /// Uses a conservative UTF-8 byte budget, avoiding language-dependent word/token assumptions.

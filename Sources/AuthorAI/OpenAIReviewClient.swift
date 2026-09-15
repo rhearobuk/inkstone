@@ -19,7 +19,7 @@ public struct OpenAIReviewClient: EditorialReviewClient {
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": modelID, "store": false, "instructions": EditorPromptBuilder.contract,
             "input": EditorPromptBuilder.prompt(request), "max_output_tokens": 4096,
-            "text": ["format": ["type": "json_schema", "name": "editorial_review", "strict": true, "schema": Self.schema]]
+            "text": ["format": ["type": "json_schema", "name": "editorial_review", "strict": true, "schema": EditorPromptBuilder.EditorialReviewResponse.schema]]
         ])
         for attempt in 0..<3 {
             try Task.checkCancellation()
@@ -49,22 +49,11 @@ public struct OpenAIReviewClient: EditorialReviewClient {
         if content.contains(where: { $0["type"] as? String == "refusal" }) { throw ReviewClientError.refused }
         guard root["status"] as? String == "completed" else { throw ReviewClientError.invalidResponse }
         let text = content.filter { $0["type"] as? String == "output_text" }.compactMap { $0["text"] as? String }.joined()
-        guard var result = try? JSONDecoder().decode(ReviewResponse.self, from: Data(text.utf8)) else { throw ReviewClientError.invalidResponse }
+        var result = try EditorPromptBuilder.EditorialReviewResponse.decode(text)
         let usage = root["usage"] as? [String: Any]
         result.inputTokens = usage?["input_tokens"] as? Int
         result.outputTokens = usage?["output_tokens"] as? Int
         result.resolvedModelID = root["model"] as? String
         return result
-    }
-    private static var schema: [String: Any] {
-        let string: [String: Any] = ["type": "string"]
-        func object(_ properties: [String: Any]) -> [String: Any] {
-            ["type": "object", "properties": properties, "required": properties.keys.sorted(), "additionalProperties": false]
-        }
-        let evidence = object(["documentID": string, "excerpt": string])
-        let finding = object(["category": string, "severity": string, "title": string,
-                              "explanation": string, "recommendation": string,
-                              "evidence": ["type": "array", "items": evidence]])
-        return object(["summary": string, "findings": ["type": "array", "items": finding]])
     }
 }
