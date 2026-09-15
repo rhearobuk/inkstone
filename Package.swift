@@ -5,7 +5,7 @@ let package = Package(
     name: "AuthorData",
     platforms: [
         .macOS(.v13),
-        .iOS(.v16),
+        .iOS(.v17),
         .tvOS(.v16),
         .watchOS(.v9),
         .visionOS(.v1)

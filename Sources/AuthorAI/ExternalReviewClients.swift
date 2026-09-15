@@ -162,3 +162,84 @@ public struct ExternalReviewClient: EditorialReviewClient {
         return try EditorPromptBuilder.EditorialReviewResponse.decode(text)
     }
 }
+
+extension ExternalReviewClient: ProjectChatClient {
+    public func respond(to request: ProjectChatRequest) async throws -> String {
+        guard (provider == .ollama || !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+              !modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ReviewClientError.unavailable("Choose a model and configure an API key in Preferences.")
+        }
+        let prompt = ProjectChatPromptBuilder.prompt(request)
+        let messages: [[String: String]] = [
+            ["role": "system", "content": ProjectChatPromptBuilder.instructions],
+            ["role": "user", "content": prompt]
+        ]
+        let url: URL
+        var headers = ["Content-Type": "application/json"]
+        let body: [String: Any]
+        switch provider {
+        case .anthropic:
+            url = URL(string: "https://api.anthropic.com/v1/messages")!
+            headers["x-api-key"] = apiKey
+            headers["anthropic-version"] = "2023-06-01"
+            body = ["model": modelID, "max_tokens": 2048, "system": ProjectChatPromptBuilder.instructions,
+                    "messages": [["role": "user", "content": prompt]]]
+        case .google:
+            let model = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
+            url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent")!
+            headers["x-goog-api-key"] = apiKey
+            body = ["systemInstruction": ["parts": [["text": ProjectChatPromptBuilder.instructions]]],
+                    "contents": [["role": "user", "parts": [["text": prompt]]]]]
+        case .mistral:
+            url = URL(string: "https://api.mistral.ai/v1/chat/completions")!
+            headers["Authorization"] = "Bearer \(apiKey)"
+            body = ["model": modelID, "messages": messages]
+        case .xai:
+            url = URL(string: "https://api.x.ai/v1/responses")!
+            headers["Authorization"] = "Bearer \(apiKey)"
+            body = ["model": modelID, "store": false, "instructions": ProjectChatPromptBuilder.instructions,
+                    "input": prompt, "max_output_tokens": 2048]
+        case .cohere:
+            url = URL(string: "https://api.cohere.com/v2/chat")!
+            headers["Authorization"] = "Bearer \(apiKey)"
+            headers["Accept"] = "application/json"
+            headers["X-Client-Name"] = "Scribe"
+            body = ["model": modelID, "messages": messages]
+        case .ollama:
+            url = URL(string: "http://127.0.0.1:11434/api/chat")!
+            body = ["model": modelID, "stream": false, "messages": messages,
+                    "options": ["num_predict": ollamaNumPredict, "temperature": 0.7]]
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = requestTimeout
+        headers.forEach { urlRequest.setValue($0.value, forHTTPHeaderField: $0.key) }
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let http = response as? HTTPURLResponse else { throw ReviewClientError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw ReviewClientError.service(http.statusCode) }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ReviewClientError.invalidResponse
+        }
+        let text: String?
+        switch provider {
+        case .anthropic:
+            text = (root["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined()
+        case .google:
+            text = ((root["candidates"] as? [[String: Any]])?.first?["content"] as? [String: Any])?["parts"]
+                .flatMap { $0 as? [[String: Any]] }?.compactMap { $0["text"] as? String }.joined()
+        case .mistral:
+            text = ((root["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String
+        case .xai:
+            text = (root["output"] as? [[String: Any]])?.flatMap { $0["content"] as? [[String: Any]] ?? [] }
+                .filter { $0["type"] as? String == "output_text" }.compactMap { $0["text"] as? String }.joined()
+        case .cohere:
+            text = ((root["message"] as? [String: Any])?["content"] as? [[String: Any]])?
+                .compactMap { $0["text"] as? String }.joined()
+        case .ollama:
+            text = (root["message"] as? [String: Any])?["content"] as? String
+        }
+        guard let text, !text.isEmpty else { throw ReviewClientError.invalidResponse }
+        return text
+    }
+}

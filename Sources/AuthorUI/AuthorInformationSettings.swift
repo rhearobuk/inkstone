@@ -6,73 +6,84 @@ import SwiftUI
 @MainActor
 public final class AuthorInformationSettings: ObservableObject {
     @Published public var name: String {
-        didSet { defaults.set(name, forKey: Keys.name) }
+        didSet { save(name, forKey: Keys.name) }
     }
     @Published public var penName: String {
-        didSet { defaults.set(penName, forKey: Keys.penName) }
+        didSet { save(penName, forKey: Keys.penName) }
     }
     @Published public var addressLine1: String {
-        didSet { defaults.set(addressLine1, forKey: Keys.addressLine1) }
+        didSet { save(addressLine1, forKey: Keys.addressLine1) }
     }
     @Published public var addressLine2: String {
-        didSet { defaults.set(addressLine2, forKey: Keys.addressLine2) }
+        didSet { save(addressLine2, forKey: Keys.addressLine2) }
     }
     @Published public var locality: String {
-        didSet { defaults.set(locality, forKey: Keys.locality) }
+        didSet { save(locality, forKey: Keys.locality) }
     }
     @Published public var region: String {
-        didSet { defaults.set(region, forKey: Keys.region) }
+        didSet { save(region, forKey: Keys.region) }
     }
     @Published public var postalCode: String {
-        didSet { defaults.set(postalCode, forKey: Keys.postalCode) }
+        didSet { save(postalCode, forKey: Keys.postalCode) }
     }
     @Published public var country: String {
-        didSet { defaults.set(country, forKey: Keys.country) }
+        didSet { save(country, forKey: Keys.country) }
     }
     @Published public var email: String {
-        didSet { defaults.set(email, forKey: Keys.email) }
+        didSet { save(email, forKey: Keys.email) }
     }
     @Published public var phone: String {
-        didSet { defaults.set(phone, forKey: Keys.phone) }
+        didSet { save(phone, forKey: Keys.phone) }
     }
     @Published public var website: String {
-        didSet { defaults.set(website, forKey: Keys.website) }
+        didSet { save(website, forKey: Keys.website) }
     }
     @Published public var agentName: String {
-        didSet { defaults.set(agentName, forKey: Keys.agentName) }
+        didSet { save(agentName, forKey: Keys.agentName) }
     }
     @Published public var agency: String {
-        didSet { defaults.set(agency, forKey: Keys.agency) }
+        didSet { save(agency, forKey: Keys.agency) }
     }
     @Published public var agentAddressLine1: String {
-        didSet { defaults.set(agentAddressLine1, forKey: Keys.agentAddressLine1) }
+        didSet { save(agentAddressLine1, forKey: Keys.agentAddressLine1) }
     }
     @Published public var agentAddressLine2: String {
-        didSet { defaults.set(agentAddressLine2, forKey: Keys.agentAddressLine2) }
+        didSet { save(agentAddressLine2, forKey: Keys.agentAddressLine2) }
     }
     @Published public var agentLocality: String {
-        didSet { defaults.set(agentLocality, forKey: Keys.agentLocality) }
+        didSet { save(agentLocality, forKey: Keys.agentLocality) }
     }
     @Published public var agentRegion: String {
-        didSet { defaults.set(agentRegion, forKey: Keys.agentRegion) }
+        didSet { save(agentRegion, forKey: Keys.agentRegion) }
     }
     @Published public var agentPostalCode: String {
-        didSet { defaults.set(agentPostalCode, forKey: Keys.agentPostalCode) }
+        didSet { save(agentPostalCode, forKey: Keys.agentPostalCode) }
     }
     @Published public var agentCountry: String {
-        didSet { defaults.set(agentCountry, forKey: Keys.agentCountry) }
+        didSet { save(agentCountry, forKey: Keys.agentCountry) }
     }
     @Published public var agentEmail: String {
-        didSet { defaults.set(agentEmail, forKey: Keys.agentEmail) }
+        didSet { save(agentEmail, forKey: Keys.agentEmail) }
     }
     @Published public var agentPhone: String {
-        didSet { defaults.set(agentPhone, forKey: Keys.agentPhone) }
+        didSet { save(agentPhone, forKey: Keys.agentPhone) }
     }
     @Published public var agentWebsite: String {
-        didSet { defaults.set(agentWebsite, forKey: Keys.agentWebsite) }
+        didSet { save(agentWebsite, forKey: Keys.agentWebsite) }
     }
 
     private let defaults: UserDefaults
+    private let ubiquitousStore: NSUbiquitousKeyValueStore?
+    private var isApplyingRemoteValues = false
+    private var ubiquitousStoreObserver: UbiquitousStoreObserver?
+
+    private final class UbiquitousStoreObserver: @unchecked Sendable {
+        let token: NSObjectProtocol
+
+        init(_ token: NSObjectProtocol) {
+            self.token = token
+        }
+    }
 
     private enum Keys {
         static let name = "AuthorInformation.name"
@@ -99,30 +110,107 @@ public final class AuthorInformationSettings: ObservableObject {
         static let agentWebsite = "AuthorInformation.agentWebsite"
     }
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard,
+                ubiquitousStore: NSUbiquitousKeyValueStore? = .default) {
         self.defaults = defaults
-        self.name = defaults.string(forKey: Keys.name) ?? ""
-        self.penName = defaults.string(forKey: Keys.penName) ?? ""
-        self.addressLine1 = defaults.string(forKey: Keys.addressLine1) ?? ""
-        self.addressLine2 = defaults.string(forKey: Keys.addressLine2) ?? ""
-        self.locality = defaults.string(forKey: Keys.locality) ?? ""
-        self.region = defaults.string(forKey: Keys.region) ?? ""
-        self.postalCode = defaults.string(forKey: Keys.postalCode) ?? ""
-        self.country = defaults.string(forKey: Keys.country) ?? ""
-        self.email = defaults.string(forKey: Keys.email) ?? ""
-        self.phone = defaults.string(forKey: Keys.phone) ?? ""
-        self.website = defaults.string(forKey: Keys.website) ?? ""
-        self.agentName = defaults.string(forKey: Keys.agentName) ?? ""
-        self.agency = defaults.string(forKey: Keys.agency) ?? ""
-        self.agentAddressLine1 = defaults.string(forKey: Keys.agentAddressLine1) ?? ""
-        self.agentAddressLine2 = defaults.string(forKey: Keys.agentAddressLine2) ?? ""
-        self.agentLocality = defaults.string(forKey: Keys.agentLocality) ?? ""
-        self.agentRegion = defaults.string(forKey: Keys.agentRegion) ?? ""
-        self.agentPostalCode = defaults.string(forKey: Keys.agentPostalCode) ?? ""
-        self.agentCountry = defaults.string(forKey: Keys.agentCountry) ?? ""
-        self.agentEmail = defaults.string(forKey: Keys.agentEmail) ?? ""
-        self.agentPhone = defaults.string(forKey: Keys.agentPhone) ?? ""
-        self.agentWebsite = defaults.string(forKey: Keys.agentWebsite) ?? ""
+        self.ubiquitousStore = ubiquitousStore
+        ubiquitousStore?.synchronize()
+        self.name = ubiquitousStore?.string(forKey: Keys.name) ?? defaults.string(forKey: Keys.name) ?? ""
+        self.penName = ubiquitousStore?.string(forKey: Keys.penName) ?? defaults.string(forKey: Keys.penName) ?? ""
+        self.addressLine1 = ubiquitousStore?.string(forKey: Keys.addressLine1) ?? defaults.string(forKey: Keys.addressLine1) ?? ""
+        self.addressLine2 = ubiquitousStore?.string(forKey: Keys.addressLine2) ?? defaults.string(forKey: Keys.addressLine2) ?? ""
+        self.locality = ubiquitousStore?.string(forKey: Keys.locality) ?? defaults.string(forKey: Keys.locality) ?? ""
+        self.region = ubiquitousStore?.string(forKey: Keys.region) ?? defaults.string(forKey: Keys.region) ?? ""
+        self.postalCode = ubiquitousStore?.string(forKey: Keys.postalCode) ?? defaults.string(forKey: Keys.postalCode) ?? ""
+        self.country = ubiquitousStore?.string(forKey: Keys.country) ?? defaults.string(forKey: Keys.country) ?? ""
+        self.email = ubiquitousStore?.string(forKey: Keys.email) ?? defaults.string(forKey: Keys.email) ?? ""
+        self.phone = ubiquitousStore?.string(forKey: Keys.phone) ?? defaults.string(forKey: Keys.phone) ?? ""
+        self.website = ubiquitousStore?.string(forKey: Keys.website) ?? defaults.string(forKey: Keys.website) ?? ""
+        self.agentName = ubiquitousStore?.string(forKey: Keys.agentName) ?? defaults.string(forKey: Keys.agentName) ?? ""
+        self.agency = ubiquitousStore?.string(forKey: Keys.agency) ?? defaults.string(forKey: Keys.agency) ?? ""
+        self.agentAddressLine1 = ubiquitousStore?.string(forKey: Keys.agentAddressLine1) ?? defaults.string(forKey: Keys.agentAddressLine1) ?? ""
+        self.agentAddressLine2 = ubiquitousStore?.string(forKey: Keys.agentAddressLine2) ?? defaults.string(forKey: Keys.agentAddressLine2) ?? ""
+        self.agentLocality = ubiquitousStore?.string(forKey: Keys.agentLocality) ?? defaults.string(forKey: Keys.agentLocality) ?? ""
+        self.agentRegion = ubiquitousStore?.string(forKey: Keys.agentRegion) ?? defaults.string(forKey: Keys.agentRegion) ?? ""
+        self.agentPostalCode = ubiquitousStore?.string(forKey: Keys.agentPostalCode) ?? defaults.string(forKey: Keys.agentPostalCode) ?? ""
+        self.agentCountry = ubiquitousStore?.string(forKey: Keys.agentCountry) ?? defaults.string(forKey: Keys.agentCountry) ?? ""
+        self.agentEmail = ubiquitousStore?.string(forKey: Keys.agentEmail) ?? defaults.string(forKey: Keys.agentEmail) ?? ""
+        self.agentPhone = ubiquitousStore?.string(forKey: Keys.agentPhone) ?? defaults.string(forKey: Keys.agentPhone) ?? ""
+        self.agentWebsite = ubiquitousStore?.string(forKey: Keys.agentWebsite) ?? defaults.string(forKey: Keys.agentWebsite) ?? ""
+        migrateLocalValuesIfNeeded()
+        let token = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: ubiquitousStore,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.loadRemoteValues()
+            }
+        }
+        ubiquitousStoreObserver = UbiquitousStoreObserver(token)
+    }
+
+    deinit {
+        if let ubiquitousStoreObserver {
+            NotificationCenter.default.removeObserver(ubiquitousStoreObserver.token)
+        }
+    }
+
+    private func save(_ value: String, forKey key: String) {
+        defaults.set(value, forKey: key)
+        guard !isApplyingRemoteValues else { return }
+        ubiquitousStore?.set(value, forKey: key)
+    }
+
+    private func migrateLocalValuesIfNeeded() {
+        guard let ubiquitousStore else { return }
+        for (key, value) in values {
+            if ubiquitousStore.object(forKey: key) == nil, defaults.object(forKey: key) != nil {
+                ubiquitousStore.set(value, forKey: key)
+            }
+        }
+    }
+
+    private func loadRemoteValues() {
+        guard let ubiquitousStore else { return }
+        isApplyingRemoteValues = true
+        defer { isApplyingRemoteValues = false }
+        if let value = ubiquitousStore.string(forKey: Keys.name) { name = value }
+        if let value = ubiquitousStore.string(forKey: Keys.penName) { penName = value }
+        if let value = ubiquitousStore.string(forKey: Keys.addressLine1) { addressLine1 = value }
+        if let value = ubiquitousStore.string(forKey: Keys.addressLine2) { addressLine2 = value }
+        if let value = ubiquitousStore.string(forKey: Keys.locality) { locality = value }
+        if let value = ubiquitousStore.string(forKey: Keys.region) { region = value }
+        if let value = ubiquitousStore.string(forKey: Keys.postalCode) { postalCode = value }
+        if let value = ubiquitousStore.string(forKey: Keys.country) { country = value }
+        if let value = ubiquitousStore.string(forKey: Keys.email) { email = value }
+        if let value = ubiquitousStore.string(forKey: Keys.phone) { phone = value }
+        if let value = ubiquitousStore.string(forKey: Keys.website) { website = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentName) { agentName = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agency) { agency = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentAddressLine1) { agentAddressLine1 = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentAddressLine2) { agentAddressLine2 = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentLocality) { agentLocality = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentRegion) { agentRegion = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentPostalCode) { agentPostalCode = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentCountry) { agentCountry = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentEmail) { agentEmail = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentPhone) { agentPhone = value }
+        if let value = ubiquitousStore.string(forKey: Keys.agentWebsite) { agentWebsite = value }
+    }
+
+    private var values: [(String, String)] {
+        [
+            (Keys.name, name), (Keys.penName, penName), (Keys.addressLine1, addressLine1),
+            (Keys.addressLine2, addressLine2), (Keys.locality, locality), (Keys.region, region),
+            (Keys.postalCode, postalCode), (Keys.country, country), (Keys.email, email),
+            (Keys.phone, phone), (Keys.website, website), (Keys.agentName, agentName),
+            (Keys.agency, agency), (Keys.agentAddressLine1, agentAddressLine1),
+            (Keys.agentAddressLine2, agentAddressLine2), (Keys.agentLocality, agentLocality),
+            (Keys.agentRegion, agentRegion), (Keys.agentPostalCode, agentPostalCode),
+            (Keys.agentCountry, agentCountry), (Keys.agentEmail, agentEmail),
+            (Keys.agentPhone, agentPhone), (Keys.agentWebsite, agentWebsite)
+        ]
     }
 }
 

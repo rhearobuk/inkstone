@@ -1,9 +1,14 @@
 import AuthorData
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
+#if canImport(PDFKit)
+import PDFKit
+#endif
 #if canImport(AppKit)
 import AppKit
 import UniformTypeIdentifiers
-import PDFKit
 #endif
 
 public enum ExportStudioFormat: String, CaseIterable, Identifiable {
@@ -20,6 +25,12 @@ public enum ExportStudioFormat: String, CaseIterable, Identifiable {
         }
     }
     var displayName: String { rawValue.capitalized }
+}
+
+public struct ExportStudioFile: Identifiable {
+    public let id = UUID()
+    public let data: Data
+    public let filename: String
 }
 
 @MainActor
@@ -40,9 +51,7 @@ public final class ExportStudioModel: ObservableObject {
     @Published public var includesExcludedDocuments = false { didSet { resolve() } }
     @Published public private(set) var publication: ExportPublication?
     @Published public private(set) var resolvedPublication: ResolvedPublication?
-    #if canImport(AppKit)
     @Published public private(set) var previewPDF: Data?
-    #endif
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var exportMessage: String?
 
@@ -230,6 +239,27 @@ public final class ExportStudioModel: ObservableObject {
     }
     #endif
 
+    public func renderedExport() throws -> ExportStudioFile {
+        guard let resolvedPublication else {
+            throw NSError(
+                domain: "ExportStudio",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Choose an export scope and template before exporting."]
+            )
+        }
+        switch resolvedPublication.outputFormat {
+        case .docx:
+            let rendered = try ManuscriptRenderer.render(resolvedPublication)
+            return .init(data: rendered.data, filename: rendered.suggestedFilename)
+        case .pdf:
+            let rendered = try PDFRenderer.render(publication: resolvedPublication)
+            return .init(data: rendered.data, filename: rendered.suggestedFilename)
+        case .epub:
+            let rendered = try EbookRenderer.render(resolvedPublication)
+            return .init(data: rendered.data, filename: rendered.suggestedFilename)
+        }
+    }
+
     private func selectDefaultTemplate() {
         let preferredTemplateID = switch format {
         case .manuscript: "com.unit37.scribe.template.manuscript.standard"
@@ -271,7 +301,7 @@ public final class ExportStudioModel: ObservableObject {
                     publicationISBNFormat: format == .pdf ? proofISBNFormat : nil
                 )
             )
-            #if canImport(AppKit)
+            #if canImport(PDFKit)
             if template.supportedFormats.contains(.pdf) {
                 let previewPublication = ExportTemplateResolver.resolve(
                     publication: compiled,
@@ -291,7 +321,7 @@ public final class ExportStudioModel: ObservableObject {
         } catch {
             publication = nil
             resolvedPublication = nil
-            #if canImport(AppKit)
+            #if canImport(PDFKit)
             previewPDF = nil
             #endif
             errorMessage = error.localizedDescription
@@ -305,10 +335,15 @@ public struct ExportStudioView: View {
     @StateObject private var model: ExportStudioModel
 
     public init(controller: WorkspaceController) {
+        #if canImport(AppKit)
+        let candidates = controller.exportScopeCandidates()
+        #else
+        let candidates = controller.exportStudioCandidates
+        #endif
         _model = StateObject(wrappedValue: ExportStudioModel(
             store: controller.store,
             projectID: controller.selectedProjectID ?? UUID(),
-            candidates: controller.exportScopeCandidates(),
+            candidates: candidates,
             scopeCandidates: { controller.exportScopeCandidates(for: $0) }
         ))
     }
@@ -528,6 +563,10 @@ public struct ExportStudioView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authorInformation: AuthorInformationSettings
     @StateObject private var model: ExportStudioModel
+    #if canImport(UIKit)
+    @State private var fileToShare: TemporaryExportFile?
+    @State private var exportError: String?
+    #endif
 
     public init(controller: WorkspaceController) {
         _model = StateObject(wrappedValue: ExportStudioModel(
@@ -545,48 +584,14 @@ public struct ExportStudioView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Export Studio").font(.title)
                     Text("Word count: \(model.wordCount.formatted())")
-                    HStack {
-                        ForEach([ExportScope.book, .section, .chapter, .scene], id: \.self) { scope in
-                            Button(scope.displayName) { model.selectScope(scope) }
-                                .buttonStyle(.bordered)
-                                .tint(scope == model.scope ? .accentColor : .secondary)
-                        }
-                    }
-                    HStack {
-                        ForEach(ExportStudioFormat.allCases) { format in
-                            Button(format.displayName) { model.format = format }
-                                .buttonStyle(.bordered)
-                                .tint(format == model.format ? .accentColor : .secondary)
-                        }
-                    }
-                    HStack {
-                        ForEach(model.availableTemplates) { template in
-                            Button(template.displayName) { model.selectTemplate(template.id) }
-                                .buttonStyle(.bordered)
-                                .tint(template.id == model.selectedTemplateID ? .accentColor : .secondary)
-                        }
-                    }
-                    if model.supportsPageSize {
-                        HStack {
-                            Button("A4") { model.pageSize = .a4 }
-                                .buttonStyle(.bordered)
-                                .tint(model.pageSize == .a4 ? .accentColor : .secondary)
-                            Button("US Letter") { model.pageSize = .usLetter }
-                                .buttonStyle(.bordered)
-                                .tint(model.pageSize == .usLetter ? .accentColor : .secondary)
-                        }
-
-                    }
+                    scopeControls
+                    formatControls
+                    templateControls
+                    pageSizeControls
                     Toggle("Include content marked \"Do Not Publish\"", isOn: $model.includesExcludedDocuments)
                     Divider()
                     Text("Choose \(model.selectedCandidate?.scope.displayName ?? "Scope")").font(.headline)
-                    ForEach(model.candidates) { candidate in
-                        Button(candidate.title) {
-                            model.selectCandidate(candidate.id)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(candidate.id == model.selectedCandidateID ? .accentColor : .secondary)
-                    }
+                    candidateControls
                     if let publication = model.resolvedPublication {
                         Divider()
                         Text(readinessTitle(publication.readiness)).font(.headline)
@@ -609,8 +614,7 @@ public struct ExportStudioView: View {
                 Button("Export…") { export() }
                     .disabled(!isReady)
                 #else
-                Button("Export…") {}
-                    .disabled(true)
+                Button("Export…") { prepareExport() }
                 #endif
             }
             .padding()
@@ -624,6 +628,19 @@ public struct ExportStudioView: View {
                 model.updateContactInformation(authorInformation.exportContactInformation)
             }
         }
+        #if canImport(UIKit)
+        .sheet(item: $fileToShare, onDismiss: removeSharedFile) { file in
+            ExportShareSheet(fileURL: file.url)
+        }
+        .alert("Could Not Export", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )) {
+            Button("OK", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
+        }
+        #endif
     }
 
     private func readinessTitle(_ readiness: ExportReadiness) -> String {
@@ -631,6 +648,60 @@ public struct ExportStudioView: View {
         case .ready(let warnings): warnings.isEmpty ? "Ready to Export" : "Ready to Export — \(warnings.count) recommendations"
         case .blocked: "Cannot Export"
         case .templateInvalid: "Cannot Export — invalid template"
+        }
+    }
+
+    private var scopeControls: some View {
+        HStack {
+            ForEach([ExportScope.book, .section, .chapter, .scene], id: \.self) { scope in
+                Button(scope.displayName) { model.selectScope(scope) }
+                    .buttonStyle(.bordered)
+                    .tint(scope == model.scope ? .accentColor : .secondary)
+            }
+        }
+    }
+
+    private var formatControls: some View {
+        HStack {
+            ForEach(ExportStudioFormat.allCases) { format in
+                Button(format.displayName) { model.format = format }
+                    .buttonStyle(.bordered)
+                    .tint(format == model.format ? .accentColor : .secondary)
+            }
+        }
+    }
+
+    private var templateControls: some View {
+        HStack {
+            ForEach(model.availableTemplates) { template in
+                Button(template.displayName) { model.selectTemplate(template.id) }
+                    .buttonStyle(.bordered)
+                    .tint(template.id == model.selectedTemplateID ? .accentColor : .secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pageSizeControls: some View {
+        if model.supportsPageSize {
+            HStack {
+                Button("A4") { model.pageSize = .a4 }
+                    .buttonStyle(.bordered)
+                    .tint(model.pageSize == .a4 ? .accentColor : .secondary)
+                Button("US Letter") { model.pageSize = .usLetter }
+                    .buttonStyle(.bordered)
+                    .tint(model.pageSize == .usLetter ? .accentColor : .secondary)
+            }
+        }
+    }
+
+    private var candidateControls: some View {
+        ForEach(model.candidates) { candidate in
+            Button(candidate.title) {
+                model.selectCandidate(candidate.id)
+            }
+            .buttonStyle(.bordered)
+            .tint(candidate.id == model.selectedCandidateID ? .accentColor : .secondary)
         }
     }
 
@@ -647,11 +718,49 @@ public struct ExportStudioView: View {
     }
     #endif
 
+    #if canImport(UIKit)
+    private func prepareExport() {
+        do {
+            let export = try model.renderedExport()
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "-" + export.filename)
+            try export.data.write(to: url, options: .atomic)
+            fileToShare = TemporaryExportFile(url: url)
+        } catch {
+            exportError = error.localizedDescription
+        }
+    }
+
+    private func removeSharedFile() {
+        if let url = fileToShare?.url {
+            try? FileManager.default.removeItem(at: url)
+        }
+        fileToShare = nil
+    }
+    #endif
+
     private var isReady: Bool {
         if case .ready = model.resolvedPublication?.readiness { return true }
         return false
     }
 }
+
+#if canImport(UIKit)
+private struct TemporaryExportFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+private struct ExportShareSheet: UIViewControllerRepresentable {
+    let fileURL: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+#endif
 
 #if canImport(AppKit)
 private struct ExportRendererPreview: NSViewRepresentable {
@@ -676,13 +785,32 @@ private struct ExportRendererPreview: NSViewRepresentable {
         view.autoScales = true
     }
 }
-#else
+#elseif canImport(UIKit)
 private struct ExportRendererPreview: View {
     let publication: ResolvedPublication?
     let pdfData: Data?
 
     var body: some View {
-        Text("Publication Preview")
+        ExportRendererPDFPreview(pdfData: pdfData)
+    }
+}
+#endif
+
+#if canImport(UIKit)
+private struct ExportRendererPDFPreview: UIViewRepresentable {
+    let pdfData: Data?
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        return view
+    }
+
+    func updateUIView(_ view: PDFView, context: Context) {
+        view.document = pdfData.flatMap(PDFDocument.init(data:))
+        view.autoScales = true
     }
 }
 #endif

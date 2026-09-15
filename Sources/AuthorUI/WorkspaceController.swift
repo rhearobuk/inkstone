@@ -347,6 +347,18 @@ public final class WorkspaceController: ObservableObject {
         return exportScopeCandidates(for: scope)
     }
 
+    /// Prefers the selected narrative level, then falls back to the first exportable level in the
+    /// project so Export Studio remains available while viewing Story Bible or research material.
+    public var exportStudioCandidates: [ExportScopeCandidate] {
+        let selectedCandidates = exportScopeCandidates()
+        if !selectedCandidates.isEmpty { return selectedCandidates }
+        for scope in [ExportScope.book, .section, .chapter, .scene] {
+            let candidates = exportScopeCandidates(for: scope)
+            if !candidates.isEmpty { return candidates }
+        }
+        return []
+    }
+
     /// Lists every valid narrative root for an explicit Export Studio scope level.
     public func exportScopeCandidates(for scope: ExportScope) -> [ExportScopeCandidate] {
         guard let project = selectedProject else {

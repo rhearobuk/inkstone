@@ -10,6 +10,7 @@ public struct AuthorWorkspaceView: View {
     #else
     @State private var showsEditor = false
     #endif
+    @State private var assistantMode: AssistantMode = .editor
     @State private var showsNewProject = false
     @State private var showsImporter = false
     @State private var showsPreferences = false
@@ -45,11 +46,7 @@ public struct AuthorWorkspaceView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if showsEditor && editorIsInline(width: geometry.size.width) {
                         Divider()
-                        EditorPanelView(
-                            workspace: controller,
-                            editor: controller.editorialReviews,
-                            settings: aiSettings
-                        )
+                        assistantPanel
                         .frame(width: min(420, max(350, geometry.size.width * 0.43)))
                     }
                     }
@@ -65,11 +62,7 @@ public struct AuthorWorkspaceView: View {
                                 Button("Done") { showsEditor = false }
                             }
                             .padding()
-                            EditorPanelView(
-                                workspace: controller,
-                                editor: controller.editorialReviews,
-                                settings: aiSettings
-                            )
+                            assistantPanel
                         }
                         .frame(minWidth: 340, minHeight: 480)
                     }
@@ -125,12 +118,29 @@ public struct AuthorWorkspaceView: View {
                         Label("Export", systemImage: "square.and.arrow.up")
                     }
                     .help("Export the selected narrative item")
+                    #if canImport(AppKit)
                     .disabled(controller.exportScopeCandidates().isEmpty)
+                    #else
+                    .disabled(controller.exportStudioCandidates.isEmpty)
+                    #endif
 
-                    Button { showsEditor.toggle() } label: {
-                        Label("AI Editor", systemImage: "wand.and.stars")
+                    Menu {
+                        Button {
+                            assistantMode = .editor
+                            showsEditor = true
+                        } label: {
+                            Label("AI Editor", systemImage: "wand.and.stars")
+                        }
+                        Button {
+                            assistantMode = .chat
+                            showsEditor = true
+                        } label: {
+                            Label("Project Chat", systemImage: "bubble.left.and.bubble.right")
+                        }
+                    } label: {
+                        Label("AI Assistant", systemImage: "sparkles")
                     }
-                    .help("Open AI Editor to review the manuscript and browse editorial history")
+                    .help("Open AI Editor or project-aware chat")
                 }
             }
         }
@@ -293,6 +303,26 @@ public struct AuthorWorkspaceView: View {
         #else
         width >= 640
         #endif
+    }
+
+    @ViewBuilder
+    private var assistantPanel: some View {
+        VStack(spacing: 0) {
+            Picker("Assistant mode", selection: $assistantMode) {
+                ForEach(AssistantMode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(12)
+            if assistantMode == .editor {
+                EditorPanelView(
+                    workspace: controller,
+                    editor: controller.editorialReviews,
+                    settings: aiSettings
+                )
+            } else {
+                ProjectChatView(workspace: controller, settings: aiSettings)
+            }
+        }
     }
 
     private var projectList: some View {

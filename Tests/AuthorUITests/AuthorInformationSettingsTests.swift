@@ -8,7 +8,7 @@ final class AuthorInformationSettingsTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let settings = AuthorInformationSettings(defaults: defaults)
+        let settings = AuthorInformationSettings(defaults: defaults, ubiquitousStore: nil)
         settings.name = "Ada Lovelace"
         settings.penName = "A. L. Ada"
         settings.addressLine1 = "12 Analytical Engine Way"
@@ -32,7 +32,7 @@ final class AuthorInformationSettingsTests: XCTestCase {
         settings.agentPhone = "+1 555 0100"
         settings.agentWebsite = "https://hopperliterary.example"
 
-        let restored = AuthorInformationSettings(defaults: defaults)
+        let restored = AuthorInformationSettings(defaults: defaults, ubiquitousStore: nil)
         XCTAssertEqual(restored.name, "Ada Lovelace")
         XCTAssertEqual(restored.penName, "A. L. Ada")
         XCTAssertEqual(restored.addressLine1, "12 Analytical Engine Way")
