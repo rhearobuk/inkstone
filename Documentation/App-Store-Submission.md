@@ -1,6 +1,6 @@
 # App Store Submission Checklist
 
-This checklist applies to the Scribe app target for macOS, iPadOS, and
+This checklist applies to the Inkstone app target for macOS, iPadOS, and
 visionOS. It supplements, but does not replace, the current
 [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/).
 
@@ -23,11 +23,11 @@ visionOS. It supplements, but does not replace, the current
 Complete these in App Store Connect for every released platform:
 
 1. Enter the Support URL
-   <https://github.com/rhearobuk/scribe/blob/main/SUPPORT.md>. It provides
+   <https://github.com/rhearobuk/inkstone/blob/main/SUPPORT.md>. It provides
    direct contact at
    [example.quid-5d@icloud.com](mailto:example.quid-5d@icloud.com).
 2. Enter the Privacy Policy URL
-   <https://github.com/rhearobuk/scribe/blob/main/Documentation/Privacy-Policy.md>.
+   <https://github.com/rhearobuk/inkstone/blob/main/Documentation/Privacy-Policy.md>.
 3. Complete App Privacy answers from the actual release configuration. Review
    **Other User Content** for manuscript, Story Bible, annotation, review, and
    chat content transmitted to a selected cloud-AI provider. Review **Photos

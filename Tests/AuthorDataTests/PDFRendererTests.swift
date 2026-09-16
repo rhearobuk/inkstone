@@ -12,7 +12,7 @@ final class PDFRendererTests: XCTestCase {
         XCTAssertEqual(document.pageCount, result.pageCount)
         let attributes = try XCTUnwrap(document.documentAttributes)
         XCTAssertEqual(attributes[AnyHashable("Title")] as? String, "The /Novel")
-        XCTAssertEqual(attributes[AnyHashable("Creator")] as? String, "Scribe")
+        XCTAssertEqual(attributes[AnyHashable("Creator")] as? String, "Inkstone")
         XCTAssertTrue(document.string?.contains("“Smart quotes — Unicode”") == true)
         XCTAssertTrue(document.string?.contains("bold italic") == true)
         XCTAssertTrue(document.string?.contains("#") == true)

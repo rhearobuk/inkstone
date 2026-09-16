@@ -12,7 +12,7 @@ public struct PDFExportOptions: Sendable, Hashable {
     public let subject: String
     public let creationDate: Date
 
-    public init(subject: String = "Scribe publication export", creationDate: Date = Date()) {
+    public init(subject: String = "Inkstone publication export", creationDate: Date = Date()) {
         self.subject = subject
         self.creationDate = creationDate
     }
@@ -38,8 +38,8 @@ public enum PDFRendererError: LocalizedError, Equatable {
         case .unsupportedPublication: "The selected template cannot produce a PDF."
         case .exportNotReady: "The publication is not ready to export."
         case .invalidPageLayout: "The template page layout leaves no room for content."
-        case .contextCreationFailed: "Scribe could not create the PDF drawing context."
-        case .invalidPDF: "Scribe generated invalid PDF data."
+        case .contextCreationFailed: "Inkstone could not create the PDF drawing context."
+        case .invalidPDF: "Inkstone generated invalid PDF data."
         case .destinationExists(let url): "A file already exists at \(url.path)."
         }
     }
@@ -70,7 +70,7 @@ public enum PDFRenderer {
                     kCGPDFContextTitle as String: layout.title,
                     kCGPDFContextAuthor as String: layout.author,
                     kCGPDFContextSubject as String: options.subject,
-                    kCGPDFContextCreator as String: "Scribe",
+                    kCGPDFContextCreator as String: "Inkstone",
                     "CreationDate": options.creationDate
                 ] as CFDictionary
               ) else {

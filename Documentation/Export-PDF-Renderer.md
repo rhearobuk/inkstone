@@ -16,7 +16,7 @@ Bold and italic spans are mapped to Core Text traits. Unicode is passed directly
 
 ## Metadata and files
 
-Core Graphics writes title, author, subject, creator (`Scribe`), and creation date metadata. Suggested names are deterministic, safely sanitized, and use `Title - Manuscript.pdf` or `Title - Reading Proof.pdf`; a one-item non-book scope includes its item title.
+Core Graphics writes title, author, subject, creator (`Inkstone`), and creation date metadata. Suggested names are deterministic, safely sanitized, and use `Title - Manuscript.pdf` or `Title - Reading Proof.pdf`; a one-item non-book scope includes its item title.
 
 ## Manual validation
 

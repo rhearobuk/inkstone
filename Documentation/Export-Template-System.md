@@ -23,6 +23,9 @@ silently changing an existing version. Templates define bounded semantic styles,
 matter components, header/footer concepts, and rules for Book, Section, Chapter, and Scene.
 They never specify HTML, CSS, XML, PDF commands, or packaging.
 
+The `scribe` namespace in existing template IDs is retained after the Inkstone rebrand because
+template IDs are persistent compatibility identifiers.
+
 Manuscript Submission uses 1-inch margins, double-spaced 12-point Times New Roman manuscript body text, title/
 byline/approximate-word-count front matter, chapter page breaks, a `#` scene break, and a running
 author/title/page header. It requires title and byline; subtitle, language, and word count are

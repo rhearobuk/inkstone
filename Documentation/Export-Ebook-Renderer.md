@@ -1,6 +1,6 @@
 # Ebook renderer
 
-Scribe's Ebook export produces a reflowable **EPUB 3.3** file from
+Inkstone's Ebook export produces a reflowable **EPUB 3.3** file from
 `ResolvedPublication`. `EbookRenderer` never accesses Core Data, live documents, or template
 resources: the compiler and template resolver remain the sole owners of metadata, publication
 exclusions, rich-text conversion, and navigation rules.

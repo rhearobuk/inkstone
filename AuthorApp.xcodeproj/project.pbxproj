@@ -16,7 +16,7 @@
 
 /* Begin PBXFileReference section */
 		A10000000000000000000002 /* AuthorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorApp.swift; sourceTree = "<group>"; };
-		A10000000000000000000007 /* Scribe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Scribe.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000007 /* Inkstone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Inkstone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000000000000000000019 /* AuthorApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AuthorApp.entitlements; sourceTree = "<group>"; };
 		A10000000000000000000021 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -58,7 +58,7 @@
 		A1000000000000000000000B /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A10000000000000000000007 /* Scribe.app */,
+				A10000000000000000000007 /* Inkstone.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -66,9 +66,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A1000000000000000000000C /* Scribe */ = {
+		A1000000000000000000000C /* Inkstone */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A1000000000000000000000D /* Build configuration list for PBXNativeTarget "Scribe" */;
+			buildConfigurationList = A1000000000000000000000D /* Build configuration list for PBXNativeTarget "Inkstone" */;
 			buildPhases = (
 				A1000000000000000000000E /* Sources */,
 				A10000000000000000000008 /* Frameworks */,
@@ -78,13 +78,13 @@
 			);
 			dependencies = (
 			);
-			name = Scribe;
+			name = Inkstone;
 			packageProductDependencies = (
 				A10000000000000000000004 /* AuthorData */,
 				A10000000000000000000006 /* AuthorUI */,
 			);
-			productName = Scribe;
-			productReference = A10000000000000000000007 /* Scribe.app */;
+			productName = Inkstone;
+			productReference = A10000000000000000000007 /* Inkstone.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -119,7 +119,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A1000000000000000000000C /* Scribe */,
+				A1000000000000000000000C /* Inkstone */,
 			);
 		};
 /* End PBXProject section */
@@ -253,20 +253,20 @@
 		A10000000000000000000015 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]" = VisionAppIcon;
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xrsimulator*]" = VisionAppIcon;
-				APS_ENVIRONMENT = development;
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sources/AuthorApp/AuthorApp-macOS.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Sources/AuthorApp/AuthorApp-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 37;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
@@ -276,12 +276,12 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Configuration/AuthorApp-Info.plist;
+				INFOPLIST_FILE = "Configuration/AuthorApp-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Inkstone;
 				REGISTER_APP_GROUPS = NO;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -304,20 +304,20 @@
 		A10000000000000000000016 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]" = VisionAppIcon;
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xrsimulator*]" = VisionAppIcon;
-				APS_ENVIRONMENT = production;
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sources/AuthorApp/AuthorApp-macOS.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Sources/AuthorApp/AuthorApp-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 37;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
@@ -327,12 +327,12 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Configuration/AuthorApp-Info.plist;
+				INFOPLIST_FILE = "Configuration/AuthorApp-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Inkstone;
 				REGISTER_APP_GROUPS = NO;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -355,7 +355,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1000000000000000000000D /* Build configuration list for PBXNativeTarget "Scribe" */ = {
+		A1000000000000000000000D /* Build configuration list for PBXNativeTarget "Inkstone" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A10000000000000000000015 /* Debug */,

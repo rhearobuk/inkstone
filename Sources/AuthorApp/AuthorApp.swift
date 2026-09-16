@@ -4,9 +4,9 @@ import SwiftUI
 
 @main
 @MainActor
-struct ScribeApp: App {
+struct InkstoneApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var startup: ScribeStartup
+    @StateObject private var startup: InkstoneStartup
     @StateObject private var aiSettings = AISettingsStore()
     @StateObject private var authorInformation = AuthorInformationSettings()
 
@@ -16,7 +16,7 @@ struct ScribeApp: App {
         NSApplication.shared.activate(ignoringOtherApps: true)
         #endif
 
-        _startup = StateObject(wrappedValue: ScribeStartup())
+        _startup = StateObject(wrappedValue: InkstoneStartup())
     }
 
     var body: some Scene {
@@ -39,6 +39,11 @@ struct ScribeApp: App {
         }
 
         #if os(macOS)
+        Window("Inkstone Help", id: "inkstone-help") {
+            HelpInstructionsView()
+        }
+        .defaultSize(width: 760, height: 760)
+
         Settings {
             AppPreferencesView(settings: aiSettings, authorInformation: authorInformation)
         }
@@ -48,7 +53,7 @@ struct ScribeApp: App {
 }
 
 @MainActor
-private final class ScribeStartup: ObservableObject {
+private final class InkstoneStartup: ObservableObject {
     let controller: WorkspaceController?
     let errorMessage: String
 
@@ -110,10 +115,10 @@ private struct StoreStartupErrorView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 44))
                 .foregroundStyle(.orange)
-            Text("Scribe Could Not Open Your Library")
+            Text("Inkstone Could Not Open Your Library")
                 .font(.title2.weight(.semibold))
             Text(
-                "Your existing writing has not been changed. Close Scribe and try again. "
+                "Your existing writing has not been changed. Close Inkstone and try again. "
                     + "If the problem persists, contact support and include this error: \(message)"
             )
             .multilineTextAlignment(.center)

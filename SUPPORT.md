@@ -7,8 +7,8 @@ well-defined feature requests.
 For private support requests, contact
 [example.quid-5d@icloud.com](mailto:example.quid-5d@icloud.com).
 
-Scribe is an independent open-source project. It reads user-selected Scrivener
-project data and imports it into Scribe without modifying the source project.
+Inkstone is an independent open-source project. It reads user-selected Scrivener
+project data and imports it into Inkstone without modifying the source project.
 It does not provide Scrivener export, synchronization, or round-trip
 compatibility.
 

@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest a focused improvement to Scribe.
+description: Suggest a focused improvement to Inkstone.
 title: "[Feature]: "
 labels:
   - enhancement
@@ -25,6 +25,6 @@ body:
   - type: markdown
     attributes:
       value: |
-        Scribe’s compatibility is one way and non-destructive: it reads a selected
-        Scrivener project and imports data into Scribe. Requests for Scrivener
+        Inkstone’s compatibility is one way and non-destructive: it reads a selected
+        Scrivener project and imports data into Inkstone. Requests for Scrivener
         export, synchronization, or round-trip editing require explicit maintainer approval.

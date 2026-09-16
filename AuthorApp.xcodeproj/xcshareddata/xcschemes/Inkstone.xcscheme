@@ -15,8 +15,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A1000000000000000000000C"
-               BuildableName = "Scribe.app"
-               BlueprintName = "Scribe"
+               BuildableName = "Inkstone.app"
+               BlueprintName = "Inkstone"
                ReferencedContainer = "container:AuthorApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -45,8 +45,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A1000000000000000000000C"
-            BuildableName = "Scribe.app"
-            BlueprintName = "Scribe"
+            BuildableName = "Inkstone.app"
+            BlueprintName = "Inkstone"
             ReferencedContainer = "container:AuthorApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,8 +62,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A1000000000000000000000C"
-            BuildableName = "Scribe.app"
-            BlueprintName = "Scribe"
+            BuildableName = "Inkstone.app"
+            BlueprintName = "Inkstone"
             ReferencedContainer = "container:AuthorApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

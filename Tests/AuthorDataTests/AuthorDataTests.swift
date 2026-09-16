@@ -185,7 +185,7 @@ final class AuthorDataTests: XCTestCase {
 
     func testImportsSyntheticProjectWithoutModifyingSourceFiles() throws {
         let source = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ScribeImportFixture-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("InkstoneImportFixture-\(UUID().uuidString)", isDirectory: true)
         let filesURL = source.appendingPathComponent("Files", isDirectory: true)
         let sceneID = "33333333-3333-4333-8333-333333333333"
         let xmlURL = source.appendingPathComponent("Synthetic.scrivx")

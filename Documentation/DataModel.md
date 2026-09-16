@@ -87,7 +87,7 @@ The Swift API and importer treat aggregate relationships as required and validat
 
 `AuthorDataV8` completes that compatibility work by assigning zero defaults to the six required scalar attributes that V7 missed: `DocumentEntityMention.location`, `DocumentEntityMention.length`, `Revision.sequence`, and the three `ImportRun` counters. `testCurrentModelMeetsCloudKitAttributeRequirements` audits every model attribute so future required attributes cannot omit a default unnoticed.
 
-The Xcode app target (`Scribe`) declares `com.apple.developer.icloud-container-identifiers` (`iCloud.com.robertrhea.scribe`) and `com.apple.developer.icloud-services` (`CloudKit`) in `Sources/AuthorApp/AuthorApp.entitlements`, wired in via `CODE_SIGN_ENTITLEMENTS`. The container must be registered under the signing team (already done via [developer.apple.com](https://developer.apple.com) → Certificates, Identifiers & Profiles → iCloud Containers) for sync to work on a real device/build.
+The Xcode app target (`Inkstone`) declares `com.apple.developer.icloud-container-identifiers` (`iCloud.com.robertrhea.scribe`) and `com.apple.developer.icloud-services` (`CloudKit`) in `Sources/AuthorApp/AuthorApp.entitlements`, wired in via `CODE_SIGN_ENTITLEMENTS`. The container's legacy identifier is retained to preserve existing iCloud data. It must remain registered under the signing team (already done via [developer.apple.com](https://developer.apple.com) → Certificates, Identifiers & Profiles → iCloud Containers) for sync to work on a real device/build.
 
 
 ## AI Editor reviews (V5)

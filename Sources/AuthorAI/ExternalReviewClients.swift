@@ -79,7 +79,7 @@ public struct ExternalReviewClient: EditorialReviewClient {
             url = URL(string: "https://api.cohere.com/v2/chat")!
             headers["Authorization"] = "Bearer \(apiKey)"
             headers["Accept"] = "application/json"
-            headers["X-Client-Name"] = "Scribe"
+            headers["X-Client-Name"] = "Inkstone"
             body = [
                 "model": modelID,
                 "messages": [
@@ -203,7 +203,7 @@ extension ExternalReviewClient: ProjectChatClient {
             url = URL(string: "https://api.cohere.com/v2/chat")!
             headers["Authorization"] = "Bearer \(apiKey)"
             headers["Accept"] = "application/json"
-            headers["X-Client-Name"] = "Scribe"
+            headers["X-Client-Name"] = "Inkstone"
             body = ["model": modelID, "messages": messages]
         case .ollama:
             url = URL(string: "http://127.0.0.1:11434/api/chat")!

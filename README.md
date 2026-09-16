@@ -1,27 +1,27 @@
-# Scribe
+# Inkstone
 
-[![Swift tests](https://github.com/rhearobuk/scribe/actions/workflows/swift-tests.yml/badge.svg)](https://github.com/rhearobuk/scribe/actions/workflows/swift-tests.yml)
+[![Swift tests](https://github.com/rhearobuk/inkstone/actions/workflows/swift-tests.yml/badge.svg)](https://github.com/rhearobuk/inkstone/actions/workflows/swift-tests.yml)
 
-Scribe is an open-source Apple authoring application for macOS, iPadOS, and
+Inkstone is an open-source Apple authoring application for macOS, iPadOS, and
 visionOS. It is licensed under the [MIT License](LICENSE) and is planned for a
 future free release on the Apple App Store.
 
 ## Scrivener interoperability
 
-Scribe supports **one-way Scrivener project import compatibility**: it reads a
-user-selected `.scriv` project and creates or updates data in Scribe. It does
+Inkstone supports **one-way Scrivener project import compatibility**: it reads a
+user-selected `.scriv` project and creates or updates data in Inkstone. It does
 not modify the original Scrivener project, export to Scrivener, synchronize
 with Scrivener, offer round-trip editing, or guarantee compatibility with every
-Scrivener feature or project. Scribe does not claim that the Scrivener project
+Scrivener feature or project. Inkstone does not claim that the Scrivener project
 structure is an open format.
 
-Scrivener is a trademark of Literature & Latte Ltd. Scribe is an independent
-project and is not affiliated with, endorsed by, certified by, or sponsored by
-Literature & Latte Ltd. See
+Scrivener is a trademark of Literature & Latte Ltd. Inkstone is an independent
+project and is not affiliated with, endorsed by, or sponsored by Literature &
+Latte Ltd. See
 [Scrivener Project Import Compatibility](Documentation/Scrivener-Interoperability.md)
 for the complete interoperability boundary.
 
-Scribe is a universal Apple authoring application backed by the `AuthorData`
+Inkstone is a universal Apple authoring application backed by the `AuthorData`
 Core Data foundation. The package also includes `AuthorUI`, a reusable SwiftUI
 authoring workspace for macOS 13, iPadOS 16, and visionOS 1 or newer, plus a
 runnable macOS prototype.
@@ -40,19 +40,20 @@ runnable macOS prototype.
 
 ## Run the UI prototype
 
-Open `AuthorApp.xcodeproj` in Xcode, select the `Scribe` scheme and a Mac,
+Open `AuthorApp.xcodeproj` in Xcode, select the `Inkstone` scheme and a Mac,
 iPad, or Apple Vision Pro destination, then press Run.
 
 To import a project, click **Import Scrivener Project** in the Projects toolbar
 and select a supported `.scriv` package, `.scrivx` project file, or legacy
 exported XML-plus-`Files` folder. The importer preserves the available binder
 hierarchy and selects the imported project when complete. Do not commit personal writing, third-party sample projects, or other private
-project data to the repository.
+project data to the repository. Any import fixture must be original, synthetic
+content created for this repository.
 
 The command-line equivalent for the macOS prototype is:
 
 ```sh
-swift run ScribePrototype
+swift run InkstonePrototype
 ```
 
 The first launch creates a native sample project with three stable workspace areas:
@@ -132,7 +133,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance,
 Issues for bugs and feature requests, and GitHub Discussions for questions and
 support.
 
-See [Privacy Policy](Documentation/Privacy-Policy.md) for how Scribe handles
+See [Privacy Policy](Documentation/Privacy-Policy.md) for how Inkstone handles
 project data, iCloud synchronization, and optional AI-assisted features.
 
 

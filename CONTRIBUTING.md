@@ -1,6 +1,6 @@
-# Contributing to Scribe
+# Contributing to Inkstone
 
-Thanks for improving Scribe. We welcome bug reports, feature requests,
+Thanks for improving Inkstone. We welcome bug reports, feature requests,
 documentation improvements, tests, and pull requests.
 
 ## Before you begin
@@ -28,15 +28,15 @@ consideration.
 
 ## Scrivener interoperability
 
-Scribe’s Scrivener project import compatibility is deliberately **one way**:
-it reads selected user project data and imports it into Scribe without modifying
+Inkstone’s Scrivener project import compatibility is deliberately **one way**:
+it reads selected user project data and imports it into Inkstone without modifying
 the source project. Contributions must not imply, promise, or add export,
 synchronization, round-trip editing, or compatibility guarantees with Scrivener
 without prior maintainer agreement. See
 [Scrivener Project Import Compatibility](Documentation/Scrivener-Interoperability.md)
 for the full boundary and test-data requirements.
 
-Scrivener is a trademark of Literature & Latte Ltd. Scribe is an independent
+Scrivener is a trademark of Literature & Latte Ltd. Inkstone is an independent
 project and is not affiliated with, endorsed by, or sponsored by Literature &
 Latte Ltd.
 

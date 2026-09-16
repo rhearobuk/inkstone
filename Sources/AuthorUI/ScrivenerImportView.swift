@@ -56,6 +56,12 @@ struct ScrivenerImportView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                    Text(
+                        "Scrivener is a trademark of Literature & Latte Ltd. Inkstone is an independent project and is not affiliated with, endorsed by, or sponsored by Literature & Latte Ltd."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
