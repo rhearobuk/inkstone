@@ -37,6 +37,11 @@ struct InkstoneApp: App {
                 StoreStartupErrorView(message: startup.errorMessage)
             }
         }
+        .commands {
+            #if os(macOS)
+            InkstoneHelpCommands()
+            #endif
+        }
 
         #if os(macOS)
         Window("Inkstone Help", id: "inkstone-help") {
@@ -51,6 +56,21 @@ struct InkstoneApp: App {
     }
 
 }
+
+#if os(macOS)
+private struct InkstoneHelpCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("Inkstone Help") {
+                openWindow(id: "inkstone-help")
+            }
+            .keyboardShortcut("/", modifiers: [.command, .shift])
+        }
+    }
+}
+#endif
 
 @MainActor
 private final class InkstoneStartup: ObservableObject {
