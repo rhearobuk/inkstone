@@ -52,7 +52,7 @@ Complete these in App Store Connect for every released platform:
   Dynamic Type, VoiceOver, and external-file import/export.
 - Test the app on Apple Vision Pro or its simulator at different window sizes,
   including keyboard and pointer interaction.
-- Add and validate a visionOS-specific app icon in the asset catalog before
+- Validate the bundled `VisionAppIcon` layered asset on Apple Vision Pro before
   submitting a native visionOS build.
 - Confirm the final app description, screenshots, age rating, support URL,
   and privacy answers describe the shipped app accurately.

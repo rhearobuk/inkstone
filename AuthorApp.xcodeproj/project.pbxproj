@@ -254,6 +254,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]" = VisionAppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xrsimulator*]" = VisionAppIcon;
 				APS_ENVIRONMENT = development;
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
@@ -303,6 +305,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]" = VisionAppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xrsimulator*]" = VisionAppIcon;
 				APS_ENVIRONMENT = production;
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
