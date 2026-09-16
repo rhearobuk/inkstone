@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 struct ScribeApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var controller: WorkspaceController
+    @StateObject private var startup: ScribeStartup
     @StateObject private var aiSettings = AISettingsStore()
     @StateObject private var authorInformation = AuthorInformationSettings()
 
@@ -16,15 +16,52 @@ struct ScribeApp: App {
         NSApplication.shared.activate(ignoringOtherApps: true)
         #endif
 
+        _startup = StateObject(wrappedValue: ScribeStartup())
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            if let controller = startup.controller {
+                AuthorWorkspaceView(controller: controller)
+                    .environmentObject(aiSettings)
+                    .environmentObject(authorInformation)
+                    .frame(minWidth: 900, minHeight: 600)
+                    .onChange(of: scenePhase) { phase in
+                        if phase == .active {
+                            controller.refresh()
+                        } else {
+                            controller.flushPendingChanges()
+                        }
+                    }
+            } else {
+                StoreStartupErrorView(message: startup.errorMessage)
+            }
+        }
+
+        #if os(macOS)
+        Settings {
+            AppPreferencesView(settings: aiSettings, authorInformation: authorInformation)
+        }
+        #endif
+    }
+
+}
+
+@MainActor
+private final class ScribeStartup: ObservableObject {
+    let controller: WorkspaceController?
+    let errorMessage: String
+
+    init() {
         do {
             #if DEBUG
             let preview = ProcessInfo.processInfo.arguments.contains("--editor-preview")
-            #else
-            let preview = false
-            #endif
             let store = try preview
                 ? AuthorDataStore(inMemory: true)
                 : AuthorDataStore.open(storeURL: Self.storeURL())
+            #else
+            let store = try AuthorDataStore.open(storeURL: Self.storeURL())
+            #endif
             let workspace = WorkspaceController(store: store)
             if workspace.projects.isEmpty && !store.cloudKitSyncEnabled {
                 try workspace.createProject(title: "My Novel")
@@ -38,32 +75,12 @@ struct ScribeApp: App {
                 try store.save()
             }
             #endif
-            _controller = StateObject(wrappedValue: workspace)
+            controller = workspace
+            errorMessage = ""
         } catch {
-            fatalError("Scribe could not open its data store: \(error.localizedDescription)")
+            controller = nil
+            errorMessage = error.localizedDescription
         }
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            AuthorWorkspaceView(controller: controller)
-                .environmentObject(aiSettings)
-                .environmentObject(authorInformation)
-                .frame(minWidth: 900, minHeight: 600)
-                .onChange(of: scenePhase) { phase in
-                    if phase == .active {
-                        controller.refresh()
-                    } else {
-                        controller.flushPendingChanges()
-                    }
-                }
-        }
-
-        #if os(macOS)
-        Settings {
-            AppPreferencesView(settings: aiSettings, authorInformation: authorInformation)
-        }
-        #endif
     }
 
     private static func storeURL() throws -> URL {
@@ -82,5 +99,26 @@ struct ScribeApp: App {
             withIntermediateDirectories: true
         )
         return directory.appendingPathComponent("AuthorData.sqlite")
+    }
+}
+
+private struct StoreStartupErrorView: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 44))
+                .foregroundStyle(.orange)
+            Text("Scribe Could Not Open Your Library")
+                .font(.title2.weight(.semibold))
+            Text(
+                "Your existing writing has not been changed. Close Scribe and try again. "
+                    + "If the problem persists, contact support and include this error: \(message)"
+            )
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
+        }
+        .padding()
     }
 }

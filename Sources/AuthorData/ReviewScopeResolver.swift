@@ -37,7 +37,6 @@ public enum ReviewScopeError: LocalizedError {
     }
 }
 
-@MainActor
 public enum ReviewScopeResolver {
     public static func resolve(root: Document, project: WritingProject, scope: EditorialScope,
                                includeExcluded: Bool = false) throws -> [ReviewInputSnapshot] {
@@ -50,9 +49,12 @@ public enum ReviewScopeResolver {
             let path = path.isEmpty ? document.title : path + " / " + document.title
             let eligible = [DocumentKind.text.rawValue, DocumentKind.folder.rawValue, DocumentKind.draftFolder.rawValue].contains(document.kind)
             let included = scope == .document || includeExcluded || document.includeInCompile?.boolValue != false
-            if eligible, included, document.sourceCharacterProfiles.isEmpty,
+            let isCharacterProfileSource = !document.sourceCharacterProfiles.isEmpty
+            if eligible, included, !isCharacterProfileSource,
                let text = document.plainText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                snapshots.append(.init(documentID: document.id, title: document.title, path: path, text: text))
+                let documentID = document.id
+                let title = document.title
+                snapshots.append(.init(documentID: documentID, title: title, path: path, text: text))
             }
             if scope != .document {
                 for child in document.orderedChildren { try visit(child, path: path) }

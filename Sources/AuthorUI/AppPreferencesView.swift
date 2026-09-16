@@ -206,6 +206,9 @@ private struct AIProvidersPane: View {
                 Text("Used for AI-assisted features such as editor feedback and consistency checking.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("When you start a cloud-AI request, the selected provider receives the text and project context needed for that request. Apple Intelligence runs on-device; Ollama uses a local service.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } header: {
                 Text("Active Provider")
             }
@@ -227,7 +230,7 @@ private struct AIProvidersPane: View {
             } header: {
                 Text("API Keys")
             } footer: {
-                Text("Keys are stored securely in the macOS Keychain and are never written to disk in plain text or synced outside this device.")
+                Text("Keys are stored securely in the system Keychain and are never written to disk in plain text or synced outside this device.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

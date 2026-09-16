@@ -132,6 +132,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance,
 Issues for bugs and feature requests, and GitHub Discussions for questions and
 support.
 
+See [Privacy Policy](Documentation/Privacy-Policy.md) for how Scribe handles
+project data, iCloud synchronization, and optional AI-assisted features.
+
 
 ## AI Editor
 
