@@ -1,5 +1,26 @@
 # Scribe
 
+[![Swift tests](https://github.com/rhearobuk/scribe/actions/workflows/swift-tests.yml/badge.svg)](https://github.com/rhearobuk/scribe/actions/workflows/swift-tests.yml)
+
+Scribe is an open-source Apple authoring application for macOS, iPadOS, and
+visionOS. It is licensed under the [MIT License](LICENSE) and is planned for a
+future free release on the Apple App Store.
+
+## Scrivener interoperability
+
+Scribe supports **one-way Scrivener project import compatibility**: it reads a
+user-selected `.scriv` project and creates or updates data in Scribe. It does
+not modify the original Scrivener project, export to Scrivener, synchronize
+with Scrivener, offer round-trip editing, or guarantee compatibility with every
+Scrivener feature or project. Scribe does not claim that the Scrivener project
+structure is an open format.
+
+Scrivener is a trademark of Literature & Latte Ltd. Scribe is an independent
+project and is not affiliated with, endorsed by, certified by, or sponsored by
+Literature & Latte Ltd. See
+[Scrivener Project Import Compatibility](Documentation/Scrivener-Interoperability.md)
+for the complete interoperability boundary.
+
 Scribe is a universal Apple authoring application backed by the `AuthorData`
 Core Data foundation. The package also includes `AuthorUI`, a reusable SwiftUI
 authoring workspace for macOS 13, iPadOS 16, and visionOS 1 or newer, plus a
@@ -10,7 +31,7 @@ runnable macOS prototype.
 - A normalized, versioned Core Data schema with application-level UUID primary keys.
 - Typed `NSManagedObject` classes and a typed CRUD repository for every entity.
 - SQLite and in-memory persistent-store setup with automatic lightweight migration.
-- A deterministic, idempotent Scrivener 3 importer for the supplied project XML and `Files` tree.
+- A deterministic, idempotent Scrivener 3 importer for supported project data.
 - Explicit import runs, validation, errors, warnings, source hashes, and provenance.
 - Structured semantic entities, aliases, mentions, annotations, document links, revisions, and typed metadata values for agent-safe querying.
 - A three-column SwiftUI workspace for project selection, a draggable binder, story-bible navigation, text editing, and project-wide body-text find and replace with match previews and escaped special characters.
@@ -22,10 +43,11 @@ runnable macOS prototype.
 Open `AuthorApp.xcodeproj` in Xcode, select the `Scribe` scheme and a Mac,
 iPad, or Apple Vision Pro destination, then press Run.
 
-To load the supplied test project, click **Import Scrivener Project** in the
-Projects toolbar and select the repository folder (`Author Tool`). The importer
-finds the single project XML and its sibling `Files` folder, preserves the full
-binder hierarchy, and selects the imported project when complete.
+To import a project, click **Import Scrivener Project** in the Projects toolbar
+and select a supported `.scriv` package, `.scrivx` project file, or legacy
+exported XML-plus-`Files` folder. The importer preserves the available binder
+hierarchy and selects the imported project when complete. Do not commit personal writing, third-party sample projects, or other private
+project data to the repository.
 
 The command-line equivalent for the macOS prototype is:
 
@@ -101,6 +123,14 @@ Use `AuthorDataStore(inMemory: true)` for previews and tests. All mutations occu
 - Broken references and orphan resources are reported as structured warnings. Duplicate/invalid identities, malformed XML, unsafe paths, and validation failures throw explicit errors.
 
 Run the data and UI behavior suites with `swift test`.
+
+## Community and support
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance,
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards, and
+[SECURITY.md](SECURITY.md) for private vulnerability reporting. Use GitHub
+Issues for bugs and feature requests, and GitHub Discussions for questions and
+support.
 
 
 ## AI Editor

@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a focused improvement to Scribe.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Explain the user need or limitation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the expected outcome, not just an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: markdown
+    attributes:
+      value: |
+        Scribe’s compatibility is one way and non-destructive: it reads a selected
+        Scrivener project and imports data into Scribe. Requests for Scrivener
+        export, synchronization, or round-trip editing require explicit maintainer approval.
