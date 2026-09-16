@@ -12,6 +12,9 @@ final class AuthorDataTests: XCTestCase {
             .deletingLastPathComponent()
         let xmlURL = root.appendingPathComponent("Cloaked Desire Aidan's Surrender.xml")
         let filesURL = root.appendingPathComponent("Files")
+        guard FileManager.default.fileExists(atPath: xmlURL.path) else {
+            throw XCTSkip("Local private-project regression fixture is not part of the repository.")
+        }
         let importer = ScrivenerImporter(store: store)
 
         let first = try importer.importProject(xmlURL: xmlURL, filesURL: filesURL)
@@ -178,6 +181,70 @@ final class AuthorDataTests: XCTestCase {
         XCTAssertNotEqual(renamedAidan.semanticEntity.id, existingAidan.id)
         XCTAssertTrue(renamedAidan.semanticEntity.canonicalName.hasPrefix("Aidan Dylan Spalding ("))
         XCTAssertTrue(merged.warnings.contains { $0.code == "renamed-story-identity" })
+    }
+
+    func testImportsSyntheticProjectWithoutModifyingSourceFiles() throws {
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScribeImportFixture-\(UUID().uuidString)", isDirectory: true)
+        let filesURL = source.appendingPathComponent("Files", isDirectory: true)
+        let sceneID = "33333333-3333-4333-8333-333333333333"
+        let xmlURL = source.appendingPathComponent("Synthetic.scrivx")
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        try FileManager.default.createDirectory(
+            at: filesURL.appendingPathComponent("Data/\(sceneID)", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <ScrivenerProject Identifier="11111111-1111-4111-8111-111111111111" Version="3.0" Author="Test Author">
+          <Binder>
+            <BinderItem UUID="22222222-2222-4222-8222-222222222222" Type="DraftFolder">
+              <Title>Synthetic Novel</Title>
+              <Children>
+                <BinderItem UUID="\(sceneID)" Type="Text">
+                  <Title>Opening Scene</Title>
+                  <MetaData><IncludeInCompile>Yes</IncludeInCompile></MetaData>
+                  <Bookmarks><Bookmark BinderUUID="44444444-4444-4444-8444-444444444444"/></Bookmarks>
+                </BinderItem>
+                <BinderItem UUID="44444444-4444-4444-8444-444444444444" Type="Text">
+                  <Title>Reference Scene</Title>
+                </BinderItem>
+              </Children>
+            </BinderItem>
+          </Binder>
+        </ScrivenerProject>
+        """
+        try Data(xml.utf8).write(to: xmlURL)
+        let contentURL = filesURL.appendingPathComponent("Data/\(sceneID)/content.rtf")
+        try Data("{\\rtf1\\ansi Synthetic source text.}".utf8).write(to: contentURL)
+
+        let originalXML = try Data(contentsOf: xmlURL)
+        let originalContent = try Data(contentsOf: contentURL)
+        let store = try AuthorDataStore(inMemory: true)
+        let importer = ScrivenerImporter(store: store)
+
+        let first = try importer.importProject(xmlURL: xmlURL, filesURL: filesURL)
+        XCTAssertEqual(first.documentCount, 3)
+        XCTAssertEqual(try store.documents.count(), 3)
+        XCTAssertEqual(first.linkCount, 1)
+        XCTAssertEqual(try store.projects.require(id: first.projectID).author, "Test Author")
+
+        let draft = try store.documents.require(id: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!)
+        XCTAssertEqual(draft.orderedChildren.map(\.title), ["Opening Scene", "Reference Scene"])
+        let scene = try store.documents.require(id: UUID(uuidString: sceneID)!)
+        XCTAssertEqual(scene.plainText, "Synthetic source text.")
+        XCTAssertEqual(scene.outgoingLinks.first?.targetDocument?.title, "Reference Scene")
+        XCTAssertEqual(try Data(contentsOf: xmlURL), originalXML)
+        XCTAssertEqual(try Data(contentsOf: contentURL), originalContent)
+
+        let documents = try store.documents.count()
+        let resources = try store.resources.count()
+        let second = try importer.importProject(xmlURL: xmlURL, filesURL: filesURL)
+        XCTAssertEqual(second.projectID, first.projectID)
+        XCTAssertGreaterThan(second.updatedCount, 0)
+        XCTAssertEqual(try store.documents.count(), documents)
+        XCTAssertEqual(try store.resources.count(), resources)
     }
 
     func testTypedCRUDForEveryEntity() throws {
