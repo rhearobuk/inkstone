@@ -4,7 +4,7 @@ import XCTest
 final class ManuscriptRendererTests: XCTestCase {
     func testRendersInspectableLetterManuscriptPackage() throws {
         let document = try ManuscriptRenderer.render(publication())
-        XCTAssertEqual(document.suggestedFilename, "The -Novel - Manuscript.docx")
+        XCTAssertEqual(document.suggestedFilename, "The -Novel - Chapter 1 - Manuscript.docx")
         try ManuscriptRenderer.validate(document.data)
 
         let parts = try StoredZIP.decode(document.data)
