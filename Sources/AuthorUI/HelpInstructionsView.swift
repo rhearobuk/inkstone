@@ -23,6 +23,7 @@ public struct HelpInstructionsView: View {
                         HelpStep("Navigate", detail: "Select an item in the binder to open it. Expand folders and chapters to reveal their children.")
                         HelpStep("Reorder", detail: "Drag a document or folder onto a binder row. Drop before, inside, or after the highlighted item to place it in the hierarchy.")
                         HelpStep("Classify", detail: "Open Project Preferences from the toolbar to manage Section Types, Labels, Statuses, and Custom Metadata. Use the Status and Label controls above the binder to filter what is shown.")
+                        HelpStep("Show hidden items", detail: "Choose View Options in the toolbar, turn on Show Hidden Items, then use the hidden item's context menu and choose Show Scene.")
                         HelpStep("Recover deleted work", detail: "Use Move to Trash from a project or binder item’s context menu. Restore items from Trash to their original location, or empty Trash only when you no longer need them.")
                     }
 

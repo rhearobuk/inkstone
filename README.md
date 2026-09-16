@@ -23,7 +23,7 @@ for the complete interoperability boundary.
 
 Inkstone is a universal Apple authoring application backed by the `AuthorData`
 Core Data foundation. The package also includes `AuthorUI`, a reusable SwiftUI
-authoring workspace for macOS 13, iPadOS 16, and visionOS 1 or newer, plus a
+authoring workspace for macOS 14, iPadOS 16, and visionOS 1 or newer, plus a
 runnable macOS prototype.
 
 ## What is included

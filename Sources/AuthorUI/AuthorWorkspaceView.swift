@@ -16,9 +16,13 @@ public struct AuthorWorkspaceView: View {
     @State private var showsPreferences = false
     @State private var showsExportStudio = false
     @State private var showsBinderFind = false
+    @State private var expandedBinderItemIDs: Set<String> = []
     @State private var showsFindReplace = false
     @State private var projectFindText = ""
     @State private var newProjectTitle = ""
+    @State private var showsNewStoryBibleEntry = false
+    @State private var storyBibleEntryName = ""
+    @State private var storyBibleEntryCategory: StoryBibleCategory?
     @FocusState private var isBinderFindFocused: Bool
 
     public init(controller: WorkspaceController, editorInitiallyVisible: Bool = false) {
@@ -70,12 +74,42 @@ public struct AuthorWorkspaceView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        showsNewProject = true
+                    Menu {
+                        Button {
+                            showsNewProject = true
+                        } label: {
+                            Label("New Project", systemImage: "folder.badge.plus")
+                        }
+
+                        Divider()
+
+                        ForEach(StoryBibleCategory.allCases.filter { $0 != .research }) { category in
+                            Button(category.newEntryTitle) {
+                                storyBibleEntryCategory = category
+                                showsNewStoryBibleEntry = true
+                            }
+                        }
+
+                        Button("New Research") {
+                            addResearchFolder()
+                        }
+
+                        if let document = controller.selectedDocument,
+                           controller.isNarrativeDocument(document) {
+                            Divider()
+
+                            Button("New Scene") {
+                                addNarrativeDocument(title: "New Scene", kind: .text, beside: document)
+                            }
+                            Button("New Folder") {
+                                addNarrativeDocument(title: "New Folder", kind: .folder, beside: document)
+                            }
+                        }
+
                     } label: {
-                        Label("New Project", systemImage: "plus")
+                        Label("Add", systemImage: "plus")
                     }
-                    .help("Create a new project")
+                    .help("Create a project or Story Bible entry")
 
                     Button {
                         showsImporter = true
@@ -102,6 +136,14 @@ public struct AuthorWorkspaceView: View {
                         Label("Find & Replace", systemImage: "rectangle.and.pencil.and.ellipsis")
                     }
                     .help("Find and replace text across the selected project")
+                    .disabled(controller.selectedProject == nil)
+
+                    Menu {
+                        Toggle("Show Hidden Items", isOn: $controller.showsHiddenDocuments)
+                    } label: {
+                        Label("View Options", systemImage: "eye")
+                    }
+                    .help("Show or hide hidden binder items")
                     .disabled(controller.selectedProject == nil)
 
                     Button {
@@ -169,6 +211,25 @@ public struct AuthorWorkspaceView: View {
                     controller.report(error)
                 }
                 newProjectTitle = ""
+            }
+        }
+        .alert("New Story Bible Entry", isPresented: $showsNewStoryBibleEntry) {
+            TextField("Name", text: $storyBibleEntryName)
+            Button("Cancel", role: .cancel) { resetStoryBibleEntry() }
+            Button("Create") {
+                guard let category = storyBibleEntryCategory else { return }
+                let name = storyBibleEntryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                do {
+                    _ = try controller.addStoryBibleEntry(
+                        named: name,
+                        category: category,
+                        kind: category.defaultEntityKind
+                    )
+                    resetStoryBibleEntry()
+                } catch {
+                    controller.report(error)
+                }
             }
         }
         .alert(
@@ -303,6 +364,35 @@ public struct AuthorWorkspaceView: View {
         #else
         width >= 640
         #endif
+    }
+
+    private func addResearchFolder() {
+        do {
+            _ = try controller.addResearchDocument()
+        } catch {
+            controller.report(error)
+        }
+    }
+
+    private func addNarrativeDocument(title: String, kind: DocumentKind, beside document: Document) {
+        let isContainer = document.kind == DocumentKind.folder.rawValue ||
+            document.kind == DocumentKind.draftFolder.rawValue ||
+            !document.children.isEmpty
+        do {
+            _ = try controller.addDocument(
+                title: title,
+                kind: kind,
+                parentID: isContainer ? document.id : document.parent?.id
+            )
+        } catch {
+            controller.report(error)
+        }
+    }
+
+    private func resetStoryBibleEntry() {
+        storyBibleEntryName = ""
+        storyBibleEntryCategory = nil
+        showsNewStoryBibleEntry = false
     }
 
     @ViewBuilder
@@ -459,6 +549,23 @@ public struct AuthorWorkspaceView: View {
             }
             filterBar
             Divider()
+            #if os(iOS)
+            // iPadOS `List` routes drag sessions through its own collection view and
+            // never delivers row-level drops, so the iPad binder uses a plain outline.
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(controller.displayedBinderItems) { item in
+                        TouchBinderNode(
+                            item: item,
+                            controller: controller,
+                            depth: 0,
+                            expandedIDs: $expandedBinderItemIDs
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            #else
             List(selection: Binding(
                 get: { controller.selection },
                 set: { selection in
@@ -479,6 +586,7 @@ public struct AuthorWorkspaceView: View {
                     controller.activeDropTarget = nil
                 }
             }
+            #endif
         }
         .navigationTitle(controller.selectedProject?.title ?? "Binder")
     }
@@ -687,9 +795,12 @@ private struct BinderRow: View {
                 .padding(.horizontal, 2)
         }
         .contentShape(Rectangle())
+        .modifier(BinderTouchActionsModifier(item: item, controller: controller))
+        #if os(macOS)
         .contextMenu {
             contextMenuContent
         }
+        #endif
         .onPreferenceChange(RowHeightPreferenceKey.self) { height in
             if height > 0 { rowHeight = height }
         }
@@ -739,6 +850,189 @@ private struct BinderRow: View {
                 Label("Move to Trash", systemImage: "trash")
             }
         }
+    }
+}
+
+#if os(iOS)
+private struct TouchBinderNode: View {
+    let item: BinderItem
+    @ObservedObject var controller: WorkspaceController
+    let depth: Int
+    @Binding var expandedIDs: Set<String>
+
+    private var isExpanded: Bool { expandedIDs.contains(item.id) }
+    private var isSelected: Bool { controller.selection == item.selection }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 2) {
+                if item.children != nil {
+                    Button {
+                        if isExpanded {
+                            expandedIDs.remove(item.id)
+                        } else {
+                            expandedIDs.insert(item.id)
+                        }
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Color.clear.frame(width: 22, height: 28)
+                }
+
+                BinderRow(item: item, controller: controller)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                    )
+                    .onTapGesture {
+                        guard controller.selection != item.selection else { return }
+                        controller.selection = item.selection
+                        controller.activeDropTarget = nil
+                    }
+
+                TouchBinderActionsMenu(item: item, controller: controller)
+            }
+            .padding(.leading, CGFloat(depth) * 18 + 6)
+            .padding(.trailing, 6)
+
+            if isExpanded, let children = item.children {
+                ForEach(children) { child in
+                    TouchBinderNode(
+                        item: child,
+                        controller: controller,
+                        depth: depth + 1,
+                        expandedIDs: $expandedIDs
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct TouchBinderActionsMenu: View {
+    let item: BinderItem
+    @ObservedObject var controller: WorkspaceController
+
+    private var hasActions: Bool {
+        item.kind == .trash || item.documentID != nil
+    }
+
+    var body: some View {
+        if hasActions {
+            Menu {
+                TouchBinderActions(item: item, controller: controller)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .menuIndicator(.hidden)
+        } else {
+            Color.clear.frame(width: 28, height: 28)
+        }
+    }
+}
+
+private struct TouchBinderActions: View {
+    let item: BinderItem
+    @ObservedObject var controller: WorkspaceController
+
+    var body: some View {
+        if item.kind == .trash {
+            let hasTrashed = controller.selectedProject.map { !controller.trashedDocuments(in: $0).isEmpty } ?? false
+            Button(role: .destructive) {
+                controller.showsEmptyTrashAlert = true
+            } label: {
+                Label("Empty Trash...", systemImage: "trash")
+            }
+            .disabled(!hasTrashed)
+        } else if item.isTrashed, let documentID = item.documentID {
+            Button {
+                controller.restoreDocument(documentID)
+            } label: {
+                Label("Restore to Original Location", systemImage: "arrow.uturn.backward")
+            }
+            Divider()
+            Button(role: .destructive) {
+                controller.documentToDeletePermanently = documentID
+            } label: {
+                Label("Delete Permanently", systemImage: "trash.slash")
+            }
+        } else if let documentID = item.documentID {
+            Button {
+                controller.setDocumentHidden(documentID, hidden: !item.isHidden)
+            } label: {
+                Label(
+                    item.isHidden ? "Show Scene" : "Hide Scene",
+                    systemImage: item.isHidden ? "eye" : "eye.slash"
+                )
+            }
+            Divider()
+            Button(role: .destructive) {
+                controller.documentToTrash = documentID
+            } label: {
+                Label("Move to Trash", systemImage: "trash")
+            }
+        }
+    }
+}
+#endif
+
+private struct BinderTouchActionsModifier: ViewModifier {
+    let item: BinderItem
+    @ObservedObject var controller: WorkspaceController
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if item.kind == .trash {
+                Button(role: .destructive) {
+                    controller.showsEmptyTrashAlert = true
+                } label: {
+                    Label("Empty Trash", systemImage: "trash")
+                }
+            } else if item.isTrashed, let documentID = item.documentID {
+                Button {
+                    controller.restoreDocument(documentID)
+                } label: {
+                    Label("Restore", systemImage: "arrow.uturn.backward")
+                }
+                .tint(.green)
+
+                Button(role: .destructive) {
+                    controller.documentToDeletePermanently = documentID
+                } label: {
+                    Label("Delete Permanently", systemImage: "trash.slash")
+                }
+            } else if let documentID = item.documentID {
+                Button {
+                    controller.setDocumentHidden(documentID, hidden: !item.isHidden)
+                } label: {
+                    Label(
+                        item.isHidden ? "Show Scene" : "Hide Scene",
+                        systemImage: item.isHidden ? "eye" : "eye.slash"
+                    )
+                }
+                .tint(.gray)
+
+                Button(role: .destructive) {
+                    controller.documentToTrash = documentID
+                } label: {
+                    Label("Move to Trash", systemImage: "trash")
+                }
+            }
+        }
+        #else
+        content
+        #endif
     }
 }
 
@@ -838,14 +1132,18 @@ private struct BinderRowDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        if controller.activeDropTarget?.documentID == targetID {
-            controller.activeDropTarget = nil
+        DispatchQueue.main.async {
+            if controller.activeDropTarget?.documentID == targetID {
+                controller.activeDropTarget = nil
+            }
         }
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let pos = position(at: info.location)
-        controller.activeDropTarget = nil
+        DispatchQueue.main.async {
+            controller.activeDropTarget = nil
+        }
 
         let providers = info.itemProviders(for: [.plainText, .text])
         guard let provider = providers.first else { return false }
@@ -866,8 +1164,10 @@ private struct BinderRowDropDelegate: DropDelegate {
     private func updatePosition(info: DropInfo) {
         let pos = position(at: info.location)
         let newTarget = ActiveDropTarget(documentID: targetID, position: pos)
-        if controller.activeDropTarget != newTarget {
-            controller.activeDropTarget = newTarget
+        DispatchQueue.main.async {
+            if controller.activeDropTarget != newTarget {
+                controller.activeDropTarget = newTarget
+            }
         }
     }
 
@@ -1087,9 +1387,6 @@ private struct StoryBibleOverview: View {
 private struct StoryBibleCategoryView: View {
     let category: StoryBibleCategory
     @ObservedObject var controller: WorkspaceController
-    @State private var showsNewEntry = false
-    @State private var entryName = ""
-    @State private var entryKind: SemanticEntityKind?
 
     var body: some View {
         List {
@@ -1111,46 +1408,6 @@ private struct StoryBibleCategoryView: View {
             }
         }
         .navigationTitle(category.rawValue)
-        .toolbar {
-            if category == .people {
-                Menu {
-                    Button("Character") {
-                        entryKind = .character
-                        showsNewEntry = true
-                    }
-                } label: {
-                    Label("Add Entry", systemImage: "plus")
-                }
-                .help("Add a Story Bible entry")
-            } else {
-                Button {
-                    entryKind = category.defaultEntityKind
-                    showsNewEntry = true
-                } label: {
-                    Label("Add Entry", systemImage: "plus")
-                }
-                .help("Add a Story Bible entry")
-            }
-        }
-        .alert("New \(category.rawValue) Entry", isPresented: $showsNewEntry) {
-            TextField("Name", text: $entryName)
-            Button("Cancel", role: .cancel) { entryName = "" }
-            Button("Create") {
-                let name = entryName.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !name.isEmpty else { return }
-                do {
-                    _ = try controller.addStoryBibleEntry(
-                        named: name,
-                        category: category,
-                        kind: entryKind
-                    )
-                } catch {
-                    controller.report(error)
-                }
-                entryName = ""
-                entryKind = nil
-            }
-        }
     }
 
     private var entities: [SemanticEntity] {
@@ -1164,6 +1421,7 @@ private struct StoryBibleCategoryView: View {
                 $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
             }
     }
+
 }
 
 private struct SemanticEntityEditor: View {
@@ -1233,9 +1491,6 @@ private struct SemanticEntityEditor: View {
 private struct DocumentEditor: View {
     @ObservedObject var controller: WorkspaceController
     @State private var showsImageImporter = false
-    @State private var showsNewStoryBibleEntry = false
-    @State private var storyBibleEntryName = ""
-    @State private var storyBibleEntryKind: SemanticEntityKind?
 
     var body: some View {
         if let document = controller.selectedDocument {
@@ -1318,31 +1573,6 @@ private struct DocumentEditor: View {
                     }
                     .help("Add photos to this document")
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    if let category = controller.storyBibleCategory(for: document) {
-                        storyBibleAddMenu(category)
-                    } else {
-                        Menu {
-                            Button("New Scene") {
-                                addDocument(
-                                    title: "New Scene",
-                                    kind: .text,
-                                    parentID: insertionParentID(for: document)
-                                )
-                            }
-                            Button("New Folder") {
-                                addDocument(
-                                    title: "New Folder",
-                                    kind: .folder,
-                                    parentID: insertionParentID(for: document)
-                                )
-                            }
-                        } label: {
-                            Label("Add Binder Item", systemImage: "plus")
-                        }
-                        .help("Add a scene or folder beside this item")
-                    }
-                }
             }
             .fileImporter(
                 isPresented: $showsImageImporter,
@@ -1355,57 +1585,6 @@ private struct DocumentEditor: View {
                     controller.report(error)
                 }
             }
-            .alert("New Story Bible Entry", isPresented: $showsNewStoryBibleEntry) {
-                TextField("Name", text: $storyBibleEntryName)
-                Button("Cancel", role: .cancel) { resetStoryBibleEntry() }
-                Button("Create") {
-                    guard let category = controller.storyBibleCategory(for: document) else { return }
-                    let name = storyBibleEntryName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { return }
-                    do {
-                        _ = try controller.addStoryBibleEntry(
-                            named: name,
-                            category: category,
-                            kind: storyBibleEntryKind
-                        )
-                        resetStoryBibleEntry()
-                    } catch {
-                        controller.report(error)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func storyBibleAddMenu(_ category: StoryBibleCategory) -> some View {
-        Button {
-            storyBibleEntryKind = category.defaultEntityKind
-            showsNewStoryBibleEntry = true
-        } label: {
-            Label("Add Story Bible Card", systemImage: "plus")
-        }
-        .help("Add a Story Bible card")
-    }
-
-    private func resetStoryBibleEntry() {
-        storyBibleEntryName = ""
-        storyBibleEntryKind = nil
-        showsNewStoryBibleEntry = false
-    }
-
-    private func insertionParentID(for document: Document) -> UUID? {
-        let isContainer = document.kind == DocumentKind.folder.rawValue ||
-            document.kind == DocumentKind.draftFolder.rawValue ||
-            !document.children.isEmpty
-        return isContainer ? document.id : document.parent?.id
-    }
-
-    private func addDocument(title: String, kind: DocumentKind, parentID: UUID?) {
-        do {
-            _ = try controller.addDocument(title: title, kind: kind, parentID: parentID)
-        } catch {
-            controller.report(error)
         }
     }
 }

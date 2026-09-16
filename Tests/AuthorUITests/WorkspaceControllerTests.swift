@@ -15,11 +15,37 @@ final class WorkspaceControllerTests: XCTestCase {
             "Project Definition", "Story Bible", "Gallery", "Narrative", "Trash"
         ])
         XCTAssertEqual(project.documents.count, 3)
-        XCTAssertEqual(
-            project.documents.first(where: { $0.title == "Narrative" })?
-                .orderedChildren.first?.title,
-            "Untitled Novel"
-        )
+        let narrative = try XCTUnwrap(project.documents.first(where: { $0.title == "Narrative" }))
+        let novel = try XCTUnwrap(narrative.orderedChildren.first)
+        XCTAssertEqual(novel.title, "Untitled Novel")
+        XCTAssertEqual(novel.narrativeType, NarrativeType.book.rawValue)
+    }
+
+    func testMigratesExistingNativeScriptToBook() throws {
+        let store = try AuthorDataStore(inMemory: true)
+        let controller = WorkspaceController(store: store)
+        let project = try controller.createProject(title: "The Long Road")
+        let narrative = try XCTUnwrap(project.documents.first(where: { $0.title == "Narrative" }))
+        let novel = try XCTUnwrap(narrative.orderedChildren.first)
+        novel.narrativeType = nil
+        try store.save()
+
+        _ = WorkspaceController(store: store)
+
+        XCTAssertEqual(novel.narrativeType, NarrativeType.book.rawValue)
+    }
+
+    func testAddsResearchDocumentToResearchCategory() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Research")
+
+        let document = try controller.addResearchDocument(title: "Sources")
+
+        XCTAssertEqual(document.kind, DocumentKind.folder.rawValue)
+        XCTAssertEqual(document.sectionTypeIdentifier, "storyBible.research")
+        XCTAssertEqual(controller.storyBibleCategory(for: document), .research)
+        XCTAssertEqual(controller.storyBibleDocuments(in: .research).map(\.id), [document.id])
+        XCTAssertFalse(controller.storyBibleDocuments(in: .worldbuilding).contains { $0.id == document.id })
     }
 
     func testPinsAndUnpinsProjectsBeforeUnpinnedProjects() throws {
@@ -188,7 +214,6 @@ final class WorkspaceControllerTests: XCTestCase {
 
         // When showsHiddenDocuments is true, scene2 appears with isHidden = true
         controller.showsHiddenDocuments = true
-        controller.refresh()
         let visibleNarrative = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
         let visibleNovel = try XCTUnwrap(visibleNarrative.children?.first)
         XCTAssertEqual(visibleNovel.children?.map(\.title), ["Opening Scene", "Scene Two"])
@@ -409,6 +434,21 @@ final class WorkspaceControllerTests: XCTestCase {
             XCTAssertEqual(moved.parent?.id, group.id)
             XCTAssertEqual(group.orderedChildren.map(\.id), [existing.id, moved.id])
         }
+    }
+
+    func testMovesSceneOutOfFolderToItsParentLevel() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Binder")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let novel = try XCTUnwrap(narrative.orderedChildren.first)
+        let scene = try XCTUnwrap(novel.orderedChildren.first)
+        let chapter = try controller.addDocument(title: "Chapter One", kind: .folder, parentID: novel.id)
+
+        try controller.moveDocument(scene.id, onto: chapter.id)
+        try controller.moveDocument(scene.id, relativeTo: novel.id, position: .inside)
+
+        XCTAssertEqual(scene.parent?.id, novel.id)
+        XCTAssertEqual(novel.orderedChildren.map(\.id), [chapter.id, scene.id])
     }
 
     func testUpdatesDocumentTextThroughPersistenceContract() throws {

@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "AuthorData",
     platforms: [
-        .macOS(.v13),
+        .macOS(.v14),
         .iOS(.v17),
         .tvOS(.v16),
         .watchOS(.v9),

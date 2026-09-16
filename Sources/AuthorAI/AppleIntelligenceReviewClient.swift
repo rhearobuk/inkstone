@@ -49,7 +49,7 @@ public struct AppleIntelligenceReviewClient: EditorialReviewClient {
         if #available(macOS 26, iOS 26, visionOS 26, *) {
             do {
                 let session = LanguageModelSession(instructions: EditorPromptBuilder.contract)
-                let response = try await session.respond(to: EditorPromptBuilder.prompt(request), generating: AppleReview.self, options: GenerationOptions(sampling: .greedy, maximumResponseTokens: 1400))
+                let response = try await session.respond(to: EditorPromptBuilder.prompt(request), generating: AppleReview.self, options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 1400))
                 try Task.checkCancellation()
                 return ReviewResponse(summary: response.content.summary, findings: response.content.findings.map {
                     ReviewFinding(category: $0.category, severity: $0.severity, title: $0.title,

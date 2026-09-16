@@ -7,6 +7,8 @@ import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
+public typealias Document = AuthorData.Document
+
 public enum WorkspaceSelection: Hashable, Sendable {
     case projectDefinition(UUID)
     case storyBible(UUID)
@@ -94,6 +96,18 @@ public enum StoryBibleCategory: String, CaseIterable, Identifiable, Sendable {
         case .events: .event
         case .worldbuilding: .concept
         case .research: .concept
+        }
+    }
+
+    public var newEntryTitle: String {
+        switch self {
+        case .people: "New Character"
+        case .organizations: "New Organization"
+        case .places: "New Place"
+        case .artifacts: "New Artifact"
+        case .events: "New Event"
+        case .worldbuilding: "New Worldbuilding Entry"
+        case .research: "New Research Entry"
         }
     }
 }
@@ -283,7 +297,12 @@ public final class WorkspaceController: ObservableObject {
     @Published public private(set) var projects: [WritingProject] = []
     @Published public var showsHiddenProjects = false
     @Published public var showsTrashedProjects = false
-    @Published public var showsHiddenDocuments = false
+    @Published public var showsHiddenDocuments = false {
+        didSet {
+            guard showsHiddenDocuments != oldValue else { return }
+            refresh()
+        }
+    }
     @Published public var projectToTrash: UUID?
     @Published public var projectToDeletePermanently: UUID?
     @Published public var showsEmptyProjectTrashAlert = false
@@ -310,12 +329,42 @@ public final class WorkspaceController: ObservableObject {
         self.store = store
         self.editorialReviews = EditorialReviewController(store: store)
         self.projectListPreferences = projectListPreferences
+        do {
+            try migrateNativeScriptBooks()
+        } catch {
+            lastError = error.localizedDescription
+        }
         refresh()
         observeRemoteStoreChanges()
     }
 
+    private func migrateNativeScriptBooks() throws {
+        let scripts = try store.documents.fetchAll().filter {
+            $0.sourceIdentifier.hasPrefix("native.script.") &&
+                $0.kind == DocumentKind.folder.rawValue &&
+                $0.narrativeType == nil
+        }
+        guard !scripts.isEmpty else { return }
+
+        let now = Date()
+        for script in scripts {
+            script.narrativeType = NarrativeType.book.rawValue
+            script.modifiedAt = now
+            script.project.modifiedAt = now
+        }
+        try store.save()
+    }
+
     private func observeRemoteStoreChanges() {
-        guard store.cloudKitSyncEnabled else { return }
+        guard store.cloudKitSyncEnabled else {
+            #if DEBUG
+            print("Inkstone sync: CloudKit mirroring is DISABLED for this store (local-only).")
+            #endif
+            return
+        }
+        #if DEBUG
+        print("Inkstone sync: CloudKit mirroring enabled for \(AuthorDataStore.cloudKitContainerIdentifier).")
+        #endif
         NotificationCenter.default.publisher(
             for: .NSPersistentStoreRemoteChange,
             object: store.container.persistentStoreCoordinator
@@ -323,6 +372,41 @@ public final class WorkspaceController: ObservableObject {
         .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.refresh()
+        }
+        .store(in: &cancellables)
+
+        observeCloudKitSyncEvents()
+    }
+
+    /// CloudKit mirroring failures are otherwise silent; surface them so a device that isn't
+    /// actually syncing says so instead of quietly showing stale data.
+    private func observeCloudKitSyncEvents() {
+        NotificationCenter.default.publisher(
+            for: NSPersistentCloudKitContainer.eventChangedNotification,
+            object: store.container
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] notification in
+            guard let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
+                as? NSPersistentCloudKitContainer.Event,
+                  event.endDate != nil else { return }
+            let kind: String
+            switch event.type {
+            case .setup: kind = "setup"
+            case .import: kind = "import"
+            case .export: kind = "export"
+            @unknown default: kind = "unknown"
+            }
+            if let error = event.error {
+                #if DEBUG
+                print("Inkstone sync: \(kind) FAILED: \(error)")
+                #endif
+                self?.lastError = "iCloud sync \(kind) failed: \(error.localizedDescription)"
+            } else {
+                #if DEBUG
+                print("Inkstone sync: \(kind) succeeded.")
+                #endif
+            }
         }
         .store(in: &cancellables)
     }
@@ -1036,6 +1120,7 @@ public final class WorkspaceController: ObservableObject {
             $0.modifiedAt = now
             $0.project = project
             $0.parent = narrative
+            $0.narrativeType = NarrativeType.book.rawValue
         }
         store.documents.create {
             $0.sourceIdentifier = "native.scene.\($0.id.uuidString)"
@@ -1089,6 +1174,13 @@ public final class WorkspaceController: ObservableObject {
         try store.save()
         selection = .document(document.id)
         refresh()
+        return document
+    }
+
+    @discardableResult
+    public func addResearchDocument(title: String = "New Research") throws -> Document {
+        let document = try addDocument(title: title, kind: .folder, parentID: nil)
+        try moveDocument(document.id, toStoryBibleCategory: .research)
         return document
     }
 

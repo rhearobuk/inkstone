@@ -65,7 +65,7 @@ public final class EditorialReviewController: ObservableObject {
     public func cancel() { task?.cancel(); progress = "Cancelling…" }
     public func waitUntilFinished() async { await task?.value }
 
-    public func start(project: WritingProject, root: Document, scope: EditorialScope, persona: EditorPersona,
+    public func start(project: WritingProject, root: AuthorData.Document, scope: EditorialScope, persona: EditorPersona,
                       inputs: [ReviewInputSnapshot], providerID: String, modelID: String,
                       instructions: String = "", previousReviewID: UUID? = nil,
                       client: any EditorialReviewClient) {

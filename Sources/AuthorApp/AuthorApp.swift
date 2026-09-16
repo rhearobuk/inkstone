@@ -20,13 +20,33 @@ struct InkstoneApp: App {
     }
 
     var body: some Scene {
+        #if os(macOS)
+        workspaceWindow
+            .commands {
+                InkstoneHelpCommands()
+            }
+
+        Window("Inkstone Help", id: "inkstone-help") {
+            HelpInstructionsView()
+        }
+        .defaultSize(width: 760, height: 760)
+
+        Settings {
+            AppPreferencesView(settings: aiSettings, authorInformation: authorInformation)
+        }
+        #else
+        workspaceWindow
+        #endif
+    }
+
+    private var workspaceWindow: some Scene {
         WindowGroup {
             if let controller = startup.controller {
                 AuthorWorkspaceView(controller: controller)
                     .environmentObject(aiSettings)
                     .environmentObject(authorInformation)
                     .frame(minWidth: 900, minHeight: 600)
-                    .onChange(of: scenePhase) { phase in
+                    .onChange(of: scenePhase) { _, phase in
                         if phase == .active {
                             controller.refresh()
                         } else {
@@ -37,22 +57,6 @@ struct InkstoneApp: App {
                 StoreStartupErrorView(message: startup.errorMessage)
             }
         }
-        .commands {
-            #if os(macOS)
-            InkstoneHelpCommands()
-            #endif
-        }
-
-        #if os(macOS)
-        Window("Inkstone Help", id: "inkstone-help") {
-            HelpInstructionsView()
-        }
-        .defaultSize(width: 760, height: 760)
-
-        Settings {
-            AppPreferencesView(settings: aiSettings, authorInformation: authorInformation)
-        }
-        #endif
     }
 
 }
