@@ -421,6 +421,12 @@ public struct AuthorWorkspaceView: View {
                 Text("Projects")
                     .font(.headline)
                 Spacer()
+                Menu {
+                    Toggle("Show Hidden Projects", isOn: $controller.showsHiddenProjects)
+                } label: {
+                    Label("Project View Options", systemImage: "eye")
+                }
+                .help("Show or hide hidden projects")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -549,9 +555,9 @@ public struct AuthorWorkspaceView: View {
             }
             filterBar
             Divider()
-            #if os(iOS)
-            // iPadOS `List` routes drag sessions through its own collection view and
-            // never delivers row-level drops, so the iPad binder uses a plain outline.
+            #if os(iOS) || os(visionOS)
+            // Use a plain outline so List does not intercept row-level drops
+            // on iPadOS and visionOS.
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(controller.displayedBinderItems) { item in
@@ -853,7 +859,7 @@ private struct BinderRow: View {
     }
 }
 
-#if os(iOS)
+#if os(iOS) || os(visionOS)
 private struct TouchBinderNode: View {
     let item: BinderItem
     @ObservedObject var controller: WorkspaceController

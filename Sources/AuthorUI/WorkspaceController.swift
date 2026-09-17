@@ -295,7 +295,12 @@ public final class WorkspaceController: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     @Published public private(set) var projects: [WritingProject] = []
-    @Published public var showsHiddenProjects = false
+    @Published public var showsHiddenProjects = false {
+        didSet {
+            guard showsHiddenProjects != oldValue else { return }
+            refresh()
+        }
+    }
     @Published public var showsTrashedProjects = false
     @Published public var showsHiddenDocuments = false {
         didSet {

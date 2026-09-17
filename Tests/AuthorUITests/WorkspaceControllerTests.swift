@@ -78,7 +78,6 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertTrue(controller.projects.isEmpty)
         XCTAssertTrue(controller.isProjectHidden(project.id))
         controller.showsHiddenProjects = true
-        controller.refresh()
         XCTAssertEqual(controller.projects.map(\.id), [project.id])
         controller.setProjectHidden(project.id, hidden: false)
         XCTAssertFalse(controller.isProjectHidden(project.id))

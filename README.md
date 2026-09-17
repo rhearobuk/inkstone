@@ -62,6 +62,12 @@ The first launch creates a native sample project with three stable workspace are
 - **Story Bible** groups `SemanticEntity` values into people, places, artifacts, events/conflicts/timelines, and worldbuilding without introducing a second persistence model.
 - **Narrative** is a `Document` hierarchy containing scripts, folders, chapters, scenes, and imported Scrivener binder items. Binder drag and drop updates `parent` and `orderIndex`.
 
+On iPadOS and visionOS, the binder uses a scrollable outline with chevrons to
+expand folders and an ellipsis menu for each item's available actions. Drag onto
+the upper or lower part of a row to place an item before or after it, or onto the
+middle of a folder to move it inside. The Mac binder retains its native list and
+context menus.
+
 Imported Scrivener character cards are normalized into native character dossiers.
 The importer maps names, aliases, age/location, physical description, biography,
 measurements, notes, relationships, and conflicts when it can do so safely.
