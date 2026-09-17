@@ -293,11 +293,13 @@ private struct NarrativeFieldsGrid: View {
                 .frame(width: 120, alignment: .leading)
             if field.valueKind == .longText {
                 TextEditor(text: binding)
+                    .accessibilityIdentifier("metadata.\(field.key)")
                     .font(.body)
                     .frame(minHeight: 44, maxHeight: 88)
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.2)))
             } else {
                 TextField(field.placeholder ?? "", text: binding)
+                    .accessibilityIdentifier("metadata.\(field.key)")
                     .textFieldStyle(.roundedBorder)
             }
         }

@@ -1,0 +1,31 @@
+{
+  "configurations": [
+    {
+      "id": "EB03C75B-F628-46CA-A193-18F4BFDA6E81",
+      "name": "Review walkthrough",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "preferredScreenCaptureFormat": "video",
+    "uiTestingScreenshotsLifetime": "keepAlways",
+    "systemAttachmentLifetime": "keepAlways",
+    "userAttachmentLifetime": "keepAlways",
+    "targetForVariableExpansion": {
+      "containerPath": "container:AuthorApp.xcodeproj",
+      "identifier": "A1000000000000000000000C",
+      "name": "Inkstone"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:AuthorApp.xcodeproj",
+        "identifier": "B20000000000000000000007",
+        "name": "InkstoneWalkthroughTests"
+      }
+    }
+  ],
+  "version": 1
+}

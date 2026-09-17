@@ -595,6 +595,7 @@ public struct ExportStudioView: View {
                     if let publication = model.resolvedPublication {
                         Divider()
                         Text(readinessTitle(publication.readiness)).font(.headline)
+                            .accessibilityIdentifier("export.readiness")
                     }
                 }
                 .padding()

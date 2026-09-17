@@ -110,6 +110,7 @@ public struct AuthorWorkspaceView: View {
                         Label("Add", systemImage: "plus")
                     }
                     .help("Create a project or Story Bible entry")
+                    .accessibilityIdentifier("workspace.add")
 
                     Button {
                         showsImporter = true
@@ -117,6 +118,7 @@ public struct AuthorWorkspaceView: View {
                         Label("Import Project", systemImage: "square.and.arrow.down")
                     }
                     .help("Import a Scrivener project")
+                    .accessibilityIdentifier("workspace.import")
                     .disabled(controller.isImporting)
 
                     Button {
@@ -136,6 +138,7 @@ public struct AuthorWorkspaceView: View {
                         Label("Find & Replace", systemImage: "rectangle.and.pencil.and.ellipsis")
                     }
                     .help("Find and replace text across the selected project")
+                    .accessibilityIdentifier("workspace.findReplace")
                     .disabled(controller.selectedProject == nil)
 
                     Menu {
@@ -160,6 +163,7 @@ public struct AuthorWorkspaceView: View {
                         Label("Export", systemImage: "square.and.arrow.up")
                     }
                     .help("Export the selected narrative item")
+                    .accessibilityIdentifier("workspace.export")
                     #if canImport(AppKit)
                     .disabled(controller.exportScopeCandidates().isEmpty)
                     #else
@@ -183,6 +187,7 @@ public struct AuthorWorkspaceView: View {
                         Label("AI Assistant", systemImage: "sparkles")
                     }
                     .help("Open AI Editor or project-aware chat")
+                    .accessibilityIdentifier("workspace.assistant")
                 }
             }
         }
@@ -201,6 +206,7 @@ public struct AuthorWorkspaceView: View {
         }
         .alert("New Project", isPresented: $showsNewProject) {
             TextField("Project title", text: $newProjectTitle)
+                .accessibilityIdentifier("project.newTitle")
             Button("Cancel", role: .cancel) { newProjectTitle = "" }
             Button("Create") {
                 let title = newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -761,8 +767,13 @@ private struct BinderRow: View {
                         .fill(color)
                         .frame(width: 8, height: 8)
                 }
-                Label(item.title, systemImage: item.systemImage)
-                    .lineLimit(1)
+                Label {
+                    Text(item.title)
+                        .accessibilityIdentifier("binder.title.\(item.title)")
+                } icon: {
+                    Image(systemName: item.systemImage)
+                }
+                .lineLimit(1)
                 Spacer(minLength: 8)
                 if let sectionType = item.sectionTypeTitle {
                     Text(sectionType)
@@ -887,6 +898,7 @@ private struct TouchBinderNode: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("binder.disclosure.\(item.title)")
                 } else {
                     Color.clear.frame(width: 22, height: 28)
                 }
@@ -1360,6 +1372,7 @@ private struct ProjectDefinitionView: View {
                             set: { controller.updateProject(title: project.title, author: $0) }
                         )
                     )
+                    .accessibilityIdentifier("project.author")
                     LabeledContent("Format", value: project.sourceFormat)
                 }
                 Section("Project") {
@@ -1549,6 +1562,7 @@ private struct DocumentEditor: View {
                     )
                 )
                 .font(.title2.bold())
+                .accessibilityIdentifier("document.title")
                 .textFieldStyle(.plain)
                 .padding()
 

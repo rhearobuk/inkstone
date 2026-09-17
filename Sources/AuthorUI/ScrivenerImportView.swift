@@ -30,6 +30,7 @@ struct ScrivenerImportView: View {
                         )
                     }
                     .help("Choose a Scrivener project to import")
+                    .accessibilityIdentifier("import.source")
                 }
 
                 Section("Destination") {
@@ -41,6 +42,7 @@ struct ScrivenerImportView: View {
 
                     if destinationMode == .newProject {
                         TextField("Project title", text: $newProjectTitle)
+                            .accessibilityIdentifier("import.projectTitle")
                     } else {
                         Picker("Target project", selection: $targetProjectID) {
                             ForEach(controller.projects, id: \.id) { project in
@@ -72,6 +74,7 @@ struct ScrivenerImportView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Import") { performImport() }
+                        .accessibilityIdentifier("import.confirm")
                         .disabled(!canImport || controller.isImporting)
                 }
             }

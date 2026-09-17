@@ -140,6 +140,7 @@ struct EditorPanelView: View {
                     Text("Review options").font(.title2.weight(.semibold))
                     Spacer()
                     Button("Done") { showingOptions = false }.keyboardShortcut(.defaultAction)
+                        .accessibilityIdentifier("editor.optionsDone")
                 }.padding(22)
                 Divider()
                 ScrollView { VStack(alignment: .leading, spacing: 18) { reviewForm }.padding(22) }
@@ -208,18 +209,22 @@ struct EditorPanelView: View {
             }
             if let error = editor.errorMessage {
                 Text(error).font(.system(size: 12)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("editor.error")
             }
             HStack(spacing: 8) {
                 Image(systemName: "doc.text").foregroundStyle(EditorStyle.accent)
                 Text(root?.title ?? "Choose something to review")
+                    .accessibilityIdentifier("editor.target")
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)
                 Spacer(minLength: 0)
                 Button("Change") { showingOptions = true }
+                    .accessibilityIdentifier("editor.change")
                     .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundStyle(EditorStyle.accent)
                     .disabled(editor.isRunning)
             }
             VStack(alignment: .leading, spacing: 12) {
                 TextField("Anything you’d like me to focus on?", text: $instructions, axis: .vertical)
+                    .accessibilityIdentifier("editor.instructions")
                     .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(2...4)
                     .disabled(editor.isRunning)
                 HStack {
@@ -240,8 +245,9 @@ struct EditorPanelView: View {
                             .foregroundStyle(.white)
                             .background(canReview ? EditorStyle.buttonColor : Color.secondary.opacity(0.4), in: Capsule())
                     }.buttonStyle(.plain).disabled(!canReview)
-                        .accessibilityLabel(provider == .openAI ? "Send to OpenAI for review" : "Review with Apple Intelligence")
-                        .help(provider == .openAI ? "Send the selected text to OpenAI for review" : "Review the selected text with Apple Intelligence")
+                        .accessibilityIdentifier("editor.review")
+                        .accessibilityLabel("Review with \(provider.displayName)")
+                        .help("Review the selected text with \(provider.displayName)")
                 }
             }
             .padding(14)
@@ -279,6 +285,7 @@ struct EditorPanelView: View {
             Picker("AI service", selection: $provider) {
                 ForEach(AIProvider.allCases) { Text($0.displayName).tag($0) }
             }
+            .accessibilityIdentifier("editor.provider")
             if provider == .appleIntelligence {
                 Text("Apple Intelligence — On Device").font(.caption)
             } else if provider == .openAI {

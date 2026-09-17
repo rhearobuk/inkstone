@@ -95,6 +95,7 @@ private struct RichTextEditor: NSViewRepresentable {
         let scrollView = NSTextView.scrollableTextView()
         let editorView = RichTextEditorContainerView(scrollView: scrollView, coordinator: context.coordinator)
         guard let textView = editorView.textView else { return editorView }
+        textView.setAccessibilityIdentifier("document.body")
         textView.isEditable = true
         textView.isRichText = true
         textView.allowsImageEditing = true
@@ -629,6 +630,7 @@ private struct RichTextEditor: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
+        textView.accessibilityIdentifier = "document.body"
         textView.isEditable = true
         textView.allowsEditingTextAttributes = true
         textView.backgroundColor = .systemBackground

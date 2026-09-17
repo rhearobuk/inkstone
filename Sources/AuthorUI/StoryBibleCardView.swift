@@ -14,7 +14,9 @@ struct StoryBibleCardView: View {
             Form {
                 Section("Identity") {
                     TextField("Name", text: entityBinding(card, \.canonicalName))
+                        .accessibilityIdentifier("storyBible.name")
                     TextField("Description", text: cardBinding(card, \.details), axis: .vertical)
+                        .accessibilityIdentifier("storyBible.description")
                 }
 
                 switch card.semanticEntity.kind {

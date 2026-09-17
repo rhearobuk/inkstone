@@ -87,6 +87,7 @@ struct ReviewDetailView: View {
                 }
                 VStack(alignment: .leading, spacing: 20) {
                     Text(summary)
+                        .accessibilityIdentifier("editor.result.\(review.status)")
                         .font(.system(size: 16)).lineSpacing(6)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
