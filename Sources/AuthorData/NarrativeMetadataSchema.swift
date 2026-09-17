@@ -214,7 +214,14 @@ public enum NarrativeMetadataStore {
         on document: Document,
         store: AuthorDataStore
     ) {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Text bindings save on each keystroke, so trailing whitespace is still being edited.
+        let input: String
+        switch descriptor.valueKind {
+        case .text, .longText:
+            input = rawValue
+        case .number, .date:
+            input = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         let field = self.field(
             for: descriptor.key,
             displayName: descriptor.displayName,
@@ -223,7 +230,7 @@ public enum NarrativeMetadataStore {
             store: store
         )
         let existing = value(for: descriptor, on: document)
-        if trimmed.isEmpty {
+        if input.isEmpty {
             if let existing { store.context.delete(existing) }
             return
         }
@@ -233,13 +240,13 @@ public enum NarrativeMetadataStore {
         }
         switch descriptor.valueKind {
         case .number:
-            metadataValue.integerValue = Int64(trimmed).map { NSNumber(value: $0) }
+            metadataValue.integerValue = Int64(input).map { NSNumber(value: $0) }
             metadataValue.stringValue = nil
         case .date:
-            metadataValue.dateValue = ISO8601DateFormatter().date(from: trimmed)
+            metadataValue.dateValue = ISO8601DateFormatter().date(from: input)
             metadataValue.stringValue = nil
         case .text, .longText:
-            metadataValue.stringValue = trimmed
+            metadataValue.stringValue = input
         }
     }
 
@@ -285,7 +292,7 @@ public enum NarrativeMetadataStore {
         guard let value = document.metadataValues.first(where: { $0.field.key == format.isbnMetadataKey }) else {
             return
         }
-        value.stringValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.stringValue = rawValue
     }
 
     public static func removeBookISBN(for format: BookFormat, on document: Document, store: AuthorDataStore) {

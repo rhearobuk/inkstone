@@ -732,6 +732,77 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(controller.narrativeFieldValue(targetField, on: book), "80000")
     }
 
+    func testNarrativeTextFieldsPreserveWhitespaceWhileTypingAndAfterReload() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let document = try XCTUnwrap(narrative.orderedChildren.first)
+
+        for type in NarrativeType.allCases {
+            for field in NarrativeMetadataSchema.fields(for: type)
+                where field.valueKind == .text || field.valueKind == .longText {
+                var expected = ""
+                for character in " A  B\nC \n" {
+                    expected.append(character)
+                    let input = controller.narrativeFieldValue(field, on: document) + String(character)
+                    controller.setNarrativeFieldValue(input, for: field, on: document)
+                    XCTAssertEqual(controller.narrativeFieldValue(field, on: document), expected, field.key)
+                }
+                controller.store.context.refreshAllObjects()
+                XCTAssertEqual(controller.narrativeFieldValue(field, on: document), expected, field.key)
+                XCTAssertNil(controller.lastError)
+
+                controller.setNarrativeFieldValue("", for: field, on: document)
+                XCTAssertEqual(controller.narrativeFieldValue(field, on: document), "")
+                XCTAssertNil(NarrativeMetadataStore.value(for: field, on: document))
+            }
+        }
+    }
+
+    func testBookISBNPreservesSpacesWhileTypingAndAfterReload() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        controller.addBookISBN(for: .paperback, on: book)
+
+        var expected = ""
+        for character in " 978  0 123456 47 2 " {
+            expected.append(character)
+            let input = try XCTUnwrap(controller.bookISBNs(on: book).first?.number) + String(character)
+            controller.setBookISBN(input, for: .paperback, on: book)
+            XCTAssertEqual(controller.bookISBNs(on: book).first?.number, expected)
+        }
+        controller.store.context.refreshAllObjects()
+        XCTAssertEqual(controller.bookISBNs(on: book).first?.number, expected)
+        XCTAssertNil(controller.lastError)
+
+        controller.setBookISBN("", for: .paperback, on: book)
+        XCTAssertEqual(controller.bookISBNs(on: book).map(\.format), [.paperback])
+        XCTAssertEqual(controller.bookISBNs(on: book).first?.number, "")
+    }
+
+    func testNarrativeNumberAndDateFieldsStillNormalizeWhitespace() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Draft")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let book = try XCTUnwrap(narrative.orderedChildren.first)
+        let fields = NarrativeMetadataSchema.fields(for: .book)
+        let number = try XCTUnwrap(fields.first { $0.valueKind == .number })
+        let date = try XCTUnwrap(fields.first { $0.valueKind == .date })
+
+        controller.setNarrativeFieldValue(" 80000 \n", for: number, on: book)
+        XCTAssertEqual(controller.narrativeFieldValue(number, on: book), "80000")
+        controller.setNarrativeFieldValue(" 2026-09-17T12:00:00Z \n", for: date, on: book)
+        XCTAssertEqual(controller.narrativeFieldValue(date, on: book), "2026-09-17T12:00:00Z")
+
+        for field in [number, date] {
+            controller.setNarrativeFieldValue(" \n", for: field, on: book)
+            XCTAssertNil(NarrativeMetadataStore.value(for: field, on: book))
+        }
+        XCTAssertNil(controller.lastError)
+    }
+
     func testAddsAndDeletesNativeGalleryImageForStoryBibleEntry() throws {
         let controller = try makeController()
         try controller.createProject(title: "World")

@@ -68,6 +68,10 @@ the upper or lower part of a row to place an item before or after it, or onto th
 middle of a folder to move it inside. The Mac binder retains its native list and
 context menus.
 
+Folder and scene metadata text fields, including ISBNs, preserve spaces as you
+type; multiline metadata also preserves line breaks. Number and date fields
+continue to use typed values.
+
 Imported Scrivener character cards are normalized into native character dossiers.
 The importer maps names, aliases, age/location, physical description, biography,
 measurements, notes, relationships, and conflicts when it can do so safely.
