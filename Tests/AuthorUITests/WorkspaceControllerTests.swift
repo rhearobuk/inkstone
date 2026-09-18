@@ -319,6 +319,8 @@ final class WorkspaceControllerTests: XCTestCase {
         let entities = project.semanticEntities
         XCTAssertEqual(Set(entities.map(\.canonicalName)), ["Mara Venn", "The Lantern Society", "Moon Gate"])
         XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.kind, SemanticEntityKind.character.rawValue)
+        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.storyBibleCard)
+        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.characterProfile)
         XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "The Lantern Society" }?.kind, SemanticEntityKind.organization.rawValue)
         XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Moon Gate" }?.kind, SemanticEntityKind.location.rawValue)
         XCTAssertEqual(scene.mentions.count, 3)
@@ -348,6 +350,56 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(linkedScenes.map(\.documentTitle), [scene.title])
         XCTAssertEqual(linkedScenes.first?.mentionCount, 1)
         XCTAssertEqual(linkedScenes.first?.matchedTexts, ["Moon Gate"])
+    }
+
+    func testFlushPendingChangesRefreshesSceneLinksForAllEditedScenes() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scenes = project.documents
+            .filter { $0.narrativeType == NarrativeType.scene.rawValue }
+            .sorted { $0.title < $1.title }
+        let firstScene = try XCTUnwrap(scenes.first)
+        let secondScene = try controller.addDocument(title: "Second Scene", kind: .text, parentID: firstScene.parent?.id)
+
+        controller.updateDocument(
+            documentID: firstScene.id,
+            title: firstScene.title,
+            synopsis: firstScene.synopsis,
+            plainText: "Captain Ilex arrived at Dawn Harbor."
+        )
+        controller.updateDocument(
+            documentID: secondScene.id,
+            title: secondScene.title,
+            synopsis: secondScene.synopsis,
+            plainText: "Mara Venn met the Harbor Council."
+        )
+
+        controller.flushPendingChanges()
+
+        XCTAssertEqual(firstScene.mentions.map(\.surfaceText).sorted(), ["Captain Ilex", "Dawn Harbor"])
+        XCTAssertEqual(secondScene.mentions.map(\.surfaceText).sorted(), ["Harbor Council", "Mara Venn"])
+    }
+
+    func testLinkedScenesOmitsTrashedScenes() throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences
+        )
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        controller.flushPendingChanges()
+        controller.trashDocument(scene.id)
+
+        let entity = try XCTUnwrap(project.semanticEntities.first { $0.canonicalName == "Moon Gate" })
+        XCTAssertTrue(controller.linkedScenes(for: entity).isEmpty)
     }
 
     func testDeletingCharacterRemovesItsProfileEntityAndImportedSourceEntry() throws {

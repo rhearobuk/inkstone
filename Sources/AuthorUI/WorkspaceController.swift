@@ -289,7 +289,7 @@ public final class WorkspaceController: ObservableObject {
     private let projectListPreferences: UserDefaults
     private var pendingCharacterSave: Task<Void, Never>?
     private var pendingDocumentSave: Task<Void, Never>?
-    private var pendingDocumentSaveID: UUID?
+    private var pendingDocumentSaveIDs = Set<UUID>()
     private var pendingSceneRecognitionTasks: [UUID: Task<Void, Never>] = [:]
     private var labelLookup: [String: LabelDefinition] = [:]
     private var statusLookup: [String: StatusDefinition] = [:]
@@ -1684,12 +1684,12 @@ public final class WorkspaceController: ObservableObject {
     public func flushPendingChanges() {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
-        let pendingDocumentSaveID = pendingDocumentSaveID
-        self.pendingDocumentSaveID = nil
+        let pendingDocumentSaveIDs = pendingDocumentSaveIDs
+        self.pendingDocumentSaveIDs.removeAll()
         do {
             try store.save()
-            if let pendingDocumentSaveID {
-                refreshSceneEntityLinks(for: pendingDocumentSaveID)
+            for documentID in pendingDocumentSaveIDs {
+                refreshSceneEntityLinks(for: documentID)
             }
         } catch {
             report(error)
@@ -1708,24 +1708,23 @@ public final class WorkspaceController: ObservableObject {
 
     public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
         SceneEntityRecognitionService(store: store)
-            .linkedScenes(for: entity)
-            .filter { summary in
-                guard let document = try? store.documents.require(id: summary.documentID) else { return false }
-                return !isDocumentTrashed(document)
-            }
+            .linkedScenes(for: entity, excludingDocumentIDs: trashedDocumentIDSet())
     }
 
     private func scheduleDocumentSave(after delay: Duration, documentID: UUID) {
         pendingDocumentSave?.cancel()
-        pendingDocumentSaveID = documentID
+        pendingDocumentSaveIDs.insert(documentID)
         pendingDocumentSave = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: delay)
                 guard !Task.isCancelled, let self else { return }
                 self.pendingDocumentSave = nil
-                self.pendingDocumentSaveID = nil
+                let pendingDocumentSaveIDs = self.pendingDocumentSaveIDs
+                self.pendingDocumentSaveIDs.removeAll()
                 try self.store.save()
-                self.scheduleSceneEntityRecognition(for: documentID)
+                for documentID in pendingDocumentSaveIDs {
+                    self.scheduleSceneEntityRecognition(for: documentID)
+                }
                 self.lastError = nil
             } catch is CancellationError {
                 return
@@ -1733,6 +1732,10 @@ public final class WorkspaceController: ObservableObject {
                 self?.report(error)
             }
         }
+    }
+
+    private func trashedDocumentIDSet() -> Set<UUID> {
+        Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? []).compactMap(UUID.init(uuidString:))
     }
 
     private func scheduleSceneEntityRecognition(for documentID: UUID) {

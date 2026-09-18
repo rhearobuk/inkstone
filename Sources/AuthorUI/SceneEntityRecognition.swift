@@ -47,12 +47,10 @@ struct SceneEntityRecognitionService {
         let existingEntities = document.project.semanticEntities
         var entitiesByNormalizedName: [String: SemanticEntity] = [:]
         for entity in existingEntities {
-            entitiesByNormalizedName[normalized(entity.canonicalName)] = entity
-        }
-        for entity in existingEntities {
             for alias in entity.aliases {
                 entitiesByNormalizedName[normalized(alias.name)] = entity
             }
+            index(entity, in: &entitiesByNormalizedName)
         }
 
         for candidate in candidateMatches(in: text) {
@@ -69,9 +67,9 @@ struct SceneEntityRecognitionService {
                     in: document.project,
                     kind: inferredKind(for: candidate.text)
                 )
-                entitiesByNormalizedName[normalizedName] = entity
                 source = Self.mentionSourcePrefix + "autoCreated"
             }
+            index(entity, in: &entitiesByNormalizedName)
             createMention(candidate, source: source, entity: entity, document: document)
         }
 
@@ -81,9 +79,11 @@ struct SceneEntityRecognitionService {
         try store.save()
     }
 
-    func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
+    func linkedScenes(for entity: SemanticEntity, excludingDocumentIDs: Set<UUID> = []) -> [SceneEntityLinkSummary] {
         let grouped = Dictionary(grouping: entity.mentions.filter {
-            $0.document.narrativeType == NarrativeType.scene.rawValue && !$0.document.isDeleted
+            $0.document.narrativeType == NarrativeType.scene.rawValue
+                && !$0.document.isDeleted
+                && !excludingDocumentIDs.contains($0.document.id)
         }, by: { $0.document.id })
 
         return grouped.values.compactMap { mentions in
@@ -142,7 +142,7 @@ struct SceneEntityRecognitionService {
             $0.modifiedAt = now
             $0.project = project
         }
-        let card = store.storyBibleCards.create {
+        _ = store.storyBibleCards.create {
             $0.createdAt = now
             $0.modifiedAt = now
             $0.project = project
@@ -160,11 +160,23 @@ struct SceneEntityRecognitionService {
                 $0.project = project
                 $0.semanticEntity = entity
             }
-            store.context.delete(card)
         }
         project.modifiedAt = now
         try store.save()
         return entity
+    }
+
+    private func index(_ entity: SemanticEntity, in lookup: inout [String: SemanticEntity]) {
+        let canonicalName = normalized(entity.canonicalName)
+        if !canonicalName.isEmpty {
+            lookup[canonicalName] = entity
+        }
+        for alias in entity.aliases {
+            let aliasName = normalized(alias.name)
+            if !aliasName.isEmpty {
+                lookup[aliasName] = entity
+            }
+        }
     }
 
     private func candidateMatches(in text: String) -> [CandidateMatch] {
