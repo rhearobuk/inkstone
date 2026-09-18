@@ -131,3 +131,22 @@ public struct AppleIntelligenceStoryBibleRecognitionClient: StoryBibleEntityReco
         throw ReviewClientError.unavailable(Self.unavailableReason ?? "Apple Intelligence is unavailable.")
     }
 }
+
+public struct DefaultStoryBibleEntityRecognitionClient: StoryBibleEntityRecognitionClient {
+    private let appleClient: AppleIntelligenceStoryBibleRecognitionClient
+
+    public init(appleClient: AppleIntelligenceStoryBibleRecognitionClient = AppleIntelligenceStoryBibleRecognitionClient()) {
+        self.appleClient = appleClient
+    }
+
+    public func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        do {
+            return try await appleClient.recognizeMentions(in: request)
+        } catch let error as ReviewClientError {
+            if case .unavailable = error {
+                return []
+            }
+            throw error
+        }
+    }
+}

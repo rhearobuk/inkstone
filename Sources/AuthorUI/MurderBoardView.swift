@@ -124,7 +124,7 @@ extension WorkspaceController {
     }
 
     public func isMurderBoardDocument(_ document: Document) -> Bool {
-        document.sectionTypeIdentifier == murderBoardSectionTypeIdentifier
+        document.parent == nil && document.sectionTypeIdentifier == murderBoardSectionTypeIdentifier
     }
 
     @discardableResult

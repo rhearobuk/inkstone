@@ -25,7 +25,7 @@ struct SceneEntityRecognitionService {
 
     init(
         store: AuthorDataStore,
-        recognitionClient: any StoryBibleEntityRecognitionClient = AppleIntelligenceStoryBibleRecognitionClient()
+        recognitionClient: any StoryBibleEntityRecognitionClient = DefaultStoryBibleEntityRecognitionClient()
     ) {
         self.store = store
         self.recognitionClient = recognitionClient

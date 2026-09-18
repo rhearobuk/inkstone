@@ -394,6 +394,13 @@ public struct AuthorWorkspaceView: View {
         }
     }
 
+    private func cancelDeferredBindingTasks() {
+        for task in deferredBindingTasks.values {
+            task.task.cancel()
+        }
+        deferredBindingTasks.removeAll()
+    }
+
     private struct DeferredBindingTask {
         let id: UUID
         let task: Task<Void, Never>
@@ -538,6 +545,9 @@ public struct AuthorWorkspaceView: View {
                             Label("Move to Trash", systemImage: "trash")
                         }
                     }
+                }
+                .onDisappear {
+                    cancelDeferredBindingTasks()
                 }
             }
 

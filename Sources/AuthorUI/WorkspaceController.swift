@@ -344,7 +344,7 @@ public final class WorkspaceController: ObservableObject {
     public init(
         store: AuthorDataStore,
         projectListPreferences: UserDefaults = .standard,
-        sceneEntityRecognitionClient: any StoryBibleEntityRecognitionClient = AppleIntelligenceStoryBibleRecognitionClient()
+        sceneEntityRecognitionClient: any StoryBibleEntityRecognitionClient = DefaultStoryBibleEntityRecognitionClient()
     ) {
         self.store = store
         self.editorialReviews = EditorialReviewController(store: store)
@@ -1749,8 +1749,9 @@ public final class WorkspaceController: ObservableObject {
                 let pendingDocumentSaveIDs = self.pendingDocumentSaveIDs
                 self.pendingDocumentSave = nil
                 try self.store.save()
-                self.pendingDocumentSaveIDs.subtract(pendingDocumentSaveIDs)
-                for documentID in pendingDocumentSaveIDs {
+                let completedDocumentIDs = pendingDocumentSaveIDs.filter { !self.pendingDocumentSaveIDs.contains($0) }
+                self.pendingDocumentSaveIDs.subtract(completedDocumentIDs)
+                for documentID in completedDocumentIDs {
                     self.scheduleSceneEntityRecognition(for: documentID)
                 }
                 if !self.pendingDocumentSaveIDs.isEmpty {
