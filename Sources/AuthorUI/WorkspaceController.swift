@@ -291,6 +291,7 @@ public final class WorkspaceController: ObservableObject {
     private var pendingDocumentSave: Task<Void, Never>?
     private var pendingDocumentSaveIDs = Set<UUID>()
     private var pendingSceneRecognitionTasks: [UUID: Task<Void, Never>] = [:]
+    private var activeSceneRecognitionDocumentIDs = Set<UUID>()
     private var labelLookup: [String: LabelDefinition] = [:]
     private var statusLookup: [String: StatusDefinition] = [:]
     private var sectionTypeLookup: [String: SectionTypeDefinition] = [:]
@@ -1684,7 +1685,9 @@ public final class WorkspaceController: ObservableObject {
     public func flushPendingChanges() {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
-        let pendingDocumentSaveIDs = pendingDocumentSaveIDs.union(pendingSceneRecognitionTasks.keys)
+        let pendingDocumentSaveIDs = pendingDocumentSaveIDs
+            .union(pendingSceneRecognitionTasks.keys)
+            .union(activeSceneRecognitionDocumentIDs)
         self.pendingDocumentSaveIDs.removeAll()
         for documentID in pendingDocumentSaveIDs {
             pendingSceneRecognitionTasks[documentID]?.cancel()
@@ -1749,6 +1752,8 @@ public final class WorkspaceController: ObservableObject {
             guard let self else { return }
             defer { self.pendingSceneRecognitionTasks[documentID] = nil }
             guard !Task.isCancelled else { return }
+            self.activeSceneRecognitionDocumentIDs.insert(documentID)
+            defer { self.activeSceneRecognitionDocumentIDs.remove(documentID) }
             self.refreshSceneEntityLinks(for: documentID)
         }
     }

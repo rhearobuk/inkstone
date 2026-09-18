@@ -33,6 +33,7 @@ struct StoryBibleLinkedScenesSection: View {
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(accessibilityDescription(for: scene))
+                    .accessibilityAddTraits(.isButton)
                 }
             }
         }

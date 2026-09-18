@@ -81,9 +81,7 @@ struct SceneEntityRecognitionService {
             createMention(candidate, source: source, entity: entity, document: document)
         }
 
-        if document.project.modifiedAt < document.modifiedAt {
-            document.project.modifiedAt = document.modifiedAt
-        }
+        document.project.modifiedAt = max(document.project.modifiedAt, document.modifiedAt)
         try store.save()
     }
 
