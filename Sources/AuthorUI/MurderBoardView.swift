@@ -280,7 +280,8 @@ extension WorkspaceController {
         if !state.includeDisconnectedEntities {
             let connectedIDs = Set(relationships.flatMap { [$0.sourceEntity.id, $0.targetEntity.id] })
                 .union(state.selectedEntityID.map { [$0] } ?? [])
-            entities = entities.filter { connectedIDs.contains($0.id) }
+            let allowedConnectedIDs = connectedIDs.intersection(visibleEntityIDs)
+            entities = entities.filter { allowedConnectedIDs.contains($0.id) }
         }
 
         var isTruncated = false
@@ -379,7 +380,7 @@ extension WorkspaceController {
     }
 
     private func murderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
-        Set(project.semanticEntities.compactMap { entity in
+        let mentionedEntityIDs = Set(project.semanticEntities.compactMap { entity in
             entity.mentions.contains { mention in
                 !mention.document.isDeleted &&
                     !isDocumentTrashed(mention.document) &&
@@ -388,6 +389,11 @@ extension WorkspaceController {
                     murderBoardContains(mention.document, in: book)
             } ? entity.id : nil
         })
+        let relationshipEntityIDs = Set(uniqueRelationships(in: project).flatMap { relationship in
+            let endpointIDs = [relationship.sourceEntity.id, relationship.targetEntity.id]
+            return endpointIDs.contains(where: mentionedEntityIDs.contains) ? endpointIDs : []
+        })
+        return mentionedEntityIDs.union(relationshipEntityIDs)
     }
 
     private func murderBoardContains(_ document: Document, in book: Document) -> Bool {
@@ -1156,7 +1162,12 @@ struct MurderBoardView: View {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             guard let relationship = try? controller.store.storyBibleRelationships.fetch(id: relationshipID) else { return }
-            relationship.kind = kind
+            guard let normalizedKind = kind.nilIfBlank else {
+                relationshipKindDraft = relationship.kind
+                relationshipNotesDraft = relationship.notes ?? ""
+                return
+            }
+            relationship.kind = normalizedKind
             relationship.notes = notes
             controller.saveStoryBibleRelationship(relationship)
         }
@@ -1169,7 +1180,12 @@ struct MurderBoardView: View {
               let relationship = try? controller.store.storyBibleRelationships.fetch(id: relationshipID) else {
             return
         }
-        relationship.kind = relationshipKindDraft
+        guard let normalizedKind = relationshipKindDraft.nilIfBlank else {
+            relationshipKindDraft = relationship.kind
+            relationshipNotesDraft = relationship.notes ?? ""
+            return
+        }
+        relationship.kind = normalizedKind
         relationship.notes = relationshipNotesDraft.nilIfBlank
         controller.saveStoryBibleRelationship(relationship)
     }

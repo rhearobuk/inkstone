@@ -352,6 +352,28 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(linkedScenes.first?.matchedTexts, ["Moon Gate"])
     }
 
+    func testManualSceneRefreshClearsRecognizedMentionsWhenSceneBecomesEmpty() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        controller.flushPendingChanges()
+        XCTAssertEqual(scene.mentions.count, 3)
+
+        scene.plainText = ""
+        try controller.store.save()
+
+        controller.refreshSceneEntityLinks(for: scene.id)
+
+        XCTAssertTrue(scene.mentions.isEmpty)
+    }
+
     func testSceneSaveReusesExistingAliasInsteadOfCreatingDuplicateEntity() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
@@ -1399,6 +1421,32 @@ final class WorkspaceControllerTests: XCTestCase {
         state.hiddenRelationshipKinds = ["member of"]
         let hiddenGraph = controller.murderBoardGraph(for: board, state: state)
         XCTAssertTrue(hiddenGraph.edges.isEmpty)
+    }
+
+    func testMurderBoardBookScopeKeepsRelationshipConnectedNodes() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Book Scope")
+        let board = try controller.createMurderBoard(named: "Scoped")
+        let book = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.book.rawValue })
+        let scene = try XCTUnwrap(book.orderedChildren.first)
+        let dorothy = try controller.addStoryBibleEntry(named: "Dorothy Gale", category: .people)
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: dorothy, to: oz)
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Dorothy Gale arrived."
+        )
+        controller.flushPendingChanges()
+
+        var state = MurderBoardState()
+        state.selectedBookID = book.id
+        let graph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
     }
 
     func testMurderBoardGraphReflectsCanonicalRelationshipUpdates() throws {

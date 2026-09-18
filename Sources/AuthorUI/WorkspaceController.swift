@@ -1709,7 +1709,7 @@ public final class WorkspaceController: ObservableObject {
 
     private func scheduleDocumentSave(after delay: Duration, documentID: UUID) {
         pendingDocumentSaveIDs.insert(documentID)
-        guard pendingDocumentSave == nil else { return }
+        pendingDocumentSave?.cancel()
         startPendingDocumentSave(after: delay)
     }
 
