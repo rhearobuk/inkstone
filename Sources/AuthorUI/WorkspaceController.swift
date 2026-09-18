@@ -1681,9 +1681,11 @@ public final class WorkspaceController: ObservableObject {
         do {
             try store.save()
             for documentID in pendingDocumentSaveIDs {
-                refreshSceneEntityLinks(for: documentID)
+                try SceneEntityRecognitionService(store: store).refreshSceneLinks(for: documentID, saveChanges: false)
             }
             try store.save()
+            refresh()
+            lastError = nil
         } catch {
             report(error)
         }

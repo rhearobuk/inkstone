@@ -41,7 +41,7 @@ struct SceneEntityRecognitionService {
 
     let store: AuthorDataStore
 
-    func refreshSceneLinks(for documentID: UUID) throws {
+    func refreshSceneLinks(for documentID: UUID, saveChanges: Bool = true) throws {
         guard let document = try store.documents.fetch(id: documentID),
               document.narrativeType == NarrativeType.scene.rawValue else {
             return
@@ -50,7 +50,9 @@ struct SceneEntityRecognitionService {
         removeRecognizedMentions(from: document)
         guard let text = document.plainText?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
-            try store.save()
+            if saveChanges {
+                try store.save()
+            }
             return
         }
 
@@ -84,7 +86,9 @@ struct SceneEntityRecognitionService {
             let projectModifiedAt = document.project.modifiedAt ?? documentModifiedAt
             document.project.modifiedAt = max(projectModifiedAt, documentModifiedAt)
         }
-        try store.save()
+        if saveChanges {
+            try store.save()
+        }
     }
 
     func linkedScenes(for entity: SemanticEntity, excludingDocumentIDs: Set<UUID> = []) -> [SceneEntityLinkSummary] {

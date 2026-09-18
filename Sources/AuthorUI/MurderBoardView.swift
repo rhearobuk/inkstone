@@ -223,6 +223,16 @@ extension WorkspaceController {
     }
 
     public func murderBoardGraph(for board: Document, state: MurderBoardState) -> MurderBoardGraph {
+        guard isMurderBoardDocument(board) else {
+            return MurderBoardGraph(
+                nodes: [],
+                edges: [],
+                availableRelationshipKinds: [],
+                visibleEntityCount: 0,
+                totalEntityCount: 0,
+                isTruncated: false
+            )
+        }
         let project = board.project
         let allEntities = project.semanticEntities
             .filter { !$0.isDeleted && $0.characterProfile?.sourceDocument == nil }
@@ -517,6 +527,7 @@ struct MurderBoardView: View {
     @State private var zoomOrigin: Double?
     @State private var dragOrigins: [UUID: CGPoint] = [:]
     @State private var pendingSaveTask: Task<Void, Never>?
+    @State private var loadedBoardID: UUID?
 
     var body: some View {
         if let board = controller.selectedMurderBoard {
@@ -526,20 +537,17 @@ struct MurderBoardView: View {
                     VStack(spacing: 0) {
                         controls(board: board, graph: graph, size: boardViewportSize(from: proxy.size))
                         Divider()
-                        canvas(graph: graph)
+                        canvas(board: board, graph: graph)
                     }
                     Divider()
                     inspector(board: board, graph: graph, size: boardViewportSize(from: proxy.size))
                         .frame(width: 320)
                 }
                 .onAppear {
-                    loadState(from: board)
+                    switchBoard(to: board)
                 }
                 .onChange(of: board.id) { _, _ in
-                    loadState(from: board)
-                }
-                .onChange(of: state) { _, _ in
-                    schedulePersist(for: board)
+                    switchBoard(to: board)
                 }
                 .onDisappear { persistState(for: board) }
             }
@@ -579,7 +587,10 @@ struct MurderBoardView: View {
             HStack {
                 Picker("Book", selection: Binding(
                     get: { state.selectedBookID },
-                    set: { state.selectedBookID = $0 }
+                    set: {
+                        state.selectedBookID = $0
+                        schedulePersist(for: board)
+                    }
                 )) {
                     Text("All Books").tag(Optional<UUID>.none)
                     ForEach(controller.murderBoardBooks, id: \.id) { book in
@@ -588,7 +599,13 @@ struct MurderBoardView: View {
                 }
                 .frame(maxWidth: 240)
 
-                Picker("Depth", selection: $state.connectedDepth) {
+                Picker("Depth", selection: Binding(
+                    get: { state.connectedDepth },
+                    set: {
+                        state.connectedDepth = $0
+                        schedulePersist(for: board)
+                    }
+                )) {
                     ForEach(MurderBoardConnectedDepth.allCases) { depth in
                         Text(depth.title).tag(depth)
                     }
@@ -596,7 +613,13 @@ struct MurderBoardView: View {
                 .frame(maxWidth: 220)
                 .disabled(state.selectedEntityID == nil)
 
-                Toggle("Show disconnected", isOn: $state.includeDisconnectedEntities)
+                Toggle("Show disconnected", isOn: Binding(
+                    get: { state.includeDisconnectedEntities },
+                    set: {
+                        state.includeDisconnectedEntities = $0
+                        schedulePersist(for: board)
+                    }
+                ))
                     .toggleStyle(.switch)
             }
 
@@ -605,7 +628,7 @@ struct MurderBoardView: View {
                     ForEach(SemanticEntityKind.allCases, id: \.rawValue) { kind in
                         let isVisible = state.visibleEntityKinds.isEmpty || state.visibleEntityKinds.contains(kind.rawValue)
                         Button {
-                            toggleEntityKind(kind.rawValue)
+                            toggleEntityKind(kind.rawValue, board: board)
                         } label: {
                             Label(kind.rawValue.capitalized, systemImage: isVisible ? "checkmark.circle.fill" : "circle")
                         }
@@ -616,7 +639,7 @@ struct MurderBoardView: View {
                     ForEach(graph.availableRelationshipKinds, id: \.self) { kind in
                         let isVisible = !state.hiddenRelationshipKinds.contains(kind)
                         Button {
-                            toggleRelationshipKind(kind)
+                            toggleRelationshipKind(kind, board: board)
                         } label: {
                             Label(kind, systemImage: isVisible ? "checkmark.circle.fill" : "circle")
                         }
@@ -627,16 +650,24 @@ struct MurderBoardView: View {
 
                 HStack {
                     Text("Zoom")
-                    Slider(value: Binding(
-                        get: { state.viewport.zoom },
-                        set: { state.viewport.zoom = max(0.4, min($0, 2.5)) }
-                    ), in: 0.4...2.5)
+                    Slider(
+                        value: Binding(
+                            get: { state.viewport.zoom },
+                            set: { state.viewport.zoom = max(0.4, min($0, 2.5)) }
+                        ),
+                        in: 0.4...2.5,
+                        onEditingChanged: { editing in
+                            if !editing { schedulePersist(for: board) }
+                        }
+                    )
                         .frame(width: 120)
                     Button("Fit") {
                         fitVisible(graph: graph, size: size)
+                        schedulePersist(for: board)
                     }
                     Button("Auto Layout") {
                         applyAutomaticLayout(for: graph)
+                        schedulePersist(for: board)
                     }
                 }
             }
@@ -650,7 +681,7 @@ struct MurderBoardView: View {
         .padding()
     }
 
-    private func canvas(graph: MurderBoardGraph) -> some View {
+    private func canvas(board: Document, graph: MurderBoardGraph) -> some View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
@@ -673,6 +704,7 @@ struct MurderBoardView: View {
                         Button {
                             selectedRelationshipID = edge.id
                             state.selectedEntityID = nil
+                            schedulePersist(for: board)
                         } label: {
                             Text(edge.relationship.kind)
                                 .font(.caption)
@@ -698,13 +730,14 @@ struct MurderBoardView: View {
                     .simultaneousGesture(TapGesture().onEnded {
                         state.selectedEntityID = node.id
                         selectedRelationshipID = nil
+                        schedulePersist(for: board)
                     })
-                    .highPriorityGesture(nodeDragGesture(for: node))
+                    .highPriorityGesture(nodeDragGesture(for: node, board: board))
                 }
             }
             .contentShape(Rectangle())
-            .gesture(canvasPanGesture())
-            .simultaneousGesture(canvasZoomGesture())
+            .gesture(canvasPanGesture(board: board))
+            .simultaneousGesture(canvasZoomGesture(board: board))
             .clipped()
         }
     }
@@ -771,6 +804,7 @@ struct MurderBoardView: View {
                                 $0.y = node.position.y
                                 $0.isPinned = value
                             }
+                            schedulePersist(for: board)
                         }
                     ))
                     Toggle("Hidden on this board", isOn: Binding(
@@ -781,6 +815,7 @@ struct MurderBoardView: View {
                                 $0.y = node.position.y
                                 $0.isHidden = value
                             }
+                            schedulePersist(for: board)
                         }
                     ))
                     Button("Open Story Bible Entry") {
@@ -789,6 +824,7 @@ struct MurderBoardView: View {
                     Button("Center & Fit") {
                         state.selectedEntityID = node.id
                         fitVisible(graph: graph, size: size)
+                        schedulePersist(for: board)
                     }
                 }
 
@@ -891,9 +927,10 @@ struct MurderBoardView: View {
         pendingSaveTask?.cancel()
         state = controller.murderBoardState(for: board)
         selectedRelationshipID = nil
+        loadedBoardID = board.id
     }
 
-    private func toggleEntityKind(_ kind: String) {
+    private func toggleEntityKind(_ kind: String, board: Document) {
         var visible = state.visibleEntityKinds.isEmpty ? Set(SemanticEntityKind.allCases.map(\.rawValue)) : Set(state.visibleEntityKinds)
         if visible.contains(kind), visible.count > 1 {
             visible.remove(kind)
@@ -901,9 +938,10 @@ struct MurderBoardView: View {
             visible.insert(kind)
         }
         state.visibleEntityKinds = visible.count == SemanticEntityKind.allCases.count ? [] : Array(visible).sorted()
+        schedulePersist(for: board)
     }
 
-    private func toggleRelationshipKind(_ kind: String) {
+    private func toggleRelationshipKind(_ kind: String, board: Document) {
         var hidden = Set(state.hiddenRelationshipKinds)
         if hidden.contains(kind) {
             hidden.remove(kind)
@@ -911,6 +949,7 @@ struct MurderBoardView: View {
             hidden.insert(kind)
         }
         state.hiddenRelationshipKinds = Array(hidden).sorted()
+        schedulePersist(for: board)
     }
 
     private func applyAutomaticLayout(for graph: MurderBoardGraph) {
@@ -960,7 +999,7 @@ struct MurderBoardView: View {
         )
     }
 
-    private func canvasPanGesture() -> some Gesture {
+    private func canvasPanGesture(board: Document) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
                 if panOrigin == nil {
@@ -972,10 +1011,11 @@ struct MurderBoardView: View {
             }
             .onEnded { _ in
                 panOrigin = nil
+                schedulePersist(for: board)
             }
     }
 
-    private func canvasZoomGesture() -> some Gesture {
+    private func canvasZoomGesture(board: Document) -> some Gesture {
         MagnificationGesture()
             .onChanged { value in
                 if zoomOrigin == nil {
@@ -986,10 +1026,11 @@ struct MurderBoardView: View {
             }
             .onEnded { _ in
                 zoomOrigin = nil
+                schedulePersist(for: board)
             }
     }
 
-    private func nodeDragGesture(for node: MurderBoardGraphNode) -> some Gesture {
+    private func nodeDragGesture(for node: MurderBoardGraphNode, board: Document) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
                 if dragOrigins[node.id] == nil {
@@ -1005,6 +1046,7 @@ struct MurderBoardView: View {
             }
             .onEnded { _ in
                 dragOrigins[node.id] = nil
+                schedulePersist(for: board)
             }
     }
 
@@ -1017,6 +1059,15 @@ struct MurderBoardView: View {
 
     private func boardViewportSize(from totalSize: CGSize) -> CGSize {
         CGSize(width: max(400, totalSize.width - 320), height: totalSize.height)
+    }
+
+    private func switchBoard(to board: Document) {
+        if let loadedBoardID,
+           loadedBoardID != board.id,
+           let previousBoard = try? controller.store.documents.fetch(id: loadedBoardID) {
+            persistState(for: previousBoard)
+        }
+        loadState(from: board)
     }
 
     private func schedulePersist(for board: Document) {
