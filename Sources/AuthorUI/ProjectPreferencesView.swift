@@ -194,7 +194,7 @@ private struct LabelRow: View {
                 .accessibilityLabel("Label color")
                 .help("Choose this label's color")
                 .frame(width: 32)
-                .onChange(of: color) { newValue in
+                .onChange(of: color) { _, newValue in
                     controller.updateLabel(definition, title: title, color: newValue.rgbComponents)
                 }
             TextField("Name", text: $title)

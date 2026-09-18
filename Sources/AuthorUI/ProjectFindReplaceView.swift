@@ -88,14 +88,16 @@ struct ProjectFindReplaceView: View {
             ) {
                 Button("Cancel", role: .cancel) {}
                 Button("Replace All", role: .destructive) {
-                    do {
-                        replacementSummary = try controller.replaceProjectText(
-                            searchText: findText,
-                            with: replacementText,
-                            caseSensitive: caseSensitive
-                        )
-                    } catch {
-                        controller.report(error)
+                    Task { @MainActor in
+                        do {
+                            replacementSummary = try await controller.replaceProjectText(
+                                searchText: findText,
+                                with: replacementText,
+                                caseSensitive: caseSensitive
+                            )
+                        } catch {
+                            controller.report(error)
+                        }
                     }
                 }
             } message: {

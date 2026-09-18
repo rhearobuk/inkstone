@@ -22,6 +22,17 @@ RTF, images, and other resources beneath `Files`. For provenance and reliable
 re-imports, it can retain original source bytes and metadata for files imported
 from the user's selected project.
 
+Imported text entries classified under Places, Locations, or Settings become
+structured Story Bible Place cards in the workspace. Folder organization is
+retained. The initial Description field copies the imported body text verbatim;
+the source document, synopsis, and resources remain preserved separately.
+The native document metadata key `system.storyBible.importedPlaceEntityID`
+records the card's semantic entity identity. This mapping makes conversion
+idempotent without merging similarly named places or requiring a schema change.
+Re-imports update the source document without overwriting the editable card.
+Place cards support the same category-then-entry relationship composer as other
+Story Bible entries and participate in Relationship Explorer.
+
 ## Compatibility boundary
 
 - Inkstone does not modify the selected Scrivener project or its source files.

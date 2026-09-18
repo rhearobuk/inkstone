@@ -1,4 +1,5 @@
 import AuthorData
+import AuthorAI
 import XCTest
 @testable import AuthorUI
 
@@ -303,6 +304,424 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.notes.first?.body, "It only opens at dawn.")
     }
 
+    func testSceneSaveLinksExistingStoryBibleEntitiesWithoutAutoCreation() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        await controller.flushPendingChanges()
+
+        let entities = project.semanticEntities
+        XCTAssertEqual(Set(entities.map(\.canonicalName)), ["Mara Venn", "The Lantern Society", "Moon Gate"])
+        XCTAssertEqual(scene.mentions.count, 3)
+
+        await controller.refreshSceneEntityLinks(for: scene.id)
+
+        XCTAssertEqual(project.semanticEntities.count, 3)
+        XCTAssertEqual(scene.mentions.count, 3)
+    }
+
+    func testLinkedScenesReturnsSceneBacklinksForStoryBibleEntry() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        await controller.flushPendingChanges()
+
+        let entity = try XCTUnwrap(project.semanticEntities.first { $0.canonicalName == "Moon Gate" })
+        let linkedScenes = controller.linkedScenes(for: entity)
+
+        XCTAssertEqual(linkedScenes.map(\.documentTitle), [scene.title])
+        XCTAssertEqual(linkedScenes.first?.mentionCount, 1)
+        XCTAssertEqual(linkedScenes.first?.matchedTexts, ["Moon Gate"])
+    }
+
+    func testManualSceneRefreshClearsRecognizedMentionsWhenSceneBecomesEmpty() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        await controller.flushPendingChanges()
+        XCTAssertEqual(scene.mentions.count, 3)
+
+        scene.plainText = ""
+        try controller.store.save()
+
+        await controller.refreshSceneEntityLinks(for: scene.id)
+
+        XCTAssertTrue(scene.mentions.isEmpty)
+    }
+
+    func testSceneSaveReusesExistingAliasInsteadOfCreatingDuplicateEntity() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        let entity = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        controller.selection = .document(scene.id)
+
+        let alias = controller.store.entityAliases.create {
+            $0.name = "The Gate"
+            $0.normalizedName = "the gate"
+            $0.semanticEntity = entity
+        }
+        try controller.store.save()
+        XCTAssertEqual(alias.semanticEntity.id, entity.id)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "The Gate opened, and Moon Gate answered."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(project.semanticEntities.filter { $0.kind == SemanticEntityKind.location.rawValue }.count, 1)
+        XCTAssertEqual(scene.mentions.count, 2)
+        XCTAssertEqual(Set(scene.mentions.map(\.semanticEntity.id)), [entity.id])
+    }
+
+    func testSceneSaveReusesCanonicalOrganizationWhenSceneAddsLeadingThe() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        let entity = try controller.addStoryBibleEntry(named: "Harbor Council", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "the Harbor Council summoned Mara Venn."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(project.semanticEntities.filter { $0.kind == SemanticEntityKind.organization.rawValue }.count, 1)
+        XCTAssertEqual(scene.mentions.first { $0.surfaceText == "the Harbor Council" }?.semanticEntity.id, entity.id)
+    }
+
+    func testSceneSaveDoesNotAutoCreateUnknownEntities() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "the Harbor Council summoned Mara Venn."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertTrue(project.semanticEntities.isEmpty)
+        XCTAssertTrue(scene.mentions.isEmpty)
+    }
+
+    func testSceneSaveLinksExistingMixedCaseEntities() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "R.J.", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "NASA", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "McAllister Square", category: .places)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "R.J. met NASA beside McAllister Square."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(Set(scene.mentions.map(\.semanticEntity.canonicalName)), ["R.J.", "NASA", "McAllister Square"])
+    }
+
+    func testSceneSaveReusesExistingEntitiesAndTrimsTrailingJoiners() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Oz")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Dorothy Gale", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Winkie Country", category: .places)
+        _ = try controller.addStoryBibleEntry(named: "Glinda", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Tin Man", category: .people)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Dorothy Gale was in Winkie Country and slapped Glinda. The tin man watched."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(
+            Set(scene.mentions.map(\.semanticEntity.canonicalName)),
+            ["Dorothy Gale", "Glinda", "Tin Man", "Winkie Country"]
+        )
+        XCTAssertFalse(project.semanticEntities.contains { $0.canonicalName == "Winkie Country and" })
+        XCTAssertEqual(project.semanticEntities.filter { $0.canonicalName == "Dorothy Gale" }.count, 1)
+        XCTAssertEqual(project.semanticEntities.filter { $0.canonicalName == "Tin Man" }.count, 1)
+    }
+
+    func testFlushPendingChangesRefreshesSceneLinksForAllEditedScenes() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scenes = project.documents
+            .filter { $0.narrativeType == NarrativeType.scene.rawValue }
+            .sorted { $0.title < $1.title }
+        let firstScene = try XCTUnwrap(scenes.first)
+        let secondScene = try controller.addDocument(title: "Second Scene", kind: .text, parentID: firstScene.parent?.id)
+        _ = try controller.addStoryBibleEntry(named: "Captain Ilex", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Harbor Council", category: .organizations)
+
+        controller.updateDocument(
+            documentID: firstScene.id,
+            title: firstScene.title,
+            synopsis: firstScene.synopsis,
+            plainText: "Captain Ilex arrived at Dawn Harbor."
+        )
+        controller.updateDocument(
+            documentID: secondScene.id,
+            title: secondScene.title,
+            synopsis: secondScene.synopsis,
+            plainText: "Mara Venn met the Harbor Council."
+        )
+
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(firstScene.mentions.map(\.surfaceText).sorted(), ["Captain Ilex", "Dawn Harbor"])
+        XCTAssertEqual(secondScene.mentions.map(\.surfaceText).sorted(), ["Mara Venn", "the Harbor Council"])
+    }
+
+    func testLinkedScenesOmitsTrashedScenes() async throws {
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            projectListPreferences: preferences,
+            sceneEntityRecognitionEnabled: true,
+            sceneEntityRecognitionClient: TestStoryBibleRecognitionClient()
+        )
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        await controller.flushPendingChanges()
+        controller.trashDocument(scene.id)
+
+        let entity = try XCTUnwrap(project.semanticEntities.first { $0.canonicalName == "Moon Gate" })
+        XCTAssertTrue(controller.linkedScenes(for: entity).isEmpty)
+    }
+
+    func testSceneRecognitionIsDisabledByDefaultForFlushRefreshAndAutosave() async throws {
+        let client = RecordingStoryBibleRecognitionClient()
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionClient: client
+        )
+        let project = try controller.createProject(title: "Recognition Disabled")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        scene.plainText = "Mara Venn arrived."
+        try await SceneEntityRecognitionService(
+            store: controller.store,
+            recognitionClient: TestStoryBibleRecognitionClient()
+        ).refreshSceneLinks(for: scene.id)
+        let originalMentionIDs = Set(scene.mentions.map(\.id))
+        XCTAssertEqual(originalMentionIDs.count, 1)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn left."
+        )
+        await controller.flushPendingChanges()
+        await controller.refreshSceneEntityLinks(for: scene.id)
+        controller.store.context.refresh(scene, mergeChanges: false)
+        XCTAssertEqual(scene.plainText, "Mara Venn left.")
+        XCTAssertEqual(Set(scene.mentions.map(\.id)), originalMentionIDs)
+        var callCount = await client.callCount
+        XCTAssertEqual(callCount, 0)
+        XCTAssertNil(controller.lastError)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: ""
+        )
+        try await Task.sleep(for: .seconds(4))
+        controller.store.context.refresh(scene, mergeChanges: false)
+        XCTAssertEqual(scene.plainText, "")
+        XCTAssertEqual(Set(scene.mentions.map(\.id)), originalMentionIDs)
+        callCount = await client.callCount
+        XCTAssertEqual(callCount, 0)
+        XCTAssertNil(controller.lastError)
+    }
+
+    func testSceneRecognitionMatchesWholeMentionsOnly() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Boundaries")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Tin", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Tin Man", category: .people)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "The tin man watched."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(scene.mentions.map(\.semanticEntity.canonicalName), ["Tin Man"])
+    }
+
+    func testSceneRecognitionLinksMentionsAcrossCandidateBatches() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Batches")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        for index in 1...30 {
+            _ = try controller.addStoryBibleEntry(named: String(format: "Citizen %02d", index), category: .people)
+        }
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Citizen 27 met Citizen 30 at dusk."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(
+            Set(scene.mentions.map(\.semanticEntity.canonicalName)),
+            ["Citizen 27", "Citizen 30"]
+        )
+    }
+
+    func testSceneRecognitionRefusalReportsLinkingErrorAndPreservesSavedTextAndLinks() async throws {
+        for flushPendingChanges in [true, false] {
+            let controller = WorkspaceController(
+                store: try AuthorDataStore(inMemory: true),
+                sceneEntityRecognitionEnabled: true,
+                sceneEntityRecognitionClient: FailingStoryBibleRecognitionClient(error: ReviewClientError.refused)
+            )
+            let project = try controller.createProject(title: "World")
+            let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+            _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+            _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+            scene.plainText = "Mara Venn arrived at Dawn Harbor."
+            try await SceneEntityRecognitionService(
+                store: controller.store,
+                recognitionClient: TestStoryBibleRecognitionClient()
+            ).refreshSceneLinks(for: scene.id)
+            let originalMentionIDs = Set(scene.mentions.map(\.id))
+            XCTAssertEqual(originalMentionIDs.count, 2)
+
+            let updatedText = "Mara Venn left Dawn Harbor before sunrise."
+            if flushPendingChanges {
+                controller.updateDocument(
+                    documentID: scene.id,
+                    title: scene.title,
+                    synopsis: scene.synopsis,
+                    plainText: updatedText
+                )
+                await controller.flushPendingChanges()
+            } else {
+                scene.plainText = updatedText
+                try controller.store.save()
+                await controller.refreshSceneEntityLinks(for: scene.id)
+            }
+
+            XCTAssertEqual(
+                controller.lastError,
+                "Automatic Story Bible linking stopped for scene \"\(scene.title)\". Apple Intelligence declined the recognition request. Existing scene links are unchanged. This feature uses only on-device Apple Intelligence."
+            )
+            controller.store.context.refresh(scene, mergeChanges: false)
+            XCTAssertEqual(scene.plainText, updatedText)
+            XCTAssertEqual(Set(scene.mentions.map(\.id)), originalMentionIDs)
+        }
+    }
+
+    func testSceneRecognitionDoesNotMisclassifyContextErrorsAsRefusals() async throws {
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionEnabled: true,
+            sceneEntityRecognitionClient: FailingStoryBibleRecognitionClient(error: ReviewClientError.contextExceeded)
+        )
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+        scene.plainText = "The ship left Dawn Harbor."
+        try controller.store.save()
+
+        await controller.refreshSceneEntityLinks(for: scene.id)
+
+        XCTAssertEqual(controller.lastError, ReviewClientError.contextExceeded.localizedDescription)
+    }
+
+    func testSceneRecognitionReportsAppleDiagnosticAndFailedPass() async throws {
+        let error = StoryBibleRecognitionError(
+            reason: .guardrailViolation,
+            passLabel: "Places",
+            diagnostic: "Synthetic guardrail diagnostic."
+        )
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionEnabled: true,
+            sceneEntityRecognitionClient: FailingStoryBibleRecognitionClient(error: error)
+        )
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+        scene.plainText = "The ship left Dawn Harbor."
+        try controller.store.save()
+
+        await controller.refreshSceneEntityLinks(for: scene.id)
+
+        let message = try XCTUnwrap(controller.lastError)
+        XCTAssertTrue(message.contains(scene.title))
+        XCTAssertTrue(message.contains("blocked the Places pass with a safety guardrail"))
+        XCTAssertTrue(message.contains("Apple diagnostic: Synthetic guardrail diagnostic."))
+        XCTAssertTrue(message.contains("Existing scene links are unchanged"))
+    }
+
     func testDeletingCharacterRemovesItsProfileEntityAndImportedSourceEntry() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
@@ -471,7 +890,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.plainText, "Rain covered the station.")
     }
 
-    func testProjectTextReplacementSupportsEscapedNewLines() throws {
+    func testProjectTextReplacementSupportsEscapedNewLines() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Draft")
         let scene = try XCTUnwrap(
@@ -484,7 +903,7 @@ final class WorkspaceControllerTests: XCTestCase {
             plainText: "First line\nSecond line\nFirst line\nSecond line"
         )
 
-        let summary = try controller.replaceProjectText(
+        let summary = try await controller.replaceProjectText(
             searchText: "first line\\nsecond line",
             with: "Opening\\nClosing"
         )
@@ -565,7 +984,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(manuscriptItem.children?.map(\.title), ["Opening Scene", "Second Scene"])
     }
 
-    func testFlushPendingChangesPersistsDebouncedDocumentEdit() throws {
+    func testFlushPendingChangesPersistsDebouncedDocumentEdit() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Draft")
         let scene = try XCTUnwrap(
@@ -581,7 +1000,7 @@ final class WorkspaceControllerTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.store.context.hasChanges)
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
         XCTAssertFalse(controller.store.context.hasChanges)
         XCTAssertEqual(
             try controller.store.documents.require(id: scene.id).plainText,
@@ -1114,7 +1533,450 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertNil(secondScene.resources.first { $0.mediaType == "application/rtf" })
     }
 
+    func testMurderBoardManualRelationshipsWorkWithRecognitionDisabled() async throws {
+        let client = RecordingStoryBibleRecognitionClient()
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionClient: client
+        )
+        let project = try controller.createProject(title: "Manual Board")
+        let board = try controller.createMurderBoard()
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "visits", notes: nil, from: mara, to: gate)
+        await controller.flushPendingChanges()
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(Set(graph.nodes.map(\.id)), [mara.id, gate.id])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["visits"])
+        XCTAssertTrue(project.documents.allSatisfy { $0.mentions.isEmpty })
+
+        let relationship = try XCTUnwrap(mara.outgoingStoryBibleRelationships.first)
+        relationship.kind = "guards"
+        controller.saveStoryBibleRelationship(relationship)
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["guards"])
+
+        controller.deleteStoryBibleRelationship(relationship)
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertTrue(graph.edges.isEmpty)
+        XCTAssertEqual(graph.nodes.count, 2)
+        let callCount = await client.callCount
+        XCTAssertEqual(callCount, 0)
+        XCTAssertNil(controller.lastError)
+    }
+
+    func testMurderBoardAppearsInStoryBibleOverviewAndBinder() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Murder Board Test")
+
+        let board = try controller.createMurderBoard(named: "Main Relationships")
+
+        XCTAssertEqual(controller.selection, .murderBoard(board.id))
+        XCTAssertEqual(controller.murderBoards.map(\.title), ["Main Relationships"])
+        let storyBible = try XCTUnwrap(controller.binderItems.first { $0.title == "Story Bible" })
+        let murderBoardItem = try XCTUnwrap(storyBible.children?.first { $0.title == "Relationship Explorer" })
+        XCTAssertEqual(murderBoardItem.selection, .murderBoardOverview(project.id))
+        XCTAssertEqual(murderBoardItem.children?.map(\.title), ["Main Relationships"])
+    }
+
+    func testMurderBoardStatePersistsAndDeletingBoardKeepsStoryBibleData() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Persistence")
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let moonGate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "guards", notes: "Night watch", from: mara, to: moonGate)
+        let board = try controller.createMurderBoard(named: "Guard Web")
+
+        var state = MurderBoardState()
+        state.selectedEntityID = mara.id
+        state.connectedDepth = .twoHops
+        state.hiddenRelationshipKinds = ["betrays"]
+        state.nodeStates = [
+            MurderBoardNodeState(entityID: mara.id, x: 120, y: -80, isPinned: true),
+            MurderBoardNodeState(entityID: moonGate.id, x: -160, y: 90)
+        ]
+
+        controller.saveMurderBoardState(state, for: board)
+
+        let persisted = controller.murderBoardState(for: board)
+        XCTAssertEqual(persisted.selectedEntityID, mara.id)
+        XCTAssertEqual(persisted.connectedDepth, .twoHops)
+        XCTAssertEqual(persisted.nodeState(for: mara.id)?.x, 120)
+        XCTAssertEqual(persisted.nodeState(for: mara.id)?.isPinned, true)
+        XCTAssertEqual(persisted.hiddenRelationshipKinds, ["betrays"])
+
+        controller.renameMurderBoard(board, title: "Night Watch")
+        XCTAssertEqual(controller.murderBoards.map(\.title), ["Night Watch"])
+
+        controller.deleteMurderBoard(board)
+
+        XCTAssertEqual(controller.murderBoards.count, 0)
+        XCTAssertEqual(controller.selection, .murderBoardOverview(project.id))
+        XCTAssertEqual(controller.selectedProject?.semanticEntities.count, 2)
+        XCTAssertEqual(mara.outgoingStoryBibleRelationships.count, 1)
+    }
+
+    func testMurderBoardGraphFiltersByBookDepthAndRelationshipType() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Scoped Graph")
+        let board = try controller.createMurderBoard(named: "Scoped")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let bookOne = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.book.rawValue })
+        let bookTwo = try controller.addDocument(title: "Book Two", kind: .folder, parentID: narrative.id)
+        controller.setNarrativeType(bookTwo, to: .book)
+        let sceneOne = try XCTUnwrap(bookOne.orderedChildren.first)
+        let sceneTwo = try controller.addDocument(title: "Book Two Scene", kind: .text, parentID: bookTwo.id)
+
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let lantern = try controller.addStoryBibleEntry(named: "Lantern Society", category: .organizations)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        let glinda = try controller.addStoryBibleEntry(named: "Glinda", category: .people)
+
+        try controller.addStoryBibleRelationship(kind: "member of", notes: nil, from: mara, to: lantern)
+        try controller.addStoryBibleRelationship(kind: "meets at", notes: nil, from: lantern, to: gate)
+
+        controller.updateDocument(
+            documentID: sceneOne.id,
+            title: sceneOne.title,
+            synopsis: sceneOne.synopsis,
+            plainText: "Mara Venn met the Lantern Society while Glinda watched."
+        )
+        controller.updateDocument(
+            documentID: sceneTwo.id,
+            title: sceneTwo.title,
+            synopsis: sceneTwo.synopsis,
+            plainText: "Lantern Society gathered at Moon Gate."
+        )
+        await controller.flushPendingChanges()
+
+        var state = MurderBoardState()
+        state.selectedBookID = bookOne.id
+        state.selectedEntityID = mara.id
+        state.connectedDepth = .direct
+        state.includeDisconnectedEntities = false
+        let scopedGraph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(scopedGraph.nodes.map(\.entity.canonicalName)), ["Mara Venn", "Lantern Society"])
+        XCTAssertEqual(scopedGraph.edges.map(\.relationship.kind), ["member of"])
+
+        state.includeDisconnectedEntities = true
+        let disconnectedGraph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(
+            Set(disconnectedGraph.nodes.map(\.entity.canonicalName)),
+            ["Glinda", "Lantern Society", "Mara Venn"]
+        )
+        XCTAssertEqual(disconnectedGraph.edges.map(\.relationship.kind), ["member of"])
+
+        state.hiddenRelationshipKinds = ["member of"]
+        let hiddenGraph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertTrue(hiddenGraph.edges.isEmpty)
+    }
+
+    func testMurderBoardBookScopeKeepsRelationshipConnectedNodes() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Book Scope")
+        let board = try controller.createMurderBoard(named: "Scoped")
+        let book = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.book.rawValue })
+        let scene = try XCTUnwrap(book.orderedChildren.first)
+        let dorothy = try controller.addStoryBibleEntry(named: "Dorothy Gale", category: .people)
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: dorothy, to: oz)
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Dorothy Gale arrived."
+        )
+        await controller.flushPendingChanges()
+
+        var state = MurderBoardState()
+        state.selectedBookID = book.id
+        let graph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
+    }
+
+    func testMurderBoardBookScopeIncludesSourceBackedRelationshipsWithoutSceneMentions() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported Scope")
+        let board = try controller.createMurderBoard(named: "Scoped")
+        let book = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.book.rawValue })
+        let sourceDocument = try controller.addDocument(title: "Imported Character", kind: .text, parentID: book.id)
+        let importedEntity = controller.store.semanticEntities.create {
+            $0.canonicalName = "Dorothy Gale"
+            $0.kind = SemanticEntityKind.character.rawValue
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+        }
+        controller.store.characterProfiles.create {
+            $0.firstName = "Dorothy"
+            $0.lastName = "Gale"
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+            $0.semanticEntity = importedEntity
+            $0.sourceDocument = sourceDocument
+        }
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: importedEntity, to: oz)
+
+        var state = MurderBoardState()
+        state.selectedBookID = book.id
+        let graph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
+    }
+
+    func testMurderBoardGraphReflectsCanonicalRelationshipUpdates() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Canonical Graph")
+        let board = try controller.createMurderBoard(named: "Canonical")
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "visits", notes: "Chapter 1", from: mara, to: gate)
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        let relationship = try XCTUnwrap(graph.edges.first?.relationship)
+        guard case .storyBible(let storyBibleRelationship) = relationship else {
+            return XCTFail("Expected a Story Bible relationship edge.")
+        }
+        XCTAssertEqual(storyBibleRelationship.kind, "visits")
+
+        storyBibleRelationship.kind = "guards"
+        storyBibleRelationship.notes = "Updated"
+        controller.saveStoryBibleRelationship(storyBibleRelationship)
+
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(graph.edges.first?.relationship.kind, "guards")
+        XCTAssertEqual(graph.edges.first?.relationship.notes, "Updated")
+    }
+
+    func testMurderBoardGraphIncludesCharacterRelationshipsAndSupportsNodeFilters() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Character Graph")
+        let board = try controller.createMurderBoard(named: "Canonical")
+        let dorothy = try controller.addStoryBibleEntry(named: "Dorothy Gale", category: .people)
+        let toto = try controller.addStoryBibleEntry(named: "Toto", category: .people)
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+        let dorothyProfile = try XCTUnwrap(dorothy.characterProfile)
+        let totoProfile = try XCTUnwrap(toto.characterProfile)
+
+        try controller.addCharacterRelationship(kind: "travels with", notes: "Road companion", from: dorothyProfile, to: totoProfile)
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: dorothy, to: oz)
+
+        var state = MurderBoardState()
+        state.selectedEntityID = dorothy.id
+        state.connectedDepth = .direct
+        state.includeDisconnectedEntities = false
+        var graph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Toto", "Oz"])
+        XCTAssertEqual(Set(graph.edges.map(\.relationship.kind)), ["travels to", "travels with"])
+
+        state.visibleEntityKinds = [SemanticEntityKind.character.rawValue]
+        graph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Toto"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels with"])
+
+        state.visibleEntityKinds = []
+        state.nodeStates = [MurderBoardNodeState(entityID: toto.id, x: 0, y: 0, isPinned: false, isHidden: true)]
+        graph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
+    }
+
+    func testMurderBoardGraphRemovesDeletedRelationships() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Relationship Deletion")
+        let board = try controller.createMurderBoard(named: "Canonical")
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "visits", notes: "Chapter 1", from: mara, to: gate)
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        let relationship = try XCTUnwrap(graph.edges.first?.relationship)
+        guard case .storyBible(let storyBibleRelationship) = relationship else {
+            return XCTFail("Expected a Story Bible relationship edge.")
+        }
+
+        controller.deleteStoryBibleRelationship(storyBibleRelationship)
+
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertTrue(graph.edges.isEmpty)
+    }
+
+    func testMurderBoardGraphIncludesSourceBackedCharacterEntities() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported Graph")
+        let board = try controller.createMurderBoard(named: "Imported")
+        let importCard = controller.store.documents.create {
+            $0.sourceIdentifier = "imported-character-card"
+            $0.title = "Imported Character"
+            $0.kind = DocumentKind.text.rawValue
+            $0.orderIndex = 0
+            $0.project = project
+        }
+        let importedEntity = controller.store.semanticEntities.create {
+            $0.canonicalName = "Dorothy Gale"
+            $0.kind = SemanticEntityKind.character.rawValue
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+        }
+        controller.store.characterProfiles.create {
+            $0.firstName = "Dorothy"
+            $0.lastName = "Gale"
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+            $0.semanticEntity = importedEntity
+            $0.sourceDocument = importCard
+        }
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: importedEntity, to: oz)
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+
+        var state = MurderBoardState()
+        state.selectedEntityID = importedEntity.id
+        state.connectedDepth = .direct
+        graph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
+    }
+
     private func makeController() throws -> WorkspaceController {
-        WorkspaceController(store: try AuthorDataStore(inMemory: true))
+        WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionEnabled: true,
+            sceneEntityRecognitionClient: TestStoryBibleRecognitionClient()
+        )
+    }
+}
+
+private actor RecordingStoryBibleRecognitionClient: StoryBibleEntityRecognitionClient {
+    private(set) var callCount = 0
+
+    func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        callCount += 1
+        throw ReviewClientError.refused
+    }
+}
+
+private struct FailingStoryBibleRecognitionClient: StoryBibleEntityRecognitionClient {
+    let error: any Error
+
+    func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        if request.passLabel == "Places" {
+            throw error
+        }
+        return try await TestStoryBibleRecognitionClient().recognizeMentions(in: request)
+    }
+}
+
+private struct TestStoryBibleRecognitionClient: StoryBibleEntityRecognitionClient {
+    private let characterArticleTitles = Set([
+        "beast", "boy", "girl", "king", "knight", "lady", "lion", "man", "prince",
+        "princess", "queen", "scarecrow", "sir", "tin", "warrior", "witch", "wizard", "woman", "woodman"
+    ])
+
+    func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        let text = request.sceneText as NSString
+        var matches: [(range: NSRange, match: StoryBibleRecognitionMatch)] = []
+
+        for candidate in request.candidates {
+            for phrase in candidatePhrases(for: candidate) {
+                for (index, range) in literalRanges(of: phrase, in: text).enumerated() {
+                    matches.append((
+                        range: range,
+                        match: StoryBibleRecognitionMatch(
+                            entityID: candidate.id,
+                            surfaceText: text.substring(with: range),
+                            occurrence: index + 1
+                        )
+                    ))
+                }
+            }
+        }
+
+        var occupiedRanges: [NSRange] = []
+        return matches
+            .sorted {
+                if $0.range.location != $1.range.location { return $0.range.location < $1.range.location }
+                if $0.range.length != $1.range.length { return $0.range.length > $1.range.length }
+                return $0.match.entityID < $1.match.entityID
+            }
+            .compactMap { item in
+                guard !occupiedRanges.contains(where: { NSIntersectionRange($0, item.range).length > 0 }) else {
+                    return nil
+                }
+                occupiedRanges.append(item.range)
+                return item.match
+            }
+    }
+
+    private func candidatePhrases(for candidate: StoryBibleRecognitionCandidate) -> [String] {
+        let base = Array(Set([candidate.name] + candidate.aliases))
+        let articleVariants = base.compactMap { phrase -> String? in
+            guard supportsLeadingArticle(for: candidate, phrase: phrase) else { return nil }
+            return "the \(phrase)"
+        }
+        return Array(Set(base + articleVariants))
+    }
+
+    private func supportsLeadingArticle(for candidate: StoryBibleRecognitionCandidate, phrase: String) -> Bool {
+        if candidate.kind == "organization" {
+            return true
+        }
+        guard candidate.kind == "character" else { return false }
+        let words = phrase.split(separator: " ").map { $0.lowercased() }
+        return words.count >= 2 && words.contains(where: { characterArticleTitles.contains($0) })
+    }
+
+    private func literalRanges(of phrase: String, in text: NSString) -> [NSRange] {
+        let searchPhrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !searchPhrase.isEmpty else { return [] }
+        var results: [NSRange] = []
+        var start = 0
+        while start < text.length {
+            let range = text.range(
+                of: searchPhrase,
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                range: NSRange(location: start, length: text.length - start)
+            )
+            guard range.location != NSNotFound else { break }
+            if isWholeMentionBoundary(range, in: text) {
+                results.append(range)
+            }
+            start = range.location + max(1, range.length)
+        }
+        return results
+    }
+
+    private func isWholeMentionBoundary(_ range: NSRange, in text: NSString) -> Bool {
+        let lettersAndNumbers = CharacterSet.alphanumerics
+        let beforeIndex = range.location - 1
+        if beforeIndex >= 0,
+           let scalar = UnicodeScalar(text.character(at: beforeIndex)),
+           lettersAndNumbers.contains(scalar) {
+            return false
+        }
+        let afterIndex = range.location + range.length
+        if afterIndex < text.length,
+           let scalar = UnicodeScalar(text.character(at: afterIndex)),
+           lettersAndNumbers.contains(scalar) {
+            return false
+        }
+        return true
     }
 }

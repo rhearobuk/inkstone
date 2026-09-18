@@ -142,7 +142,13 @@ public struct AuthorWorkspaceView: View {
                     .disabled(controller.selectedProject == nil)
 
                     Menu {
-                        Toggle("Show Hidden Items", isOn: $controller.showsHiddenDocuments)
+                        Toggle(
+                            "Show Hidden Items",
+                            isOn: Binding(
+                                get: { controller.showsHiddenDocuments },
+                                set: { controller.showsHiddenDocuments = $0 }
+                            )
+                        )
                     } label: {
                         Label("View Options", systemImage: "eye")
                     }
@@ -428,7 +434,13 @@ public struct AuthorWorkspaceView: View {
                     .font(.headline)
                 Spacer()
                 Menu {
-                    Toggle("Show Hidden Projects", isOn: $controller.showsHiddenProjects)
+                    Toggle(
+                        "Show Hidden Projects",
+                        isOn: Binding(
+                            get: { controller.showsHiddenProjects },
+                            set: { controller.showsHiddenProjects = $0 }
+                        )
+                    )
                 } label: {
                     Label("Project View Options", systemImage: "eye")
                 }
@@ -1221,6 +1233,10 @@ private struct WorkspaceDetailView: View {
                 StoryBibleOverview(controller: controller)
             case .storyBibleCategory(_, let category):
                 StoryBibleCategoryView(category: category, controller: controller)
+            case .murderBoardOverview:
+                MurderBoardOverviewView(controller: controller)
+            case .murderBoard:
+                MurderBoardView(controller: controller)
             case .gallery:
                 GalleryView(controller: controller)
             case .galleryItem:
@@ -1234,7 +1250,11 @@ private struct WorkspaceDetailView: View {
             case .storyBibleCard:
                 StoryBibleCardView(controller: controller)
             case .document:
-                DocumentEditor(controller: controller)
+                if controller.selectedStoryBibleCard != nil {
+                    StoryBibleCardView(controller: controller)
+                } else {
+                    DocumentEditor(controller: controller)
+                }
             case .trash:
                 TrashOverview(controller: controller)
             case nil:
@@ -1390,16 +1410,50 @@ private struct StoryBibleOverview: View {
     @ObservedObject var controller: WorkspaceController
 
     var body: some View {
-        List(StoryBibleCategory.allCases) { category in
-            Button {
-                guard let projectID = controller.selectedProjectID else { return }
-                controller.selection = .storyBibleCategory(projectID: projectID, category: category)
-            } label: {
-                Label(category.rawValue, systemImage: category.systemImage)
+        List {
+            Section("Entries") {
+                ForEach(StoryBibleCategory.allCases) { category in
+                    Button {
+                        guard let projectID = controller.selectedProjectID else { return }
+                        controller.selection = .storyBibleCategory(projectID: projectID, category: category)
+                    } label: {
+                        Label(category.rawValue, systemImage: category.systemImage)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
+
+            Section("Tools") {
+                Button {
+                    guard let projectID = controller.selectedProjectID else { return }
+                    controller.selection = .murderBoardOverview(projectID)
+                } label: {
+                    Label("Relationship Explorer", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                .buttonStyle(.plain)
+
+                ForEach(murderBoards, id: \.id) { board in
+                    Button {
+                        controller.openMurderBoard(board)
+                    } label: {
+                        Label(board.title, systemImage: "circle.hexagongrid")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .navigationTitle("Story Bible")
+    }
+
+    private var murderBoards: [Document] {
+        guard let project = controller.selectedProject else { return [] }
+        return project.documents
+            .filter {
+                !$0.isDeleted &&
+                    !controller.isDocumentTrashed($0) &&
+                    controller.isMurderBoardDocument($0)
+            }
+            .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
     }
 }
 
@@ -1434,7 +1488,8 @@ private struct StoryBibleCategoryView: View {
         return project.semanticEntities
             .filter {
                 category.contains(kind: $0.kind) &&
-                    $0.characterProfile?.sourceDocument == nil
+                    $0.characterProfile?.sourceDocument == nil &&
+                    controller.importedPlaceSource(for: $0) == nil
             }
             .sorted {
                 $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending

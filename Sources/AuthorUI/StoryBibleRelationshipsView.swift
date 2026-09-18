@@ -5,12 +5,9 @@ struct StoryBibleRelationshipsSection: View {
     let entity: SemanticEntity
     @ObservedObject var controller: WorkspaceController
     @State private var showsNewRelationship = false
-    @State private var targetID: UUID?
-    @State private var kind = "related to"
-    @State private var notes = ""
 
     var body: some View {
-        Section("Relationships") {
+        Section("Story Bible Relationships") {
             ForEach(outgoing, id: \.id) { relationship in
                 relationshipEditor(relationship, other: relationship.targetEntity)
             }
@@ -28,47 +25,13 @@ struct StoryBibleRelationshipsSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Button("Add Relationship") {
-                targetID = targets.first?.id
+            Button("Add Story Bible Relationship") {
                 showsNewRelationship = true
             }
-            .disabled(targets.isEmpty)
+            .disabled(controller.storyBibleRelationshipTargets(from: entity).isEmpty)
         }
         .sheet(isPresented: $showsNewRelationship) {
-            NavigationStack {
-                Form {
-                    Picker("Related entry", selection: $targetID) {
-                        ForEach(targets, id: \.id) { target in
-                            Text(target.canonicalName).tag(Optional(target.id))
-                        }
-                    }
-                    TextField("Relationship", text: $kind)
-                    TextField("Notes", text: $notes, axis: .vertical)
-                }
-                .navigationTitle("New Relationship")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { resetEditor() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Add") {
-                            guard let target = targets.first(where: { $0.id == targetID }) else { return }
-                            do {
-                                try controller.addStoryBibleRelationship(
-                                    kind: kind,
-                                    notes: notes,
-                                    from: entity,
-                                    to: target
-                                )
-                                resetEditor()
-                            } catch {
-                                controller.report(error)
-                            }
-                        }
-                        .disabled(targetID == nil || kind.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-            }
+            StoryBibleRelationshipComposer(controller: controller, source: entity)
         }
     }
 
@@ -86,10 +49,6 @@ struct StoryBibleRelationshipsSection: View {
                 $1.sourceEntity.canonicalName
             ) == .orderedAscending
         }
-    }
-
-    private var targets: [SemanticEntity] {
-        controller.storyBibleRelationshipTargets.filter { $0.id != entity.id }
     }
 
     private func relationshipEditor(_ relationship: StoryBibleRelationship, other: SemanticEntity) -> some View {
@@ -131,10 +90,4 @@ struct StoryBibleRelationshipsSection: View {
         .help("Delete relationship")
     }
 
-    private func resetEditor() {
-        targetID = nil
-        kind = "related to"
-        notes = ""
-        showsNewRelationship = false
-    }
 }

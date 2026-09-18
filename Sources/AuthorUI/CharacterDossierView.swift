@@ -153,7 +153,7 @@ struct CharacterDossierView: View {
                     Button("Add Note") { editor = .note }
                 }
 
-                Section("Key Relationships") {
+                Section("Character Relationships") {
                     ForEach(sortedRelationships(profile), id: \.id) { relationship in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
@@ -193,7 +193,7 @@ struct CharacterDossierView: View {
                             )
                         }
                     }
-                    Button("Add Relationship") { editor = .relationship }
+                    Button("Add Character Relationship") { editor = .relationship }
                         .disabled(controller.otherCharacterProfiles.isEmpty)
 
                     ForEach(sortedIncomingRelationships(profile), id: \.id) { relationship in
@@ -204,6 +204,7 @@ struct CharacterDossierView: View {
                     }
                 }
 
+                StoryBibleLinkedScenesSection(entity: profile.semanticEntity, controller: controller)
                 StoryBibleRelationshipsSection(entity: profile.semanticEntity, controller: controller)
 
                 Section("Conflicts") {
@@ -499,6 +500,7 @@ private struct DossierEditorSheet: View {
                     TextField("Summary", text: $bodyText, axis: .vertical)
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle(editor.rawValue.capitalized)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

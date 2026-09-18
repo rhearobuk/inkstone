@@ -322,7 +322,7 @@ private struct ProviderKeyRow: View {
         }
         .padding(.vertical, 4)
         .onAppear { keyText = settings.apiKey(for: provider) }
-        .onChange(of: isFocused) { focused in
+        .onChange(of: isFocused) { _, focused in
             if !focused { commit() }
         }
     }

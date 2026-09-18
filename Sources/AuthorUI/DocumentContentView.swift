@@ -54,7 +54,9 @@ struct DocumentContentView: View {
                     controller.report(error)
                 }
             } onCommit: {
-                controller.flushPendingChanges()
+                Task { @MainActor in
+                    await controller.flushPendingChanges()
+                }
             }
             .id(document.id)
     }

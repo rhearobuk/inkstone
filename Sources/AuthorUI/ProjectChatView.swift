@@ -137,7 +137,7 @@ struct ProjectChatView: View {
                     .padding(22)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .onChange(of: messages.count) { _ in
+                .onChange(of: messages.count) {
                     withAnimation { reader.scrollTo("chat-top", anchor: .top) }
                 }
             }
@@ -145,10 +145,10 @@ struct ProjectChatView: View {
         }
         .background(EditorStyle.background)
         .onAppear { provider = settings.selectedProvider }
-        .onChange(of: settings.selectedProvider) { value in
+        .onChange(of: settings.selectedProvider) { _, value in
             if !isRunning { provider = value }
         }
-        .onChange(of: workspace.selectedProjectID) { _ in
+        .onChange(of: workspace.selectedProjectID) {
             task?.cancel()
             messages = []
             errorMessage = nil
