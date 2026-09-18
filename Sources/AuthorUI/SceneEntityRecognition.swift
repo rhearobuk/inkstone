@@ -54,10 +54,8 @@ struct SceneEntityRecognitionService {
             createMention(match.candidate, source: Self.mentionSourcePrefix + "appleIntelligence", entity: match.entity, document: document)
         }
 
-        if let documentModifiedAt = document.modifiedAt {
-            let projectModifiedAt = document.project.modifiedAt ?? documentModifiedAt
-            document.project.modifiedAt = max(projectModifiedAt, documentModifiedAt)
-        }
+        let refreshTime = Date()
+        document.project.modifiedAt = max(document.project.modifiedAt ?? refreshTime, refreshTime)
         if saveChanges {
             try store.save()
         }

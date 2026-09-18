@@ -376,8 +376,9 @@ extension WorkspaceController {
         entity.mentions.filter {
             !$0.isDeleted &&
                 !$0.document.isDeleted &&
-                !isDocumentTrashed($0.document) &&
-                $0.document.narrativeType == NarrativeType.scene.rawValue &&
+            $0.document.project.id == entity.project.id &&
+            !isDocumentTrashed($0.document) &&
+            $0.document.narrativeType == NarrativeType.scene.rawValue &&
             $0.source.hasPrefix("storyBible.entityReference.")
         }.count
     }
