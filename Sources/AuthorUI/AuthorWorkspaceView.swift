@@ -1428,7 +1428,7 @@ private struct StoryBibleOverview: View {
                 }
                 .buttonStyle(.plain)
 
-                ForEach(controller.murderBoards, id: \.id) { board in
+                ForEach(murderBoards, id: \.id) { board in
                     Button {
                         controller.openMurderBoard(board)
                     } label: {
@@ -1439,6 +1439,17 @@ private struct StoryBibleOverview: View {
             }
         }
         .navigationTitle("Story Bible")
+    }
+
+    private var murderBoards: [Document] {
+        guard let project = controller.selectedProject else { return [] }
+        return project.documents
+            .filter {
+                !$0.isDeleted &&
+                    !controller.isDocumentTrashed($0) &&
+                    controller.isMurderBoardDocument($0)
+            }
+            .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
     }
 }
 

@@ -296,7 +296,7 @@ public final class WorkspaceController: ObservableObject {
     private var pendingDocumentSave: Task<Void, Never>?
     private var pendingDocumentSaveIDs = Set<UUID>()
     private var pendingSceneRecognitionTasks: [UUID: Task<Void, Never>] = [:]
-    private var activeSceneRecognitionDocumentIDs = Set<UUID>()
+    private var pendingSceneRecognitionTaskIDs: [UUID: UUID] = [:]
     private var labelLookup: [String: LabelDefinition] = [:]
     private var statusLookup: [String: StatusDefinition] = [:]
     private var sectionTypeLookup: [String: SectionTypeDefinition] = [:]
@@ -1682,19 +1682,14 @@ public final class WorkspaceController: ObservableObject {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
         let pendingSaveIDs = self.pendingDocumentSaveIDs
-        let queuedRecognitionIDs = Set(pendingSceneRecognitionTasks.keys)
-        let activeRecognitionIDs = activeSceneRecognitionDocumentIDs
-        let recognitionRefreshIDs = pendingSaveIDs
-            .union(queuedRecognitionIDs)
-            .union(activeRecognitionIDs)
+        let queuedRecognitionTasks = pendingSceneRecognitionTasks
+        let recognitionRefreshIDs = pendingSaveIDs.union(queuedRecognitionTasks.keys)
         self.pendingDocumentSaveIDs.removeAll()
-        var cancelledRecognitionTasks: [Task<Void, Never>] = []
-        for documentID in recognitionRefreshIDs {
-            if let task = pendingSceneRecognitionTasks[documentID] {
-                task.cancel()
-                cancelledRecognitionTasks.append(task)
-            }
-            pendingSceneRecognitionTasks[documentID] = nil
+        pendingSceneRecognitionTasks.removeAll()
+        pendingSceneRecognitionTaskIDs.removeAll()
+        let cancelledRecognitionTasks = Array(queuedRecognitionTasks.values)
+        for task in cancelledRecognitionTasks {
+            task.cancel()
         }
         for task in cancelledRecognitionTasks {
             await task.value
@@ -1765,13 +1760,21 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func scheduleSceneEntityRecognition(for documentID: UUID) {
-        pendingSceneRecognitionTasks[documentID]?.cancel()
+        let previousTask = pendingSceneRecognitionTasks[documentID]
+        previousTask?.cancel()
+        let taskID = UUID()
+        pendingSceneRecognitionTaskIDs[documentID] = taskID
         pendingSceneRecognitionTasks[documentID] = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.pendingSceneRecognitionTasks[documentID] = nil }
+            if let previousTask {
+                await previousTask.value
+            }
+            guard let self, !Task.isCancelled else { return }
+            defer {
+                guard self.pendingSceneRecognitionTaskIDs[documentID] == taskID else { return }
+                self.pendingSceneRecognitionTasks[documentID] = nil
+                self.pendingSceneRecognitionTaskIDs[documentID] = nil
+            }
             guard !Task.isCancelled else { return }
-            self.activeSceneRecognitionDocumentIDs.insert(documentID)
-            defer { self.activeSceneRecognitionDocumentIDs.remove(documentID) }
             await self.refreshSceneEntityLinks(for: documentID)
         }
     }
