@@ -235,6 +235,7 @@ struct SceneEntityRecognitionService {
 
     private func normalized(_ value: String) -> String {
         value
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
     }

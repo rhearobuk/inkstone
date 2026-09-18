@@ -1685,9 +1685,10 @@ public final class WorkspaceController: ObservableObject {
     public func flushPendingChanges() {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
+        let activeRecognitionDocumentIDs = activeSceneRecognitionDocumentIDs
         let pendingDocumentSaveIDs = pendingDocumentSaveIDs
             .union(pendingSceneRecognitionTasks.keys)
-            .union(activeSceneRecognitionDocumentIDs)
+            .union(activeRecognitionDocumentIDs)
         self.pendingDocumentSaveIDs.removeAll()
         for documentID in pendingDocumentSaveIDs {
             pendingSceneRecognitionTasks[documentID]?.cancel()
@@ -1695,7 +1696,7 @@ public final class WorkspaceController: ObservableObject {
         }
         do {
             try store.save()
-            for documentID in pendingDocumentSaveIDs {
+            for documentID in pendingDocumentSaveIDs.subtracting(activeRecognitionDocumentIDs) {
                 refreshSceneEntityLinks(for: documentID)
             }
             try store.save()
