@@ -45,18 +45,13 @@ struct StoryBibleLinkedScenesSection: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(scene.documentTitle)
-        .accessibilityValue("\(scene.mentionCount) mentions")
+        .accessibilityValue(accessibilityValue(for: scene))
         .accessibilityAddTraits(.isButton)
-
-        if let hint = accessibilityHint(for: scene) {
-            button.accessibilityHint(hint)
-        } else {
-            button
-        }
+        button
     }
 
-    private func accessibilityHint(for scene: SceneEntityLinkSummary) -> String? {
-        guard !scene.matchedTexts.isEmpty else { return nil }
-        return "Mentions: \(scene.matchedTexts.joined(separator: ", "))"
+    private func accessibilityValue(for scene: SceneEntityLinkSummary) -> String {
+        let matchedText = scene.matchedTexts.isEmpty ? "" : ". Mentions: \(scene.matchedTexts.joined(separator: ", "))"
+        return "\(scene.mentionCount) mentions\(matchedText)"
     }
 }

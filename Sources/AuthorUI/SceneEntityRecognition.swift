@@ -208,11 +208,11 @@ struct SceneEntityRecognitionService {
         if words.contains(where: { Self.organizationKeywords.contains($0) }) {
             return .organization
         }
-        if isLikelyCharacterName(words) {
-            return .character
-        }
         if words.contains(where: { Self.locationKeywords.contains($0) }) {
             return .location
+        }
+        if isLikelyCharacterName(words) {
+            return .character
         }
         return .other
     }

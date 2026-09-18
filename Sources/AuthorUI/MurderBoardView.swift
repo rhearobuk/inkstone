@@ -1134,11 +1134,13 @@ struct MurderBoardView: View {
             guard !Task.isCancelled else { return }
             guard let persistedBoard = try? controller.store.documents.fetch(id: boardID) else { return }
             guard !Task.isCancelled, loadedBoardID == boardID else { return }
+            persistRelationshipDraftImmediately()
             controller.saveMurderBoardState(state, for: persistedBoard)
         }
     }
 
     private func persistState(for board: Document) {
+        persistRelationshipDraftImmediately()
         pendingSaveTask?.cancel()
         pendingSaveTask = nil
         guard let persistedBoard = try? controller.store.documents.fetch(id: board.id) else { return }
