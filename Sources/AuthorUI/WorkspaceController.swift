@@ -1718,7 +1718,7 @@ public final class WorkspaceController: ObservableObject {
         }
     }
 
-    public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
+    func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
         let excludedDocumentIDs = Set(entity.project.documents.filter { isDocumentTrashed($0) }.map(\.id))
         return sceneEntityRecognitionService().linkedScenes(for: entity, excludingDocumentIDs: excludedDocumentIDs)
     }
@@ -1770,9 +1770,10 @@ public final class WorkspaceController: ObservableObject {
             }
             guard let self, !Task.isCancelled else { return }
             defer {
-                guard self.pendingSceneRecognitionTaskIDs[documentID] == taskID else { return }
-                self.pendingSceneRecognitionTasks[documentID] = nil
-                self.pendingSceneRecognitionTaskIDs[documentID] = nil
+                if self.pendingSceneRecognitionTaskIDs[documentID] == taskID {
+                    self.pendingSceneRecognitionTasks[documentID] = nil
+                    self.pendingSceneRecognitionTaskIDs[documentID] = nil
+                }
             }
             guard !Task.isCancelled else { return }
             await self.refreshSceneEntityLinks(for: documentID)
