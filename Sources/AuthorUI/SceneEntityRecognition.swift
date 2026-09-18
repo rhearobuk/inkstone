@@ -205,14 +205,14 @@ struct SceneEntityRecognitionService {
 
     private func inferredKind(for name: String) -> SemanticEntityKind {
         let words = name.split(separator: " ").map(String.init)
-        if words.contains(where: { Self.locationKeywords.contains($0) }) {
-            return .location
-        }
         if words.contains(where: { Self.organizationKeywords.contains($0) }) {
             return .organization
         }
         if isLikelyCharacterName(words) {
             return .character
+        }
+        if words.contains(where: { Self.locationKeywords.contains($0) }) {
+            return .location
         }
         return .other
     }
