@@ -41,6 +41,7 @@ struct StoryBibleLinkedScenesSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)

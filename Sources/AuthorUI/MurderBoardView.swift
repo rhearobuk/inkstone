@@ -311,6 +311,7 @@ extension WorkspaceController {
         }
 
         let defaultPositions = murderBoardAutomaticPositions(for: entities.map(\.id))
+        let mentionCounts = murderBoardSceneMentionCounts(in: project)
         let nodes = entities.map { entity in
             let saved = state.nodeState(for: entity.id)
             return MurderBoardGraphNode(
@@ -321,7 +322,7 @@ extension WorkspaceController {
                 ),
                 isPinned: saved?.isPinned ?? false,
                 isHidden: saved?.isHidden ?? false,
-                mentionCount: murderBoardSceneMentionCount(for: entity)
+                mentionCount: mentionCounts[entity.id, default: 0]
             )
         }
         let positionLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0.position) })
@@ -378,34 +379,40 @@ extension WorkspaceController {
             }
     }
 
-    private func murderBoardSceneMentionCount(for entity: SemanticEntity) -> Int {
-        entity.mentions.filter {
-            !$0.isDeleted &&
-                !$0.document.isDeleted &&
-            $0.document.project.id == entity.project.id &&
-            !isDocumentTrashed($0.document) &&
-            $0.document.narrativeType == NarrativeType.scene.rawValue &&
-            $0.source.hasPrefix("storyBible.entityReference.")
-        }.count
+    private func murderBoardSceneMentionCounts(in project: WritingProject) -> [UUID: Int] {
+        Dictionary(
+            uniqueKeysWithValues: project.semanticEntities.map { entity in
+                let count = entity.mentions.filter {
+                    !$0.isDeleted &&
+                        !$0.document.isDeleted &&
+                        $0.document.project.id == entity.project.id &&
+                        !isDocumentTrashed($0.document) &&
+                        $0.document.narrativeType == NarrativeType.scene.rawValue &&
+                        $0.source.hasPrefix("storyBible.entityReference.")
+                }.count
+                return (entity.id, count)
+            }
+        )
     }
 
     private func murderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
-        let sceneDocumentIDs = Set(project.documents.compactMap { document in
+        let sceneDocuments = project.documents.compactMap { document -> Document? in
             guard !document.isDeleted,
                   !isDocumentTrashed(document),
                   document.narrativeType == NarrativeType.scene.rawValue,
                   murderBoardContains(document, in: book) else {
                 return nil
             }
-            return document.id
-        })
-        let mentionedEntityIDs = Set(project.semanticEntities.flatMap { entity in
-            entity.mentions.compactMap { mention in
-                guard sceneDocumentIDs.contains(mention.document.id),
-                      mention.source.hasPrefix("storyBible.entityReference.") else {
+            return document
+        }
+        let mentionedEntityIDs = Set(sceneDocuments.flatMap { document in
+            document.mentions.compactMap { mention in
+                guard !mention.isDeleted,
+                      mention.source.hasPrefix("storyBible.entityReference."),
+                      !mention.entity.isDeleted else {
                     return nil
                 }
-                return entity.id
+                return mention.entity.id
             }
         })
         let relationshipEntityIDs = Set(uniqueRelationships(in: project).flatMap { relationship in

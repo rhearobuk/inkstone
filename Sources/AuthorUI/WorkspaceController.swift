@@ -1684,15 +1684,12 @@ public final class WorkspaceController: ObservableObject {
         let pendingSaveIDs = self.pendingDocumentSaveIDs
         let queuedRecognitionIDs = Set(pendingSceneRecognitionTasks.keys)
         let activeRecognitionIDs = activeSceneRecognitionDocumentIDs
-        let pendingDocumentSaveIDs = pendingSaveIDs
-            .union(queuedRecognitionIDs)
-            .union(activeRecognitionIDs)
         let recognitionRefreshIDs = pendingSaveIDs
             .union(queuedRecognitionIDs)
             .union(activeRecognitionIDs)
         self.pendingDocumentSaveIDs.removeAll()
         var cancelledRecognitionTasks: [Task<Void, Never>] = []
-        for documentID in pendingDocumentSaveIDs {
+        for documentID in recognitionRefreshIDs {
             if let task = pendingSceneRecognitionTasks[documentID] {
                 task.cancel()
                 cancelledRecognitionTasks.append(task)
