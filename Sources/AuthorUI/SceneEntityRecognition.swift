@@ -62,7 +62,14 @@ struct SceneEntityRecognitionService {
             index(entity, in: &entitiesByNormalizedName)
         }
 
-        for candidate in candidateMatches(in: text) {
+        let resolvedMatches = existingEntityMatches(in: text, entities: existingEntities)
+        let occupiedRanges = resolvedMatches.map(\.candidate.range)
+
+        for resolved in resolvedMatches {
+            createMention(resolved.candidate, source: Self.mentionSourcePrefix + "exactMatch", entity: resolved.entity, document: document)
+        }
+
+        for candidate in candidateMatches(in: text, excluding: occupiedRanges) {
             let lookupKeys = normalizedLookupKeys(for: candidate.text)
             guard !lookupKeys.isEmpty else { continue }
             let entity: SemanticEntity
@@ -168,20 +175,19 @@ struct SceneEntityRecognitionService {
         }
     }
 
-    private func candidateMatches(in text: String) -> [CandidateMatch] {
+    private func candidateMatches(in text: String, excluding occupiedRanges: [NSRange] = []) -> [CandidateMatch] {
         guard let regex = Self.candidateRegex else { return [] }
         let nsText = text as NSString
         var seen = Set<String>()
         return regex.matches(in: text, range: NSRange(location: 0, length: nsText.length)).compactMap { match in
-            let raw = nsText.substring(with: match.range).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard isUsefulCandidate(raw) else { return nil }
-            let dedupeKey = "\(match.range.location):\(normalized(raw))"
+            guard !occupiedRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
+                  let candidate = cleanedCandidateMatch(in: nsText, range: match.range),
+                  isUsefulCandidate(candidate.text) else {
+                return nil
+            }
+            let dedupeKey = "\(candidate.range.location):\(normalized(candidate.text))"
             guard seen.insert(dedupeKey).inserted else { return nil }
-            return CandidateMatch(
-                text: raw,
-                range: match.range,
-                context: mentionContext(in: nsText, range: match.range)
-            )
+            return candidate
         }
     }
 
@@ -201,6 +207,63 @@ struct SceneEntityRecognitionService {
         let upperBound = min(text.length, range.location + range.length + 24)
         return text.substring(with: NSRange(location: lowerBound, length: upperBound - lowerBound))
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func cleanedCandidateMatch(in text: NSString, range: NSRange) -> CandidateMatch? {
+        var adjustedRange = range
+        var raw = text.substring(with: adjustedRange).trimmingCharacters(in: .whitespacesAndNewlines)
+        while let trailingRange = raw.range(of: #"\s+(?:of|the|and)$"#, options: .regularExpression) {
+            let suffix = String(raw[trailingRange])
+            raw.removeSubrange(trailingRange)
+            adjustedRange.length -= (suffix as NSString).length
+            raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !raw.isEmpty else { return nil }
+        return CandidateMatch(
+            text: raw,
+            range: adjustedRange,
+            context: mentionContext(in: text, range: adjustedRange)
+        )
+    }
+
+    private func existingEntityMatches(in text: String, entities: [SemanticEntity]) -> [ResolvedCandidateMatch] {
+        let nsText = text as NSString
+        let searchRange = NSRange(location: 0, length: nsText.length)
+        var occupiedRanges: [NSRange] = []
+        var matches: [ResolvedCandidateMatch] = []
+        let candidates = entities.flatMap { entity in
+            ([entity.canonicalName] + entity.aliases.map(\.name)).map { (entity, $0) }
+        }
+        .sorted { lhs, rhs in
+            let lhsLength = lhs.1.count
+            let rhsLength = rhs.1.count
+            if lhsLength != rhsLength { return lhsLength > rhsLength }
+            return lhs.1.localizedCaseInsensitiveCompare(rhs.1) == .orderedAscending
+        }
+
+        for (entity, name) in candidates {
+            guard let regex = existingEntityRegex(for: name, entity: entity) else { continue }
+            for match in regex.matches(in: text, range: searchRange) {
+                guard !occupiedRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
+                      let candidate = cleanedCandidateMatch(in: nsText, range: match.range) else {
+                    continue
+                }
+                occupiedRanges.append(candidate.range)
+                matches.append(ResolvedCandidateMatch(candidate: candidate, entity: entity))
+            }
+        }
+
+        return matches.sorted { $0.candidate.range.location < $1.candidate.range.location }
+    }
+
+    private func existingEntityRegex(for value: String, entity: SemanticEntity) -> NSRegularExpression? {
+        let escaped = NSRegularExpression.escapedPattern(for: value)
+        let allowsLeadingArticle = entity.kind == SemanticEntityKind.character.rawValue ||
+            supportsLeadingArticleVariant(for: value, kindHint: entity.kind)
+        let pattern = allowsLeadingArticle
+            ? #"\b(?:(?:[Tt]he)\s+)?"# + escaped + #"\b"#
+            : #"\b"# + escaped + #"\b"#
+        return try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
     }
 
     private func inferredKind(for name: String) -> SemanticEntityKind {
@@ -259,5 +322,10 @@ struct SceneEntityRecognitionService {
         let text: String
         let range: NSRange
         let context: String
+    }
+
+    private struct ResolvedCandidateMatch {
+        let candidate: CandidateMatch
+        let entity: SemanticEntity
     }
 }

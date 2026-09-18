@@ -455,6 +455,32 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "McAllister Square" })
     }
 
+    func testSceneSaveReusesExistingEntitiesAndTrimsTrailingJoiners() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Oz")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Dorothy Gale", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Winkie Country", category: .places)
+        _ = try controller.addStoryBibleEntry(named: "Glinda", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Tin Man", category: .people)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Dorothy Gale was in Winkie Country and slapped Glinda. The tin man watched."
+        )
+        controller.flushPendingChanges()
+
+        XCTAssertEqual(
+            Set(scene.mentions.map(\.semanticEntity.canonicalName)),
+            ["Dorothy Gale", "Glinda", "Tin Man", "Winkie Country"]
+        )
+        XCTAssertFalse(project.semanticEntities.contains { $0.canonicalName == "Winkie Country and" })
+        XCTAssertEqual(project.semanticEntities.filter { $0.canonicalName == "Dorothy Gale" }.count, 1)
+        XCTAssertEqual(project.semanticEntities.filter { $0.canonicalName == "Tin Man" }.count, 1)
+    }
+
     func testFlushPendingChangesRefreshesSceneLinksForAllEditedScenes() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")

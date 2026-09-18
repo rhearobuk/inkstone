@@ -124,7 +124,7 @@ extension WorkspaceController {
     }
 
     public func isMurderBoardDocument(_ document: Document) -> Bool {
-        document.parent == nil && document.sectionTypeIdentifier == murderBoardSectionTypeIdentifier
+        document.sectionTypeIdentifier == murderBoardSectionTypeIdentifier
     }
 
     @discardableResult
@@ -379,14 +379,23 @@ extension WorkspaceController {
     }
 
     private func murderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
-        let mentionedEntityIDs = Set(project.semanticEntities.compactMap { entity in
-            entity.mentions.contains { mention in
-                !mention.document.isDeleted &&
-                    !isDocumentTrashed(mention.document) &&
-                    mention.document.narrativeType == NarrativeType.scene.rawValue &&
-                    mention.source.hasPrefix("storyBible.entityReference.") &&
-                    murderBoardContains(mention.document, in: book)
-            } ? entity.id : nil
+        let sceneDocumentIDs = Set(project.documents.compactMap { document in
+            guard !document.isDeleted,
+                  !isDocumentTrashed(document),
+                  document.narrativeType == NarrativeType.scene.rawValue,
+                  murderBoardContains(document, in: book) else {
+                return nil
+            }
+            return document.id
+        })
+        let mentionedEntityIDs = Set(project.semanticEntities.flatMap { entity in
+            entity.mentions.compactMap { mention in
+                guard sceneDocumentIDs.contains(mention.document.id),
+                      mention.source.hasPrefix("storyBible.entityReference.") else {
+                    return nil
+                }
+                return entity.id
+            }
         })
         let relationshipEntityIDs = Set(uniqueRelationships(in: project).flatMap { relationship in
             let endpointIDs = [relationship.sourceEntity.id, relationship.targetEntity.id]
@@ -750,6 +759,8 @@ struct MurderBoardView: View {
                                 .background(.thinMaterial, in: Capsule())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(edge.relationship.kind)
+                        .accessibilityValue("\(edge.relationship.sourceEntity.canonicalName) to \(edge.relationship.targetEntity.canonicalName)")
                         .position(screenPoint(for: edge.labelPosition, in: size))
                     }
                 }
