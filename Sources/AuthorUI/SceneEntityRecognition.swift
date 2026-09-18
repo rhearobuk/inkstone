@@ -139,8 +139,9 @@ struct SceneEntityRecognitionService {
                 let matches = try await recognitionClient.recognizeMentions(in: request)
                 for match in matches {
                     guard let entity = entityLookup[match.entityID],
-                          let candidate = nextAvailableMatch(
+                          let candidate = exactOccurrenceMatch(
                             for: match.surfaceText,
+                            occurrence: match.occurrence,
                             in: nsText,
                             occupiedRanges: &occupiedRanges
                           ) else {
@@ -199,33 +200,41 @@ struct SceneEntityRecognitionService {
         }
     }
 
-    private func nextAvailableMatch(
+    private func exactOccurrenceMatch(
         for surfaceText: String,
+        occurrence: Int,
         in text: NSString,
         occupiedRanges: inout [NSRange]
     ) -> CandidateMatch? {
         let normalizedSurfaceText = surfaceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSurfaceText.isEmpty else { return nil }
+        guard !normalizedSurfaceText.isEmpty, occurrence > 0 else { return nil }
+        let matches = literalRanges(of: normalizedSurfaceText, in: text)
+        guard occurrence <= matches.count else { return nil }
+        let range = matches[occurrence - 1]
+        guard !occupiedRanges.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { return nil }
+        occupiedRanges.append(range)
+        return CandidateMatch(
+            text: text.substring(with: range),
+            range: range,
+            context: mentionContext(in: text, range: range)
+        )
+    }
+
+    private func literalRanges(of phrase: String, in text: NSString) -> [NSRange] {
+        var ranges: [NSRange] = []
         var searchStart = 0
         while searchStart < text.length {
             let searchRange = NSRange(location: searchStart, length: text.length - searchStart)
             let foundRange = text.range(
-                of: normalizedSurfaceText,
+                of: phrase,
                 options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
                 range: searchRange
             )
-            guard foundRange.location != NSNotFound else { return nil }
-            if !occupiedRanges.contains(where: { NSIntersectionRange($0, foundRange).length > 0 }) {
-                occupiedRanges.append(foundRange)
-                return CandidateMatch(
-                    text: text.substring(with: foundRange),
-                    range: foundRange,
-                    context: mentionContext(in: text, range: foundRange)
-                )
-            }
+            guard foundRange.location != NSNotFound else { break }
+            ranges.append(foundRange)
             searchStart = foundRange.location + max(1, foundRange.length)
         }
-        return nil
+        return ranges
     }
 
     private func mentionContext(in text: NSString, range: NSRange) -> String {

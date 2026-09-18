@@ -564,6 +564,29 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(scene.mentions.map(\.semanticEntity.canonicalName), ["Tin Man"])
     }
 
+    func testSceneRecognitionLinksMentionsAcrossCandidateBatches() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Batches")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        for index in 1...30 {
+            _ = try controller.addStoryBibleEntry(named: String(format: "Citizen %02d", index), category: .people)
+        }
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Citizen 27 met Citizen 30 at dusk."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(
+            Set(scene.mentions.map(\.semanticEntity.canonicalName)),
+            ["Citizen 27", "Citizen 30"]
+        )
+    }
+
     func testDeletingCharacterRemovesItsProfileEntityAndImportedSourceEntry() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
@@ -1609,12 +1632,13 @@ private struct TestStoryBibleRecognitionClient: StoryBibleEntityRecognitionClien
 
         for candidate in request.candidates {
             for phrase in candidatePhrases(for: candidate) {
-                for range in literalRanges(of: phrase, in: text) {
+                for (index, range) in literalRanges(of: phrase, in: text).enumerated() {
                     matches.append((
                         range: range,
                         match: StoryBibleRecognitionMatch(
                             entityID: candidate.id,
-                            surfaceText: text.substring(with: range)
+                            surfaceText: text.substring(with: range),
+                            occurrence: index + 1
                         )
                     ))
                 }

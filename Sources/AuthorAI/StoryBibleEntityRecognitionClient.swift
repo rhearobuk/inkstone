@@ -7,6 +7,7 @@ import FoundationModels
 private struct AppleStoryBibleRecognitionMatch {
     var entityID: String
     var surfaceText: String
+    var occurrence: Int
 }
 
 @available(macOS 26, iOS 26, visionOS 26, *)
@@ -45,10 +46,12 @@ public struct StoryBibleRecognitionRequest: Sendable, Equatable {
 public struct StoryBibleRecognitionMatch: Sendable, Equatable {
     public let entityID: String
     public let surfaceText: String
+    public let occurrence: Int
 
-    public init(entityID: String, surfaceText: String) {
+    public init(entityID: String, surfaceText: String, occurrence: Int) {
         self.entityID = entityID
         self.surfaceText = surfaceText
+        self.occurrence = occurrence
     }
 }
 
@@ -64,6 +67,7 @@ private enum StoryBibleRecognitionPromptBuilder {
     For every match:
     - entityID must exactly match one supplied candidate id.
     - surfaceText must be an exact contiguous quote from the scene text as written there.
+    - occurrence must be the 1-based occurrence number of that exact surfaceText in the scene text.
     - If the scene does not mention a candidate, omit it.
     - If unsure, omit it.
     - If an entity appears multiple times, return multiple matches.
@@ -113,7 +117,7 @@ public struct AppleIntelligenceStoryBibleRecognitionClient: StoryBibleEntityReco
                 )
                 try Task.checkCancellation()
                 return response.content.matches.map {
-                    StoryBibleRecognitionMatch(entityID: $0.entityID, surfaceText: $0.surfaceText)
+                    StoryBibleRecognitionMatch(entityID: $0.entityID, surfaceText: $0.surfaceText, occurrence: $0.occurrence)
                 }
             } catch let error as LanguageModelSession.GenerationError {
                 switch error {

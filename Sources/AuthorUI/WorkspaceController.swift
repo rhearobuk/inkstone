@@ -1683,9 +1683,16 @@ public final class WorkspaceController: ObservableObject {
             .union(pendingSceneRecognitionTasks.keys)
             .union(activeSceneRecognitionDocumentIDs)
         self.pendingDocumentSaveIDs.removeAll()
+        var cancelledRecognitionTasks: [Task<Void, Never>] = []
         for documentID in pendingDocumentSaveIDs {
-            pendingSceneRecognitionTasks[documentID]?.cancel()
+            if let task = pendingSceneRecognitionTasks[documentID] {
+                task.cancel()
+                cancelledRecognitionTasks.append(task)
+            }
             pendingSceneRecognitionTasks[documentID] = nil
+        }
+        for task in cancelledRecognitionTasks {
+            await task.value
         }
         do {
             try store.save()
