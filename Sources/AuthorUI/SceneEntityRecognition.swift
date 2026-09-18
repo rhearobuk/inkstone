@@ -95,6 +95,7 @@ struct SceneEntityRecognitionService {
         let grouped = Dictionary(grouping: entity.mentions.filter {
             $0.document.narrativeType == NarrativeType.scene.rawValue
                 && !$0.document.isDeleted
+                && $0.document.project.id == entity.project.id
                 && !excludingDocumentIDs.contains($0.document.id)
                 && $0.source.hasPrefix(Self.mentionSourcePrefix)
         }, by: { $0.document.id })

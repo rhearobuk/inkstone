@@ -243,13 +243,17 @@ extension WorkspaceController {
                 (includedEntityIDs?.contains(entity.id) ?? true) &&
                 (bookScopedEntityIDs?.contains(entity.id) ?? true)
         }
+        let baseVisibleEntityIDs = Set(entities.map(\.id))
 
         let allRelationships = uniqueRelationships(in: project)
         let availableRelationshipKinds = Array(Set(allRelationships.map(\.kind))).sorted()
         let hiddenRelationshipKinds = Set(state.hiddenRelationshipKinds)
         var relationships = allRelationships.filter { relationship in
-            !hiddenRelationshipKinds.contains(relationship.kind)
+            !hiddenRelationshipKinds.contains(relationship.kind) &&
+                baseVisibleEntityIDs.contains(relationship.sourceEntity.id) &&
+                baseVisibleEntityIDs.contains(relationship.targetEntity.id)
         }
+        let globallyConnectedEntityIDs = Set(relationships.flatMap { [$0.sourceEntity.id, $0.targetEntity.id] })
         let scopedEntityIDs: Set<UUID>?
 
         if let selectedEntityID = state.selectedEntityID,
@@ -264,16 +268,19 @@ extension WorkspaceController {
             scopedEntityIDs = nil
         }
 
-        let visibleEntityIDs = scopedEntityIDs ?? Set(entities.map(\.id))
-        relationships = relationships.filter {
-            visibleEntityIDs.contains($0.sourceEntity.id) && visibleEntityIDs.contains($0.targetEntity.id)
-        }
-
-        if !state.includeDisconnectedEntities {
-            let connectedIDs = Set(relationships.flatMap { [$0.sourceEntity.id, $0.targetEntity.id] })
+        if let scopedEntityIDs {
+            relationships = relationships.filter {
+                scopedEntityIDs.contains($0.sourceEntity.id) && scopedEntityIDs.contains($0.targetEntity.id)
+            }
+            let disconnectedEntityIDs = baseVisibleEntityIDs.subtracting(globallyConnectedEntityIDs)
+            let visibleEntityIDs = state.includeDisconnectedEntities
+                ? scopedEntityIDs.union(disconnectedEntityIDs)
+                : scopedEntityIDs
+            entities = entities.filter { visibleEntityIDs.contains($0.id) }
+        } else if !state.includeDisconnectedEntities {
+            let connectedIDs = globallyConnectedEntityIDs
                 .union(state.selectedEntityID.map { [$0] } ?? [])
-            let allowedConnectedIDs = connectedIDs.intersection(visibleEntityIDs)
-            entities = entities.filter { allowedConnectedIDs.contains($0.id) }
+            entities = entities.filter { connectedIDs.contains($0.id) }
         }
 
         var isTruncated = false
