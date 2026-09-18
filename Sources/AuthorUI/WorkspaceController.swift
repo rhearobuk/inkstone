@@ -1685,7 +1685,9 @@ public final class WorkspaceController: ObservableObject {
         let pendingDocumentSaveIDs = pendingSaveIDs
             .union(queuedRecognitionIDs)
             .union(activeRecognitionIDs)
-        let recognitionRefreshIDs = pendingSaveIDs.union(queuedRecognitionIDs)
+        let recognitionRefreshIDs = pendingSaveIDs
+            .union(queuedRecognitionIDs)
+            .union(activeRecognitionIDs)
         self.pendingDocumentSaveIDs.removeAll()
         var cancelledRecognitionTasks: [Task<Void, Never>] = []
         for documentID in pendingDocumentSaveIDs {
@@ -2381,7 +2383,6 @@ public final class WorkspaceController: ObservableObject {
             .filter {
                 !$0.isDeleted &&
                     !isDocumentTrashed($0) &&
-                    $0.parent == nil &&
                     $0.sectionTypeIdentifier == murderBoardSectionTypeIdentifier
             }
             .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
