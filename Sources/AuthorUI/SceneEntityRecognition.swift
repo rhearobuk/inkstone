@@ -46,7 +46,7 @@ struct SceneEntityRecognitionService {
             return
         }
 
-        let entities = document.project.semanticEntities.filter { !$0.isDeleted }
+        let entities = Array(document.project.semanticEntities.filter { !$0.isDeleted })
         let matches = try await resolveMentions(in: text, entities: entities)
 
         removeRecognizedMentions(from: document)
@@ -55,7 +55,7 @@ struct SceneEntityRecognitionService {
         }
 
         let refreshTime = Date()
-        document.project.modifiedAt = max(document.project.modifiedAt ?? refreshTime, refreshTime)
+        document.project.modifiedAt = max(document.project.modifiedAt, refreshTime)
         if saveChanges {
             try store.save()
         }

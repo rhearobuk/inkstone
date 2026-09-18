@@ -111,10 +111,10 @@ struct EditorPanelView: View {
                     .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .onChange(of: editor.selectedReviewID) { _ in
+                .onChange(of: editor.selectedReviewID) {
                     withAnimation { reader.scrollTo("conversation-top", anchor: .top) }
                 }
-                .onChange(of: editor.isRunning) { running in
+                .onChange(of: editor.isRunning) { _, running in
                     if !running { withAnimation { reader.scrollTo("conversation-top", anchor: .top) } }
                 }
             }
@@ -125,11 +125,11 @@ struct EditorPanelView: View {
             if !didLoadDefaults { provider = settings.selectedProvider; didLoadDefaults = true }
             resetSelection()
         }
-        .onChange(of: settings.selectedProvider) { value in if !editor.isRunning { provider = value } }
-        .onChange(of: workspace.selectedProjectID) { _ in
+        .onChange(of: settings.selectedProvider) { _, value in if !editor.isRunning { provider = value } }
+        .onChange(of: workspace.selectedProjectID) {
             rootID = nil; contextID = nil; previousID = nil; resetSelection()
         }
-        .onChange(of: workspace.selectedDocument?.id) { id in
+        .onChange(of: workspace.selectedDocument?.id) { _, id in
             if !editor.isRunning && scope == .document { rootID = id; previousID = nil }
         }
         .sheet(isPresented: $showingPersonas) { EditorPersonaSettingsView(editor: editor) }
@@ -475,7 +475,7 @@ private struct EditorPersonaSettingsView: View {
             Picker("Start from", selection: $selected) {
                 Text("New persona").tag(UUID?.none)
                 ForEach(editor.personas, id: \.id) { Text($0.name).tag(Optional($0.id)) }
-            }.onChange(of: selected) { id in
+            }.onChange(of: selected) { _, id in
                 let p = editor.personas.first { $0.id == id }; name = p?.name ?? ""; instructions = p?.instructions ?? ""
             }
             TextField("Name", text: $name)
