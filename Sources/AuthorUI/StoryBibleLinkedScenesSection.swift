@@ -52,6 +52,7 @@ struct StoryBibleLinkedScenesSection: View {
 
     private func accessibilityValue(for scene: SceneEntityLinkSummary) -> String {
         let matchedText = scene.matchedTexts.isEmpty ? "" : ". Mentions: \(scene.matchedTexts.joined(separator: ", "))"
-        return "\(scene.mentionCount) mentions\(matchedText)"
+        let mentionLabel = scene.mentionCount == 1 ? "mention" : "mentions"
+        return "\(scene.mentionCount) \(mentionLabel)\(matchedText)"
     }
 }

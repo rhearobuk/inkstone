@@ -38,6 +38,10 @@ struct SceneEntityRecognitionService {
         "Gem", "Journal", "Key", "Letter", "Map", "Medallion", "Orb", "Ring", "Scroll",
         "Ship", "Siege", "Storm", "Sword", "Treaty", "Trial", "War"
     ])
+    private static let characterTitleKeywords = Set([
+        "Beast", "Boy", "Girl", "King", "Knight", "Lady", "Lion", "Man", "Prince",
+        "Princess", "Queen", "Scarecrow", "Sir", "Tin", "Warrior", "Witch", "Wizard", "Woman", "Woodman"
+    ])
 
     let store: AuthorDataStore
 
@@ -258,8 +262,8 @@ struct SceneEntityRecognitionService {
 
     private func existingEntityRegex(for value: String, entity: SemanticEntity) -> NSRegularExpression? {
         let escaped = NSRegularExpression.escapedPattern(for: value)
-        let allowsLeadingArticle = entity.kind == SemanticEntityKind.character.rawValue ||
-            supportsLeadingArticleVariant(for: value, kindHint: entity.kind)
+        let allowsLeadingArticle = supportsLeadingArticleVariant(for: value, kindHint: entity.kind) ||
+            supportsCharacterLeadingArticleVariant(for: value, kindHint: entity.kind)
         let pattern = allowsLeadingArticle
             ? #"\b(?:(?:[Tt]he)\s+)?"# + escaped + #"\b"#
             : #"\b"# + escaped + #"\b"#
@@ -305,6 +309,13 @@ struct SceneEntityRecognitionService {
         }
         let words = value.split(separator: " ").map(String.init)
         return words.contains(where: { Self.organizationKeywords.contains($0) })
+    }
+
+    private func supportsCharacterLeadingArticleVariant(for value: String, kindHint: String?) -> Bool {
+        guard kindHint == SemanticEntityKind.character.rawValue else { return false }
+        let words = value.split(separator: " ").map(String.init)
+        guard words.count >= 2 else { return false }
+        return words.contains(where: { Self.characterTitleKeywords.contains($0) })
     }
 
     private func isLikelyCharacterName(_ words: [String]) -> Bool {

@@ -287,7 +287,11 @@ extension WorkspaceController {
         if state.connectedDepth == .allVisible,
            state.selectedBookID == nil,
            entities.count > murderBoardMaximumVisibleNodes {
-            let prioritizedIDs = uniqueEntityIDs(from: relationships)
+            var prioritizedIDs = uniqueEntityIDs(from: relationships)
+            if let selectedEntityID = state.selectedEntityID {
+                prioritizedIDs.removeAll { $0 == selectedEntityID }
+                prioritizedIDs.insert(selectedEntityID, at: 0)
+            }
             let remainingIDs = entities.map(\.id).filter { !prioritizedIDs.contains($0) }
             let keptIDs = Array((prioritizedIDs + remainingIDs).prefix(murderBoardMaximumVisibleNodes))
             let keptIDSet = Set(keptIDs)
