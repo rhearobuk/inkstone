@@ -1699,7 +1699,7 @@ public final class WorkspaceController: ObservableObject {
         }
     }
 
-    func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
+    public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
         let excludedDocumentIDs = Set(entity.project.documents.filter { isDocumentTrashed($0) }.map(\.id))
         return SceneEntityRecognitionService(store: store)
             .linkedScenes(for: entity, excludingDocumentIDs: excludedDocumentIDs)

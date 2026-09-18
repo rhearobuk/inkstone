@@ -208,10 +208,11 @@ extension WorkspaceController {
     public func saveMurderBoardState(_ state: MurderBoardState, for board: Document) {
         guard isMurderBoardDocument(board) else { return }
         let encoded = encodeMurderBoardState(state)
-        guard board.plainText != encoded else { return }
-        board.plainText = encoded
-        board.modifiedAt = Date()
-        board.project.modifiedAt = board.modifiedAt ?? Date()
+        if board.plainText != encoded {
+            board.plainText = encoded
+            board.modifiedAt = Date()
+            board.project.modifiedAt = board.modifiedAt ?? Date()
+        }
         do {
             try store.save()
             objectWillChange.send()
@@ -1023,11 +1024,11 @@ struct MurderBoardView: View {
         let snapshot = state
         let boardID = board.id
         pendingSaveTask = Task { @MainActor in
+            defer { pendingSaveTask = nil }
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             guard let persistedBoard = try? controller.store.documents.fetch(id: boardID) else { return }
             controller.saveMurderBoardState(snapshot, for: persistedBoard)
-            pendingSaveTask = nil
         }
     }
 
