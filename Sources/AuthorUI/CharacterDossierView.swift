@@ -204,6 +204,7 @@ struct CharacterDossierView: View {
                     }
                 }
 
+                StoryBibleLinkedScenesSection(entity: profile.semanticEntity, controller: controller)
                 StoryBibleRelationshipsSection(entity: profile.semanticEntity, controller: controller)
 
                 Section("Conflicts") {

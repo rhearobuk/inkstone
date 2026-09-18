@@ -62,6 +62,7 @@ struct StoryBibleCardView: View {
                     Button("Add Note") { showsNewNote = true }
                 }
 
+                StoryBibleLinkedScenesSection(entity: card.semanticEntity, controller: controller)
                 StoryBibleRelationshipsSection(entity: card.semanticEntity, controller: controller)
             }
             .formStyle(.grouped)

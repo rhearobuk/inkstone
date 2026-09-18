@@ -289,6 +289,8 @@ public final class WorkspaceController: ObservableObject {
     private let projectListPreferences: UserDefaults
     private var pendingCharacterSave: Task<Void, Never>?
     private var pendingDocumentSave: Task<Void, Never>?
+    private var pendingDocumentSaveID: UUID?
+    private var pendingSceneRecognitionTasks: [UUID: Task<Void, Never>] = [:]
     private var labelLookup: [String: LabelDefinition] = [:]
     private var statusLookup: [String: StatusDefinition] = [:]
     private var sectionTypeLookup: [String: SectionTypeDefinition] = [:]
@@ -1540,7 +1542,7 @@ public final class WorkspaceController: ObservableObject {
         if !binderSearchText.isEmpty {
             rebuildBinder()
         }
-        scheduleDocumentSave(after: .seconds(3))
+        scheduleDocumentSave(after: .seconds(3), documentID: documentID)
     }
 
     public func updateDocumentRichText(documentID: UUID, rtfData: Data, plainText: String) {
@@ -1572,7 +1574,7 @@ public final class WorkspaceController: ObservableObject {
         if !binderSearchText.isEmpty {
             rebuildBinder()
         }
-        scheduleDocumentSave(after: .milliseconds(250))
+        scheduleDocumentSave(after: .milliseconds(250), documentID: documentID)
     }
 
     public func projectTextSearchResults(
@@ -1682,27 +1684,64 @@ public final class WorkspaceController: ObservableObject {
     public func flushPendingChanges() {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
+        let pendingDocumentSaveID = pendingDocumentSaveID
+        self.pendingDocumentSaveID = nil
         do {
             try store.save()
+            if let pendingDocumentSaveID {
+                refreshSceneEntityLinks(for: pendingDocumentSaveID)
+            }
         } catch {
             report(error)
         }
     }
 
-    private func scheduleDocumentSave(after delay: Duration) {
+    public func refreshSceneEntityLinks(for documentID: UUID) {
+        do {
+            try SceneEntityRecognitionService(store: store).refreshSceneLinks(for: documentID)
+            refresh()
+            lastError = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
+        SceneEntityRecognitionService(store: store)
+            .linkedScenes(for: entity)
+            .filter { summary in
+                guard let document = try? store.documents.require(id: summary.documentID) else { return false }
+                return !isDocumentTrashed(document)
+            }
+    }
+
+    private func scheduleDocumentSave(after delay: Duration, documentID: UUID) {
         pendingDocumentSave?.cancel()
+        pendingDocumentSaveID = documentID
         pendingDocumentSave = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: delay)
                 guard !Task.isCancelled, let self else { return }
                 self.pendingDocumentSave = nil
+                self.pendingDocumentSaveID = nil
                 try self.store.save()
+                self.scheduleSceneEntityRecognition(for: documentID)
                 self.lastError = nil
             } catch is CancellationError {
                 return
             } catch {
                 self?.report(error)
             }
+        }
+    }
+
+    private func scheduleSceneEntityRecognition(for documentID: UUID) {
+        pendingSceneRecognitionTasks[documentID]?.cancel()
+        pendingSceneRecognitionTasks[documentID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.pendingSceneRecognitionTasks[documentID] = nil }
+            guard !Task.isCancelled else { return }
+            self.refreshSceneEntityLinks(for: documentID)
         }
     }
 

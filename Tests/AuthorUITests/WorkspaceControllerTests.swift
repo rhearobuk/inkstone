@@ -303,6 +303,53 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.notes.first?.body, "It only opens at dawn.")
     }
 
+    func testSceneSaveAutoCreatesStoryBibleEntitiesAndMentions() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        controller.flushPendingChanges()
+
+        let entities = project.semanticEntities
+        XCTAssertEqual(Set(entities.map(\.canonicalName)), ["Mara Venn", "The Lantern Society", "Moon Gate"])
+        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.kind, SemanticEntityKind.character.rawValue)
+        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "The Lantern Society" }?.kind, SemanticEntityKind.organization.rawValue)
+        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Moon Gate" }?.kind, SemanticEntityKind.location.rawValue)
+        XCTAssertEqual(scene.mentions.count, 3)
+
+        controller.refreshSceneEntityLinks(for: scene.id)
+
+        XCTAssertEqual(project.semanticEntities.count, 3)
+        XCTAssertEqual(scene.mentions.count, 3)
+    }
+
+    func testLinkedScenesReturnsSceneBacklinksForStoryBibleEntry() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
+        )
+        controller.flushPendingChanges()
+
+        let entity = try XCTUnwrap(project.semanticEntities.first { $0.canonicalName == "Moon Gate" })
+        let linkedScenes = controller.linkedScenes(for: entity)
+
+        XCTAssertEqual(linkedScenes.map(\.documentTitle), [scene.title])
+        XCTAssertEqual(linkedScenes.first?.mentionCount, 1)
+        XCTAssertEqual(linkedScenes.first?.matchedTexts, ["Moon Gate"])
+    }
+
     func testDeletingCharacterRemovesItsProfileEntityAndImportedSourceEntry() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
