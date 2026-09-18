@@ -47,10 +47,13 @@ struct InkstoneApp: App {
                     .environmentObject(authorInformation)
                     .frame(minWidth: 900, minHeight: 600)
                     .onChange(of: scenePhase) { _, phase in
-                        if phase == .active {
-                            controller.refresh()
-                        } else {
-                            controller.flushPendingChanges()
+                        Task { @MainActor in
+                            await Task.yield()
+                            if phase == .active {
+                                controller.refresh()
+                            } else {
+                                controller.flushPendingChanges()
+                            }
                         }
                     }
             } else {

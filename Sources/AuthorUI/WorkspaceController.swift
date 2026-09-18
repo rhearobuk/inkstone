@@ -1709,15 +1709,14 @@ public final class WorkspaceController: ObservableObject {
         do {
             try SceneEntityRecognitionService(store: store).refreshSceneLinks(for: documentID)
             refresh()
-            lastError = nil
         } catch {
             report(error)
         }
     }
 
-    public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
+    func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
         let excludedDocumentIDs = Set(entity.project.documents.filter { isDocumentTrashed($0) }.map(\.id))
-        SceneEntityRecognitionService(store: store)
+        return SceneEntityRecognitionService(store: store)
             .linkedScenes(for: entity, excludingDocumentIDs: excludedDocumentIDs)
     }
 

@@ -142,7 +142,13 @@ public struct AuthorWorkspaceView: View {
                     .disabled(controller.selectedProject == nil)
 
                     Menu {
-                        Toggle("Show Hidden Items", isOn: $controller.showsHiddenDocuments)
+                        Toggle(
+                            "Show Hidden Items",
+                            isOn: deferredBinding(
+                                get: { controller.showsHiddenDocuments },
+                                set: { controller.showsHiddenDocuments = $0 }
+                            )
+                        )
                     } label: {
                         Label("View Options", systemImage: "eye")
                     }
@@ -364,6 +370,18 @@ public struct AuthorWorkspaceView: View {
         }
     }
 
+    private func deferredBinding(
+        get: @escaping @MainActor @Sendable () -> Bool,
+        set: @escaping @MainActor @Sendable (Bool) -> Void
+    ) -> Binding<Bool> {
+        Binding(get: get) { newValue in
+            Task { @MainActor in
+                await Task.yield()
+                set(newValue)
+            }
+        }
+    }
+
     private func editorIsInline(width: CGFloat) -> Bool {
         #if os(macOS)
         true
@@ -428,7 +446,13 @@ public struct AuthorWorkspaceView: View {
                     .font(.headline)
                 Spacer()
                 Menu {
-                    Toggle("Show Hidden Projects", isOn: $controller.showsHiddenProjects)
+                    Toggle(
+                        "Show Hidden Projects",
+                        isOn: deferredBinding(
+                            get: { controller.showsHiddenProjects },
+                            set: { controller.showsHiddenProjects = $0 }
+                        )
+                    )
                 } label: {
                     Label("Project View Options", systemImage: "eye")
                 }
