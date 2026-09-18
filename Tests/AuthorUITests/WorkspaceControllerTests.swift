@@ -397,6 +397,24 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.kind, SemanticEntityKind.character.rawValue)
     }
 
+    func testSceneSaveRecognizesInitialsAcronymsAndInternalCaps() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "R.J. met NASA beside McAllister Square."
+        )
+        controller.flushPendingChanges()
+
+        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "R.J." })
+        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "NASA" })
+        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "McAllister Square" })
+    }
+
     func testFlushPendingChangesRefreshesSceneLinksForAllEditedScenes() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")

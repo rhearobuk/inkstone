@@ -13,8 +13,10 @@ struct SceneEntityLinkSummary: Identifiable, Equatable {
 @MainActor
 struct SceneEntityRecognitionService {
     private static let mentionSourcePrefix = "storyBible.entityReference."
+    private static let candidateTokenPattern =
+        #"(?:Mc[A-Z][a-z]+|[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?|[A-Z]{2,}|(?:[A-Z]\.){2,})"#
     private static let candidateRegex = try? NSRegularExpression(
-        pattern: #"\b(?:(?:[Tt]he)\s+)?(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?)(?:\s+(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?|of|the|and))*"#
+        pattern: #"\b(?:(?:[Tt]he)\s+)?"# + candidateTokenPattern + #"(?:\s+(?:"# + candidateTokenPattern + #"|of|the|and))*"#
     )
     private static let ignoredSingleWordMatches = Set([
         "A", "An", "And", "But", "For", "He", "Her", "His", "I", "It", "Its", "Mr", "Mrs",
@@ -220,7 +222,7 @@ struct SceneEntityRecognitionService {
         if words.contains(where: { Self.locationKeywords.contains($0) }) {
             return .location
         }
-        if words.contains(where: { Self.organizationKeywords.contains($0) }) || normalized(name).hasPrefix("the ") {
+        if words.contains(where: { Self.organizationKeywords.contains($0) }) {
             return .organization
         }
         if isLikelyCharacterName(words) {
@@ -242,7 +244,7 @@ struct SceneEntityRecognitionService {
         if normalizedValue.hasPrefix("the ") {
             return [normalizedValue, String(normalizedValue.dropFirst(4))]
         }
-        return [normalizedValue, "the \(normalizedValue)"]
+        return [normalizedValue]
     }
 
     private func isLikelyCharacterName(_ words: [String]) -> Bool {
