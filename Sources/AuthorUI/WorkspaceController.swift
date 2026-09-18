@@ -1695,6 +1695,7 @@ public final class WorkspaceController: ObservableObject {
             for documentID in pendingDocumentSaveIDs {
                 refreshSceneEntityLinks(for: documentID)
             }
+            try store.save()
         } catch {
             report(error)
         }

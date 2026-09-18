@@ -32,8 +32,7 @@ struct StoryBibleLinkedScenesSection: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(scene.documentTitle)
-                    .accessibilityValue("\(scene.mentionCount) mentions")
+                    .accessibilityLabel(accessibilityDescription(for: scene))
                 }
             }
         }
@@ -41,5 +40,10 @@ struct StoryBibleLinkedScenesSection: View {
 
     private var linkedScenes: [SceneEntityLinkSummary] {
         controller.linkedScenes(for: entity)
+    }
+
+    private func accessibilityDescription(for scene: SceneEntityLinkSummary) -> String {
+        let matchedText = scene.matchedTexts.isEmpty ? "" : ". Mentions: \(scene.matchedTexts.joined(separator: ", "))"
+        return "\(scene.documentTitle). \(scene.mentionCount) mentions\(matchedText)"
     }
 }

@@ -170,7 +170,6 @@ struct SceneEntityRecognitionService {
             }
         }
         project.modifiedAt = now
-        try store.save()
         return entity
     }
 
