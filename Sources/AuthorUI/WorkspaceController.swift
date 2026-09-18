@@ -1716,13 +1716,14 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func startPendingDocumentSave(after delay: Duration) {
+        guard pendingDocumentSave == nil else { return }
         pendingDocumentSave = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: delay)
                 guard !Task.isCancelled, let self else { return }
                 let pendingDocumentSaveIDs = self.pendingDocumentSaveIDs
-                try self.store.save()
                 self.pendingDocumentSave = nil
+                try self.store.save()
                 self.pendingDocumentSaveIDs.subtract(pendingDocumentSaveIDs)
                 for documentID in pendingDocumentSaveIDs {
                     self.scheduleSceneEntityRecognition(for: documentID)

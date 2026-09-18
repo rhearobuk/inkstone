@@ -23,6 +23,7 @@ public struct AuthorWorkspaceView: View {
     @State private var showsNewStoryBibleEntry = false
     @State private var storyBibleEntryName = ""
     @State private var storyBibleEntryCategory: StoryBibleCategory?
+    @State private var deferredBindingTask: Task<Void, Never>?
     @FocusState private var isBinderFindFocused: Bool
 
     public init(controller: WorkspaceController, editorInitiallyVisible: Bool = false) {
@@ -375,8 +376,11 @@ public struct AuthorWorkspaceView: View {
         set: @escaping @MainActor @Sendable (Bool) -> Void
     ) -> Binding<Bool> {
         Binding(get: get) { newValue in
-            Task { @MainActor in
+            deferredBindingTask?.cancel()
+            deferredBindingTask = Task { @MainActor in
+                defer { deferredBindingTask = nil }
                 await Task.yield()
+                guard !Task.isCancelled else { return }
                 set(newValue)
             }
         }

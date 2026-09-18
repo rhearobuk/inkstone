@@ -12,30 +12,58 @@ struct StoryBibleLinkedScenesSection: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(linkedScenes) { scene in
-                    Button {
-                        controller.openDocument(scene.documentID)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(scene.documentTitle)
-                                Spacer()
-                                Text("\(scene.mentionCount)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                    Group {
+                        if let hint = accessibilityHint(for: scene) {
+                            Button {
+                                controller.openDocument(scene.documentID)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(scene.documentTitle)
+                                        Spacer()
+                                        Text("\(scene.mentionCount)")
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if !scene.matchedTexts.isEmpty {
+                                        Text(scene.matchedTexts.joined(separator: ", "))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
-                            if !scene.matchedTexts.isEmpty {
-                                Text(scene.matchedTexts.joined(separator: ", "))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            .buttonStyle(.plain)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel(scene.documentTitle)
+                            .accessibilityValue("\(scene.mentionCount) mentions")
+                            .accessibilityHint(hint)
+                            .accessibilityAddTraits(.isButton)
+                        } else {
+                            Button {
+                                controller.openDocument(scene.documentID)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(scene.documentTitle)
+                                        Spacer()
+                                        Text("\(scene.mentionCount)")
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if !scene.matchedTexts.isEmpty {
+                                        Text(scene.matchedTexts.joined(separator: ", "))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel(scene.documentTitle)
+                            .accessibilityValue("\(scene.mentionCount) mentions")
+                            .accessibilityAddTraits(.isButton)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(scene.documentTitle)
-                    .accessibilityValue("\(scene.mentionCount) mentions")
-                    .accessibilityHint(scene.matchedTexts.isEmpty ? "" : "Mentions: \(scene.matchedTexts.joined(separator: ", "))")
-                    .accessibilityAddTraits(.isButton)
                 }
             }
         }
@@ -43,5 +71,10 @@ struct StoryBibleLinkedScenesSection: View {
 
     private var linkedScenes: [SceneEntityLinkSummary] {
         controller.linkedScenes(for: entity)
+    }
+
+    private func accessibilityHint(for scene: SceneEntityLinkSummary) -> String? {
+        guard !scene.matchedTexts.isEmpty else { return nil }
+        return "Mentions: \(scene.matchedTexts.joined(separator: ", "))"
     }
 }
