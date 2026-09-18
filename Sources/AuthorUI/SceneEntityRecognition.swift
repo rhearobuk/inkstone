@@ -1,3 +1,4 @@
+import AuthorAI
 import AuthorData
 import Foundation
 
@@ -13,37 +14,22 @@ struct SceneEntityLinkSummary: Identifiable, Equatable {
 @MainActor
 struct SceneEntityRecognitionService {
     private static let mentionSourcePrefix = "storyBible.entityReference."
-    private static let candidateTokenPattern =
-        #"(?:Mc[A-Z][a-z]+|[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?|[A-Z]{2,}|(?:[A-Z]\.){2,})"#
-    private static let candidateRegex = try? NSRegularExpression(
-        pattern: #"\b(?:(?:[Tt]he)\s+)?"# + candidateTokenPattern + #"(?:\s+(?:"# + candidateTokenPattern + #"|of|the|and))*"#
-    )
-    private static let ignoredSingleWordMatches = Set([
-        "A", "An", "And", "But", "For", "He", "Her", "His", "I", "It", "Its", "Mr", "Mrs",
-        "Ms", "No", "Nor", "Or", "She", "So", "That", "The", "Their", "There", "They", "We",
-        "You"
-    ])
-    private static let locationKeywords = Set([
-        "Abbey", "Bay", "Bridge", "Castle", "City", "Garden", "Gate", "Harbor",
-        "Harbour", "Hill", "Inn", "Island", "Keep", "Lake", "Manor", "Market",
-        "Mountain", "Palace", "Park", "Port", "River", "Road", "Square", "Street", "Temple",
-        "Tower", "Valley", "Village", "Wood"
-    ])
-    private static let organizationKeywords = Set([
-        "Agency", "Alliance", "Brotherhood", "Circle", "Collective", "Company", "Council",
-        "Court", "Family", "Guild", "House", "Legion", "Network", "Order", "Society", "Union"
-    ])
-    private static let nonCharacterKeywords = Set([
-        "Amulet", "Battle", "Blade", "Book", "Case", "Crown", "Cup", "Dagger", "Festival",
-        "Gem", "Journal", "Key", "Letter", "Map", "Medallion", "Orb", "Ring", "Scroll",
-        "Ship", "Siege", "Storm", "Sword", "Treaty", "Trial", "War"
-    ])
-    private static let characterTitleKeywords = Set([
-        "Beast", "Boy", "Girl", "King", "Knight", "Lady", "Lion", "Man", "Prince",
-        "Princess", "Queen", "Scarecrow", "Sir", "Tin", "Warrior", "Witch", "Wizard", "Woman", "Woodman"
-    ])
+    private static let supportedPassKinds: [SemanticEntityKind] = [
+        .character, .organization, .location, .object, .event, .concept, .theme, .other
+    ]
+    private static let candidateBatchSize = 24
+    private static let aliasesPerCandidate = 4
 
     let store: AuthorDataStore
+    let recognitionClient: any StoryBibleEntityRecognitionClient
+
+    init(
+        store: AuthorDataStore,
+        recognitionClient: any StoryBibleEntityRecognitionClient = AppleIntelligenceStoryBibleRecognitionClient()
+    ) {
+        self.store = store
+        self.recognitionClient = recognitionClient
+    }
 
     func refreshSceneLinks(for documentID: UUID, saveChanges: Bool = true) throws {
         guard let document = try store.documents.fetch(id: documentID),
@@ -51,46 +37,26 @@ struct SceneEntityRecognitionService {
             return
         }
 
-        removeRecognizedMentions(from: document)
         guard let text = document.plainText?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
+            removeRecognizedMentions(from: document)
             if saveChanges {
                 try store.save()
             }
             return
         }
 
-        let existingEntities = document.project.semanticEntities
-        var entitiesByNormalizedName: [String: SemanticEntity] = [:]
-        for entity in existingEntities {
-            index(entity, in: &entitiesByNormalizedName)
+        let entities = document.project.semanticEntities.filter { !$0.isDeleted }
+        let matches: [ResolvedCandidateMatch]
+        do {
+            matches = try resolveMentions(in: text, entities: entities)
+        } catch {
+            return
         }
 
-        let resolvedMatches = existingEntityMatches(in: text, entities: existingEntities)
-        let occupiedRanges = resolvedMatches.map(\.candidate.range)
-
-        for resolved in resolvedMatches {
-            createMention(resolved.candidate, source: Self.mentionSourcePrefix + "exactMatch", entity: resolved.entity, document: document)
-        }
-
-        for candidate in candidateMatches(in: text, excluding: occupiedRanges) {
-            let lookupKeys = normalizedLookupKeys(for: candidate.text)
-            guard !lookupKeys.isEmpty else { continue }
-            let entity: SemanticEntity
-            let source: String
-            if let existing = lookupKeys.lazy.compactMap({ entitiesByNormalizedName[$0] }).first {
-                entity = existing
-                source = Self.mentionSourcePrefix + "exactMatch"
-            } else {
-                entity = try createEntity(
-                    named: candidate.text,
-                    in: document.project,
-                    kind: inferredKind(for: candidate.text)
-                )
-                source = Self.mentionSourcePrefix + "autoCreated"
-            }
-            index(entity, in: &entitiesByNormalizedName)
-            createMention(candidate, source: source, entity: entity, document: document)
+        removeRecognizedMentions(from: document)
+        for match in matches {
+            createMention(match.candidate, source: Self.mentionSourcePrefix + "appleIntelligence", entity: match.entity, document: document)
         }
 
         if let documentModifiedAt = document.modifiedAt {
@@ -148,62 +114,141 @@ struct SceneEntityRecognitionService {
             $0.surfaceText = candidate.text
             $0.context = candidate.context
             $0.source = source
-            $0.confidence = NSNumber(value: source.hasSuffix("autoCreated") ? 0.75 : 0.95)
+            $0.confidence = NSNumber(value: 0.95)
             $0.document = document
             $0.semanticEntity = entity
         }
     }
 
-    private func createEntity(
-        named name: String,
-        in project: WritingProject,
-        kind: SemanticEntityKind
-    ) throws -> SemanticEntity {
-        createStoryBibleEntity(
-            in: store,
-            project: project,
-            name: name,
-            kind: kind,
-            source: .automation
-        ).entity
-    }
-
-    private func index(_ entity: SemanticEntity, in lookup: inout [String: SemanticEntity]) {
-        for key in normalizedLookupKeys(for: entity.canonicalName, kindHint: entity.kind) where lookup[key] == nil {
-            lookup[key] = entity
-        }
-        for alias in entity.aliases {
-            for key in normalizedLookupKeys(for: alias.name) where lookup[key] == nil {
-                lookup[key] = entity
-            }
-        }
-    }
-
-    private func candidateMatches(in text: String, excluding occupiedRanges: [NSRange] = []) -> [CandidateMatch] {
-        guard let regex = Self.candidateRegex else { return [] }
+    private func resolveMentions(in text: String, entities: [SemanticEntity]) throws -> [ResolvedCandidateMatch] {
         let nsText = text as NSString
-        var seen = Set<String>()
-        return regex.matches(in: text, range: NSRange(location: 0, length: nsText.length)).compactMap { match in
-            guard !occupiedRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
-                  let candidate = cleanedCandidateMatch(in: nsText, range: match.range),
-                  isUsefulCandidate(candidate.text) else {
-                return nil
+        let entityLookup = Dictionary(uniqueKeysWithValues: entities.map { ($0.id.uuidString, $0) })
+        var occupiedRanges: [NSRange] = []
+        var resolved: [ResolvedCandidateMatch] = []
+
+        for kind in Self.supportedPassKinds {
+            let candidates = recognitionCandidates(in: entities, kind: kind)
+            guard !candidates.isEmpty else { continue }
+
+            var start = 0
+            while start < candidates.count {
+                let end = min(start + Self.candidateBatchSize, candidates.count)
+                let batch = Array(candidates[start..<end])
+                start = end
+
+                let request = StoryBibleRecognitionRequest(
+                    sceneText: text,
+                    passLabel: recognitionPassLabel(for: kind),
+                    candidates: batch
+                )
+                let matches = try waitForRecognition(request)
+                for match in matches {
+                    guard let entity = entityLookup[match.entityID],
+                          let candidate = nextAvailableMatch(
+                            for: match.surfaceText,
+                            in: nsText,
+                            occupiedRanges: &occupiedRanges
+                          ) else {
+                        continue
+                    }
+                    resolved.append(ResolvedCandidateMatch(candidate: candidate, entity: entity))
+                }
             }
-            let dedupeKey = "\(candidate.range.location):\(normalized(candidate.text))"
-            guard seen.insert(dedupeKey).inserted else { return nil }
-            return candidate
+        }
+
+        return resolved.sorted { $0.candidate.range.location < $1.candidate.range.location }
+    }
+
+    private func waitForRecognition(_ request: StoryBibleRecognitionRequest) throws -> [StoryBibleRecognitionMatch] {
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = RecognitionResultBox()
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                box.result = .success(try await recognitionClient.recognizeMentions(in: request))
+            } catch {
+                box.result = .failure(error)
+            }
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+        guard let result = box.result else { return [] }
+        return try result.get()
+    }
+
+    private func recognitionCandidates(in entities: [SemanticEntity], kind: SemanticEntityKind) -> [StoryBibleRecognitionCandidate] {
+        entities
+            .filter { $0.kind == kind.rawValue }
+            .sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }
+            .map { entity in
+                StoryBibleRecognitionCandidate(
+                    id: entity.id.uuidString,
+                    name: entity.canonicalName,
+                    aliases: recognitionAliases(for: entity),
+                    kind: entity.kind
+                )
+            }
+    }
+
+    private func recognitionAliases(for entity: SemanticEntity) -> [String] {
+        Array(
+            Set(
+                entity.aliases
+                    .map(\.name)
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            )
+        )
+        .sorted {
+            if $0.count != $1.count { return $0.count > $1.count }
+            return $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        .prefix(Self.aliasesPerCandidate)
+        .map { $0 }
+    }
+
+    private func recognitionPassLabel(for kind: SemanticEntityKind) -> String {
+        switch kind {
+        case .character: "Characters"
+        case .organization: "Organizations"
+        case .location: "Places"
+        case .object: "Artifacts and objects"
+        case .event: "Events"
+        case .concept: "Concepts"
+        case .theme: "Themes"
+        case .other: "Other Story Bible entities"
+        case .relationship: "Relationships"
+        case .timeline: "Timeline entities"
         }
     }
 
-    private func isUsefulCandidate(_ value: String) -> Bool {
-        let words = value.split(separator: " ").map(String.init)
-        guard !words.isEmpty else { return false }
-        if words.count == 1, Self.ignoredSingleWordMatches.contains(value) {
-            return false
+    private func nextAvailableMatch(
+        for surfaceText: String,
+        in text: NSString,
+        occupiedRanges: inout [NSRange]
+    ) -> CandidateMatch? {
+        let normalizedSurfaceText = surfaceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSurfaceText.isEmpty else { return nil }
+        var searchStart = 0
+        while searchStart < text.length {
+            let searchRange = NSRange(location: searchStart, length: text.length - searchStart)
+            let foundRange = text.range(
+                of: normalizedSurfaceText,
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                range: searchRange
+            )
+            guard foundRange.location != NSNotFound else { return nil }
+            if !occupiedRanges.contains(where: { NSIntersectionRange($0, foundRange).length > 0 }) {
+                occupiedRanges.append(foundRange)
+                return CandidateMatch(
+                    text: text.substring(with: foundRange),
+                    range: foundRange,
+                    context: mentionContext(in: text, range: foundRange)
+                )
+            }
+            searchStart = foundRange.location + max(1, foundRange.length)
         }
-        return words.contains { word in
-            word.first?.isUppercase == true
-        }
+        return nil
     }
 
     private func mentionContext(in text: NSString, range: NSRange) -> String {
@@ -211,122 +256,6 @@ struct SceneEntityRecognitionService {
         let upperBound = min(text.length, range.location + range.length + 24)
         return text.substring(with: NSRange(location: lowerBound, length: upperBound - lowerBound))
             .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func cleanedCandidateMatch(in text: NSString, range: NSRange) -> CandidateMatch? {
-        var adjustedRange = range
-        var raw = text.substring(with: adjustedRange).trimmingCharacters(in: .whitespacesAndNewlines)
-        while let trailingRange = raw.range(of: #"\s+(?:of|the|and)$"#, options: .regularExpression) {
-            let suffix = String(raw[trailingRange])
-            raw.removeSubrange(trailingRange)
-            adjustedRange.length -= (suffix as NSString).length
-            raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        guard !raw.isEmpty else { return nil }
-        return CandidateMatch(
-            text: raw,
-            range: adjustedRange,
-            context: mentionContext(in: text, range: adjustedRange)
-        )
-    }
-
-    private func existingEntityMatches(in text: String, entities: [SemanticEntity]) -> [ResolvedCandidateMatch] {
-        let nsText = text as NSString
-        let searchRange = NSRange(location: 0, length: nsText.length)
-        var occupiedRanges: [NSRange] = []
-        var matches: [ResolvedCandidateMatch] = []
-        let candidates = entities.flatMap { entity in
-            ([entity.canonicalName] + entity.aliases.map(\.name)).map { (entity, $0) }
-        }
-        .sorted { lhs, rhs in
-            let lhsLength = lhs.1.count
-            let rhsLength = rhs.1.count
-            if lhsLength != rhsLength { return lhsLength > rhsLength }
-            return lhs.1.localizedCaseInsensitiveCompare(rhs.1) == .orderedAscending
-        }
-
-        for (entity, name) in candidates {
-            guard let regex = existingEntityRegex(for: name, entity: entity) else { continue }
-            for match in regex.matches(in: text, range: searchRange) {
-                guard !occupiedRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
-                      let candidate = cleanedCandidateMatch(in: nsText, range: match.range) else {
-                    continue
-                }
-                occupiedRanges.append(candidate.range)
-                matches.append(ResolvedCandidateMatch(candidate: candidate, entity: entity))
-            }
-        }
-
-        return matches.sorted { $0.candidate.range.location < $1.candidate.range.location }
-    }
-
-    private func existingEntityRegex(for value: String, entity: SemanticEntity) -> NSRegularExpression? {
-        let escaped = NSRegularExpression.escapedPattern(for: value)
-        let allowsLeadingArticle = supportsLeadingArticleVariant(for: value, kindHint: entity.kind) ||
-            supportsCharacterLeadingArticleVariant(for: value, kindHint: entity.kind)
-        let pattern = allowsLeadingArticle
-            ? #"\b(?:(?:[Tt]he)\s+)?"# + escaped + #"\b"#
-            : #"\b"# + escaped + #"\b"#
-        return try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-    }
-
-    private func inferredKind(for name: String) -> SemanticEntityKind {
-        let words = name.split(separator: " ").map(String.init)
-        if words.contains(where: { Self.organizationKeywords.contains($0) }) {
-            return .organization
-        }
-        if words.contains(where: { Self.locationKeywords.contains($0) }) {
-            return .location
-        }
-        if isLikelyCharacterName(words) {
-            return .character
-        }
-        return .other
-    }
-
-    private func normalized(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-    }
-
-    private func normalizedLookupKeys(for value: String, kindHint: String? = nil) -> [String] {
-        let normalizedValue = normalized(value)
-        guard !normalizedValue.isEmpty else { return [] }
-        if normalizedValue.hasPrefix("the ") {
-            return [normalizedValue, String(normalizedValue.dropFirst(4))]
-        }
-        if supportsLeadingArticleVariant(for: value, kindHint: kindHint) {
-            return [normalizedValue, normalized("the \(value)")]
-        }
-        return [normalizedValue]
-    }
-
-    private func supportsLeadingArticleVariant(for value: String, kindHint: String?) -> Bool {
-        if kindHint == SemanticEntityKind.organization.rawValue {
-            return true
-        }
-        let words = value.split(separator: " ").map(String.init)
-        return words.contains(where: { Self.organizationKeywords.contains($0) })
-    }
-
-    private func supportsCharacterLeadingArticleVariant(for value: String, kindHint: String?) -> Bool {
-        guard kindHint == SemanticEntityKind.character.rawValue else { return false }
-        let words = value.split(separator: " ").map(String.init)
-        guard words.count >= 2 else { return false }
-        return words.contains(where: { Self.characterTitleKeywords.contains($0) })
-    }
-
-    private func isLikelyCharacterName(_ words: [String]) -> Bool {
-        guard !words.isEmpty, words.count <= 3 else { return false }
-        guard !words.contains(where: { Self.nonCharacterKeywords.contains($0) }) else { return false }
-        let significantWords = words.filter { !["of", "the", "and"].contains($0.lowercased()) }
-        guard !significantWords.isEmpty else { return false }
-        if significantWords.count == 1 {
-            return false
-        }
-        return significantWords.allSatisfy { $0.first?.isUppercase == true }
     }
 
     private struct CandidateMatch {
@@ -338,5 +267,9 @@ struct SceneEntityRecognitionService {
     private struct ResolvedCandidateMatch {
         let candidate: CandidateMatch
         let entity: SemanticEntity
+    }
+
+    private final class RecognitionResultBox: @unchecked Sendable {
+        var result: Result<[StoryBibleRecognitionMatch], Error>?
     }
 }

@@ -1,4 +1,5 @@
 import AuthorData
+import AuthorAI
 import XCTest
 @testable import AuthorUI
 
@@ -303,10 +304,13 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.notes.first?.body, "It only opens at dawn.")
     }
 
-    func testSceneSaveAutoCreatesStoryBibleEntitiesAndMentions() throws {
+    func testSceneSaveLinksExistingStoryBibleEntitiesWithoutAutoCreation() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
 
         controller.updateDocument(
             documentID: scene.id,
@@ -318,11 +322,6 @@ final class WorkspaceControllerTests: XCTestCase {
 
         let entities = project.semanticEntities
         XCTAssertEqual(Set(entities.map(\.canonicalName)), ["Mara Venn", "The Lantern Society", "Moon Gate"])
-        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.kind, SemanticEntityKind.character.rawValue)
-        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.storyBibleCard)
-        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.characterProfile)
-        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "The Lantern Society" }?.kind, SemanticEntityKind.organization.rawValue)
-        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Moon Gate" }?.kind, SemanticEntityKind.location.rawValue)
         XCTAssertEqual(scene.mentions.count, 3)
 
         controller.refreshSceneEntityLinks(for: scene.id)
@@ -335,6 +334,9 @@ final class WorkspaceControllerTests: XCTestCase {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
 
         controller.updateDocument(
             documentID: scene.id,
@@ -356,6 +358,9 @@ final class WorkspaceControllerTests: XCTestCase {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
 
         controller.updateDocument(
             documentID: scene.id,
@@ -407,6 +412,7 @@ final class WorkspaceControllerTests: XCTestCase {
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
         let entity = try controller.addStoryBibleEntry(named: "Harbor Council", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
 
         controller.updateDocument(
             documentID: scene.id,
@@ -420,7 +426,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(scene.mentions.first { $0.surfaceText == "the Harbor Council" }?.semanticEntity.id, entity.id)
     }
 
-    func testSceneSaveRecognizesLowercaseLeadingOrganizationReference() throws {
+    func testSceneSaveDoesNotAutoCreateUnknownEntities() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -433,14 +439,17 @@ final class WorkspaceControllerTests: XCTestCase {
         )
         controller.flushPendingChanges()
 
-        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "the Harbor Council" }?.kind, SemanticEntityKind.organization.rawValue)
-        XCTAssertEqual(project.semanticEntities.first { $0.canonicalName == "Mara Venn" }?.kind, SemanticEntityKind.character.rawValue)
+        XCTAssertTrue(project.semanticEntities.isEmpty)
+        XCTAssertTrue(scene.mentions.isEmpty)
     }
 
-    func testSceneSaveRecognizesInitialsAcronymsAndInternalCaps() throws {
+    func testSceneSaveLinksExistingMixedCaseEntities() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "R.J.", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "NASA", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "McAllister Square", category: .places)
 
         controller.updateDocument(
             documentID: scene.id,
@@ -450,9 +459,7 @@ final class WorkspaceControllerTests: XCTestCase {
         )
         controller.flushPendingChanges()
 
-        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "R.J." })
-        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "NASA" })
-        XCTAssertNotNil(project.semanticEntities.first { $0.canonicalName == "McAllister Square" })
+        XCTAssertEqual(Set(scene.mentions.map(\.semanticEntity.canonicalName)), ["R.J.", "NASA", "McAllister Square"])
     }
 
     func testSceneSaveReusesExistingEntitiesAndTrimsTrailingJoiners() throws {
@@ -489,6 +496,10 @@ final class WorkspaceControllerTests: XCTestCase {
             .sorted { $0.title < $1.title }
         let firstScene = try XCTUnwrap(scenes.first)
         let secondScene = try controller.addDocument(title: "Second Scene", kind: .text, parentID: firstScene.parent?.id)
+        _ = try controller.addStoryBibleEntry(named: "Captain Ilex", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Harbor Council", category: .organizations)
 
         controller.updateDocument(
             documentID: firstScene.id,
@@ -513,10 +524,14 @@ final class WorkspaceControllerTests: XCTestCase {
         let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
         let controller = WorkspaceController(
             store: try AuthorDataStore(inMemory: true),
-            projectListPreferences: preferences
+            projectListPreferences: preferences,
+            sceneEntityRecognitionClient: TestStoryBibleRecognitionClient()
         )
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "The Lantern Society", category: .organizations)
+        _ = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
 
         controller.updateDocument(
             documentID: scene.id,
@@ -1557,6 +1572,86 @@ final class WorkspaceControllerTests: XCTestCase {
     }
 
     private func makeController() throws -> WorkspaceController {
-        WorkspaceController(store: try AuthorDataStore(inMemory: true))
+        WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionClient: TestStoryBibleRecognitionClient()
+        )
+    }
+}
+
+private struct TestStoryBibleRecognitionClient: StoryBibleEntityRecognitionClient {
+    private let characterArticleTitles = Set([
+        "beast", "boy", "girl", "king", "knight", "lady", "lion", "man", "prince",
+        "princess", "queen", "scarecrow", "sir", "tin", "warrior", "witch", "wizard", "woman", "woodman"
+    ])
+
+    func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        let text = request.sceneText as NSString
+        var matches: [(range: NSRange, match: StoryBibleRecognitionMatch)] = []
+
+        for candidate in request.candidates {
+            for phrase in candidatePhrases(for: candidate) {
+                for range in literalRanges(of: phrase, in: text) {
+                    matches.append((
+                        range: range,
+                        match: StoryBibleRecognitionMatch(
+                            entityID: candidate.id,
+                            surfaceText: text.substring(with: range)
+                        )
+                    ))
+                }
+            }
+        }
+
+        var occupiedRanges: [NSRange] = []
+        return matches
+            .sorted {
+                if $0.range.location != $1.range.location { return $0.range.location < $1.range.location }
+                if $0.range.length != $1.range.length { return $0.range.length > $1.range.length }
+                return $0.match.entityID < $1.match.entityID
+            }
+            .compactMap { item in
+                guard !occupiedRanges.contains(where: { NSIntersectionRange($0, item.range).length > 0 }) else {
+                    return nil
+                }
+                occupiedRanges.append(item.range)
+                return item.match
+            }
+    }
+
+    private func candidatePhrases(for candidate: StoryBibleRecognitionCandidate) -> [String] {
+        let base = Array(Set([candidate.name] + candidate.aliases))
+        let articleVariants = base.compactMap { phrase -> String? in
+            guard supportsLeadingArticle(for: candidate, phrase: phrase) else { return nil }
+            return "the \(phrase)"
+        }
+        return Array(Set(base + articleVariants))
+    }
+
+    private func supportsLeadingArticle(for candidate: StoryBibleRecognitionCandidate, phrase: String) -> Bool {
+        if candidate.kind == "organization" {
+            return true
+        }
+        guard candidate.kind == "character" else { return false }
+        let words = phrase.split(separator: " ").map { $0.lowercased() }
+        return words.count >= 2 && words.contains(where: { characterArticleTitles.contains($0) })
+    }
+
+    private func literalRanges(of phrase: String, in text: NSString) -> [NSRange] {
+        let searchPhrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !searchPhrase.isEmpty else { return [] }
+        var results: [NSRange] = []
+        var start = 0
+        while start < text.length {
+            let range = text.range(
+                of: searchPhrase,
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                range: NSRange(location: start, length: text.length - start)
+            )
+            guard range.location != NSNotFound else { break }
+            results.append(range)
+            start = range.location + max(1, range.length)
+        }
+        return results
     }
 }

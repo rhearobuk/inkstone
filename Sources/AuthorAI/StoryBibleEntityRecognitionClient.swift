@@ -1,0 +1,129 @@
+import Foundation
+#if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+import FoundationModels
+
+@available(macOS 26, iOS 26, visionOS 26, *)
+@Generable
+private struct AppleStoryBibleRecognitionMatch {
+    var entityID: String
+    var surfaceText: String
+}
+
+@available(macOS 26, iOS 26, visionOS 26, *)
+@Generable
+private struct AppleStoryBibleRecognitionResponse {
+    @Guide(.count(0...48)) var matches: [AppleStoryBibleRecognitionMatch]
+}
+#endif
+
+public struct StoryBibleRecognitionCandidate: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let aliases: [String]
+    public let kind: String
+
+    public init(id: String, name: String, aliases: [String], kind: String) {
+        self.id = id
+        self.name = name
+        self.aliases = aliases
+        self.kind = kind
+    }
+}
+
+public struct StoryBibleRecognitionRequest: Sendable, Equatable {
+    public let sceneText: String
+    public let passLabel: String
+    public let candidates: [StoryBibleRecognitionCandidate]
+
+    public init(sceneText: String, passLabel: String, candidates: [StoryBibleRecognitionCandidate]) {
+        self.sceneText = sceneText
+        self.passLabel = passLabel
+        self.candidates = candidates
+    }
+}
+
+public struct StoryBibleRecognitionMatch: Sendable, Equatable {
+    public let entityID: String
+    public let surfaceText: String
+
+    public init(entityID: String, surfaceText: String) {
+        self.entityID = entityID
+        self.surfaceText = surfaceText
+    }
+}
+
+public protocol StoryBibleEntityRecognitionClient: Sendable {
+    func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch]
+}
+
+private enum StoryBibleRecognitionPromptBuilder {
+    static let instructions = """
+    You identify mentions of existing Story Bible entities in a scene.
+    Use only the supplied candidate entities. Never invent new entities, never merge two candidates, and never guess.
+    Return only entities that are explicitly mentioned in the scene text for the current pass.
+    For every match:
+    - entityID must exactly match one supplied candidate id.
+    - surfaceText must be an exact contiguous quote from the scene text as written there.
+    - If the scene does not mention a candidate, omit it.
+    - If unsure, omit it.
+    - If an entity appears multiple times, return multiple matches.
+    """
+
+    static func prompt(_ request: StoryBibleRecognitionRequest) -> String {
+        let candidates = request.candidates.map { candidate in
+            let aliases = candidate.aliases.isEmpty ? "none" : candidate.aliases.joined(separator: " | ")
+            return "- id: \(candidate.id)\n  kind: \(candidate.kind)\n  name: \(candidate.name)\n  aliases: \(aliases)"
+        }.joined(separator: "\n")
+        return """
+        CURRENT PASS
+        \(request.passLabel)
+        END CURRENT PASS
+
+        CANDIDATES
+        \(candidates)
+        END CANDIDATES
+
+        SCENE TEXT
+        \(request.sceneText)
+        END SCENE TEXT
+        """
+    }
+}
+
+public struct AppleIntelligenceStoryBibleRecognitionClient: StoryBibleEntityRecognitionClient {
+    public init() {}
+
+    public static var unavailableReason: String? {
+        AppleIntelligenceReviewClient.unavailableReason
+    }
+
+    public func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        try Task.checkCancellation()
+        if let reason = Self.unavailableReason {
+            throw ReviewClientError.unavailable(reason)
+        }
+        #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+        if #available(macOS 26, iOS 26, visionOS 26, *) {
+            do {
+                let session = LanguageModelSession(instructions: StoryBibleRecognitionPromptBuilder.instructions)
+                let response = try await session.respond(
+                    to: StoryBibleRecognitionPromptBuilder.prompt(request),
+                    generating: AppleStoryBibleRecognitionResponse.self,
+                    options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 1200)
+                )
+                try Task.checkCancellation()
+                return response.content.matches.map {
+                    StoryBibleRecognitionMatch(entityID: $0.entityID, surfaceText: $0.surfaceText)
+                }
+            } catch let error as LanguageModelSession.GenerationError {
+                switch error {
+                case .guardrailViolation, .refusal: throw ReviewClientError.refused
+                case .exceededContextWindowSize: throw ReviewClientError.contextExceeded
+                default: throw ReviewClientError.unavailable(error.localizedDescription)
+                }
+            }
+        }
+        #endif
+        throw ReviewClientError.unavailable(Self.unavailableReason ?? "Apple Intelligence is unavailable.")
+    }
+}

@@ -1,4 +1,5 @@
 import AuthorData
+import AuthorAI
 import Combine
 import CoreData
 import CryptoKit
@@ -300,6 +301,7 @@ public final class WorkspaceController: ObservableObject {
     private var statusLookup: [String: StatusDefinition] = [:]
     private var sectionTypeLookup: [String: SectionTypeDefinition] = [:]
     private var cancellables = Set<AnyCancellable>()
+    private let sceneEntityRecognitionClient: any StoryBibleEntityRecognitionClient
 
     @Published public private(set) var projects: [WritingProject] = []
     @Published public var showsHiddenProjects = false {
@@ -339,10 +341,15 @@ public final class WorkspaceController: ObservableObject {
     @Published public private(set) var importSummary: String?
     @Published public private(set) var isImporting = false
 
-    public init(store: AuthorDataStore, projectListPreferences: UserDefaults = .standard) {
+    public init(
+        store: AuthorDataStore,
+        projectListPreferences: UserDefaults = .standard,
+        sceneEntityRecognitionClient: any StoryBibleEntityRecognitionClient = AppleIntelligenceStoryBibleRecognitionClient()
+    ) {
         self.store = store
         self.editorialReviews = EditorialReviewController(store: store)
         self.projectListPreferences = projectListPreferences
+        self.sceneEntityRecognitionClient = sceneEntityRecognitionClient
         do {
             try migrateNativeScriptBooks()
         } catch {
@@ -1683,7 +1690,10 @@ public final class WorkspaceController: ObservableObject {
         do {
             try store.save()
             for documentID in pendingDocumentSaveIDs {
-                try SceneEntityRecognitionService(store: store).refreshSceneLinks(for: documentID, saveChanges: false)
+                try SceneEntityRecognitionService(
+                    store: store,
+                    recognitionClient: sceneEntityRecognitionClient
+                ).refreshSceneLinks(for: documentID, saveChanges: false)
             }
             try store.save()
             refresh()
@@ -1695,7 +1705,10 @@ public final class WorkspaceController: ObservableObject {
 
     public func refreshSceneEntityLinks(for documentID: UUID) {
         do {
-            try SceneEntityRecognitionService(store: store).refreshSceneLinks(for: documentID)
+            try SceneEntityRecognitionService(
+                store: store,
+                recognitionClient: sceneEntityRecognitionClient
+            ).refreshSceneLinks(for: documentID)
             refresh()
             lastError = nil
         } catch {
@@ -1705,7 +1718,7 @@ public final class WorkspaceController: ObservableObject {
 
     public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
         let excludedDocumentIDs = Set(entity.project.documents.filter { isDocumentTrashed($0) }.map(\.id))
-        return SceneEntityRecognitionService(store: store)
+        return SceneEntityRecognitionService(store: store, recognitionClient: sceneEntityRecognitionClient)
             .linkedScenes(for: entity, excludingDocumentIDs: excludedDocumentIDs)
     }
 
