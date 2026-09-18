@@ -13,6 +13,9 @@ struct SceneEntityLinkSummary: Identifiable, Equatable {
 @MainActor
 struct SceneEntityRecognitionService {
     private static let mentionSourcePrefix = "storyBible.entityReference."
+    private static let candidateRegex = try? NSRegularExpression(
+        pattern: #"\b(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?)(?:\s+(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?|of|the|and))*"#
+    )
     private static let ignoredSingleWordMatches = Set([
         "A", "An", "And", "But", "For", "He", "Her", "His", "I", "It", "Its", "Mr", "Mrs",
         "Ms", "No", "Nor", "Or", "She", "So", "That", "The", "Their", "There", "They", "We",
@@ -27,6 +30,11 @@ struct SceneEntityRecognitionService {
     private static let organizationKeywords = Set([
         "Agency", "Alliance", "Brotherhood", "Circle", "Collective", "Company", "Council",
         "Court", "Family", "Guild", "House", "Legion", "Network", "Order", "Society", "Union"
+    ])
+    private static let nonCharacterKeywords = Set([
+        "Amulet", "Battle", "Blade", "Book", "Case", "Crown", "Cup", "Dagger", "Festival",
+        "Gem", "Journal", "Key", "Letter", "Map", "Medallion", "Orb", "Ring", "Scroll",
+        "Ship", "Siege", "Storm", "Sword", "Treaty", "Trial", "War"
     ])
 
     let store: AuthorDataStore
@@ -180,8 +188,7 @@ struct SceneEntityRecognitionService {
     }
 
     private func candidateMatches(in text: String) -> [CandidateMatch] {
-        let pattern = #"\b(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?)(?:\s+(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?|of|the|and))*"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = Self.candidateRegex else { return [] }
         let nsText = text as NSString
         var seen = Set<String>()
         return regex.matches(in: text, range: NSRange(location: 0, length: nsText.length)).compactMap { match in
@@ -223,13 +230,27 @@ struct SceneEntityRecognitionService {
         if words.contains(where: { Self.organizationKeywords.contains($0) }) || name.hasPrefix("The ") {
             return .organization
         }
-        return .character
+        if isLikelyCharacterName(words) {
+            return .character
+        }
+        return .other
     }
 
     private func normalized(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+    }
+
+    private func isLikelyCharacterName(_ words: [String]) -> Bool {
+        guard !words.isEmpty, words.count <= 3 else { return false }
+        guard !words.contains(where: { Self.nonCharacterKeywords.contains($0) }) else { return false }
+        let significantWords = words.filter { !["of", "the", "and"].contains($0.lowercased()) }
+        guard !significantWords.isEmpty else { return false }
+        if significantWords.count == 1 {
+            return false
+        }
+        return significantWords.allSatisfy { $0.first?.isUppercase == true }
     }
 
     private struct CandidateMatch {

@@ -352,6 +352,34 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(linkedScenes.first?.matchedTexts, ["Moon Gate"])
     }
 
+    func testSceneSaveReusesExistingAliasInsteadOfCreatingDuplicateEntity() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        let entity = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        controller.selection = .document(scene.id)
+
+        let alias = controller.store.entityAliases.create {
+            $0.name = "The Gate"
+            $0.normalizedName = "the gate"
+            $0.semanticEntity = entity
+        }
+        try controller.store.save()
+        XCTAssertEqual(alias.semanticEntity.id, entity.id)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "The Gate opened, and Moon Gate answered."
+        )
+        controller.flushPendingChanges()
+
+        XCTAssertEqual(project.semanticEntities.filter { $0.kind == SemanticEntityKind.location.rawValue }.count, 1)
+        XCTAssertEqual(scene.mentions.count, 2)
+        XCTAssertEqual(Set(scene.mentions.map(\.semanticEntity.id)), [entity.id])
+    }
+
     func testFlushPendingChangesRefreshesSceneLinksForAllEditedScenes() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")

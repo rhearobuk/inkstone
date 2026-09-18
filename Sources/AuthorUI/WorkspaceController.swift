@@ -1686,6 +1686,10 @@ public final class WorkspaceController: ObservableObject {
         pendingDocumentSave = nil
         let pendingDocumentSaveIDs = pendingDocumentSaveIDs
         self.pendingDocumentSaveIDs.removeAll()
+        for documentID in pendingDocumentSaveIDs {
+            pendingSceneRecognitionTasks[documentID]?.cancel()
+            pendingSceneRecognitionTasks[documentID] = nil
+        }
         do {
             try store.save()
             for documentID in pendingDocumentSaveIDs {
@@ -1735,7 +1739,7 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func trashedDocumentIDSet() -> Set<UUID> {
-        Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? []).compactMap(UUID.init(uuidString:))
+        Set((projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? []).compactMap(UUID.init(uuidString:)))
     }
 
     private func scheduleSceneEntityRecognition(for documentID: UUID) {

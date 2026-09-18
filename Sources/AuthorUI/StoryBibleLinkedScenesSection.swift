@@ -22,8 +22,6 @@ struct StoryBibleLinkedScenesSection: View {
                                 Text("\(scene.mentionCount)")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
-                                    .accessibilityLabel("Mentions")
-                                    .accessibilityValue("\(scene.mentionCount)")
                             }
                             if !scene.matchedTexts.isEmpty {
                                 Text(scene.matchedTexts.joined(separator: ", "))
@@ -33,6 +31,9 @@ struct StoryBibleLinkedScenesSection: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(scene.documentTitle)
+                    .accessibilityValue("\(scene.mentionCount) mentions")
                 }
             }
         }
