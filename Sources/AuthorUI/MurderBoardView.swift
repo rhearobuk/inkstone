@@ -580,7 +580,6 @@ struct MurderBoardView: View {
                     syncRelationshipDrafts(graph: graph)
                 }
                 .onDisappear {
-                    persistRelationshipDraftImmediately()
                     persistState(for: board)
                 }
             }
@@ -1156,9 +1155,9 @@ struct MurderBoardView: View {
     }
 
     private func persistState(for board: Document) {
-        persistRelationshipDraftImmediately()
         pendingSaveTask?.cancel()
         pendingSaveTask = nil
+        persistRelationshipDraftImmediately()
         guard let persistedBoard = try? controller.store.documents.fetch(id: board.id) else { return }
         controller.saveMurderBoardState(state, for: persistedBoard)
     }
@@ -1175,14 +1174,17 @@ struct MurderBoardView: View {
 
     private func scheduleRelationshipPersist() {
         pendingRelationshipSaveTask?.cancel()
-        guard let relationshipID = selectedRelationshipID else { return }
+        guard let relationshipID = selectedRelationshipID,
+              let boardID = loadedBoardID else { return }
         let kind = relationshipKindDraft
         let notes = relationshipNotesDraft.nilIfBlank
         pendingRelationshipSaveTask = Task { @MainActor in
             defer { pendingRelationshipSaveTask = nil }
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
+            guard loadedBoardID == boardID, selectedRelationshipID == relationshipID else { return }
             guard let relationship = try? controller.store.storyBibleRelationships.fetch(id: relationshipID) else { return }
+            guard loadedBoardID == boardID, selectedRelationshipID == relationshipID else { return }
             guard let normalizedKind = kind.nilIfBlank else {
                 relationshipKindDraft = relationship.kind
                 relationshipNotesDraft = relationship.notes ?? ""

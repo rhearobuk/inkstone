@@ -1724,6 +1724,7 @@ public final class WorkspaceController: ObservableObject {
             ).refreshSceneLinks(for: documentID)
             refresh()
             lastError = nil
+        } catch is CancellationError {
         } catch {
             report(error)
         }
