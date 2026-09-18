@@ -1250,7 +1250,11 @@ private struct WorkspaceDetailView: View {
             case .storyBibleCard:
                 StoryBibleCardView(controller: controller)
             case .document:
-                DocumentEditor(controller: controller)
+                if controller.selectedStoryBibleCard != nil {
+                    StoryBibleCardView(controller: controller)
+                } else {
+                    DocumentEditor(controller: controller)
+                }
             case .trash:
                 TrashOverview(controller: controller)
             case nil:
@@ -1424,7 +1428,7 @@ private struct StoryBibleOverview: View {
                     guard let projectID = controller.selectedProjectID else { return }
                     controller.selection = .murderBoardOverview(projectID)
                 } label: {
-                    Label("Murder Board", systemImage: "point.3.connected.trianglepath.dotted")
+                    Label("Relationship Explorer", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 .buttonStyle(.plain)
 
@@ -1484,7 +1488,8 @@ private struct StoryBibleCategoryView: View {
         return project.semanticEntities
             .filter {
                 category.contains(kind: $0.kind) &&
-                    $0.characterProfile?.sourceDocument == nil
+                    $0.characterProfile?.sourceDocument == nil &&
+                    controller.importedPlaceSource(for: $0) == nil
             }
             .sorted {
                 $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending

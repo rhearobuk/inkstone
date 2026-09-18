@@ -525,6 +525,7 @@ final class WorkspaceControllerTests: XCTestCase {
         let controller = WorkspaceController(
             store: try AuthorDataStore(inMemory: true),
             projectListPreferences: preferences,
+            sceneEntityRecognitionEnabled: true,
             sceneEntityRecognitionClient: TestStoryBibleRecognitionClient()
         )
         let project = try controller.createProject(title: "World")
@@ -544,6 +545,53 @@ final class WorkspaceControllerTests: XCTestCase {
 
         let entity = try XCTUnwrap(project.semanticEntities.first { $0.canonicalName == "Moon Gate" })
         XCTAssertTrue(controller.linkedScenes(for: entity).isEmpty)
+    }
+
+    func testSceneRecognitionIsDisabledByDefaultForFlushRefreshAndAutosave() async throws {
+        let client = RecordingStoryBibleRecognitionClient()
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionClient: client
+        )
+        let project = try controller.createProject(title: "Recognition Disabled")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        scene.plainText = "Mara Venn arrived."
+        try await SceneEntityRecognitionService(
+            store: controller.store,
+            recognitionClient: TestStoryBibleRecognitionClient()
+        ).refreshSceneLinks(for: scene.id)
+        let originalMentionIDs = Set(scene.mentions.map(\.id))
+        XCTAssertEqual(originalMentionIDs.count, 1)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "Mara Venn left."
+        )
+        await controller.flushPendingChanges()
+        await controller.refreshSceneEntityLinks(for: scene.id)
+        controller.store.context.refresh(scene, mergeChanges: false)
+        XCTAssertEqual(scene.plainText, "Mara Venn left.")
+        XCTAssertEqual(Set(scene.mentions.map(\.id)), originalMentionIDs)
+        var callCount = await client.callCount
+        XCTAssertEqual(callCount, 0)
+        XCTAssertNil(controller.lastError)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: ""
+        )
+        try await Task.sleep(for: .seconds(4))
+        controller.store.context.refresh(scene, mergeChanges: false)
+        XCTAssertEqual(scene.plainText, "")
+        XCTAssertEqual(Set(scene.mentions.map(\.id)), originalMentionIDs)
+        callCount = await client.callCount
+        XCTAssertEqual(callCount, 0)
+        XCTAssertNil(controller.lastError)
     }
 
     func testSceneRecognitionMatchesWholeMentionsOnly() async throws {
@@ -585,6 +633,93 @@ final class WorkspaceControllerTests: XCTestCase {
             Set(scene.mentions.map(\.semanticEntity.canonicalName)),
             ["Citizen 27", "Citizen 30"]
         )
+    }
+
+    func testSceneRecognitionRefusalReportsLinkingErrorAndPreservesSavedTextAndLinks() async throws {
+        for flushPendingChanges in [true, false] {
+            let controller = WorkspaceController(
+                store: try AuthorDataStore(inMemory: true),
+                sceneEntityRecognitionEnabled: true,
+                sceneEntityRecognitionClient: FailingStoryBibleRecognitionClient(error: ReviewClientError.refused)
+            )
+            let project = try controller.createProject(title: "World")
+            let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+            _ = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+            _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+            scene.plainText = "Mara Venn arrived at Dawn Harbor."
+            try await SceneEntityRecognitionService(
+                store: controller.store,
+                recognitionClient: TestStoryBibleRecognitionClient()
+            ).refreshSceneLinks(for: scene.id)
+            let originalMentionIDs = Set(scene.mentions.map(\.id))
+            XCTAssertEqual(originalMentionIDs.count, 2)
+
+            let updatedText = "Mara Venn left Dawn Harbor before sunrise."
+            if flushPendingChanges {
+                controller.updateDocument(
+                    documentID: scene.id,
+                    title: scene.title,
+                    synopsis: scene.synopsis,
+                    plainText: updatedText
+                )
+                await controller.flushPendingChanges()
+            } else {
+                scene.plainText = updatedText
+                try controller.store.save()
+                await controller.refreshSceneEntityLinks(for: scene.id)
+            }
+
+            XCTAssertEqual(
+                controller.lastError,
+                "Automatic Story Bible linking stopped for scene \"\(scene.title)\". Apple Intelligence declined the recognition request. Existing scene links are unchanged. This feature uses only on-device Apple Intelligence."
+            )
+            controller.store.context.refresh(scene, mergeChanges: false)
+            XCTAssertEqual(scene.plainText, updatedText)
+            XCTAssertEqual(Set(scene.mentions.map(\.id)), originalMentionIDs)
+        }
+    }
+
+    func testSceneRecognitionDoesNotMisclassifyContextErrorsAsRefusals() async throws {
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionEnabled: true,
+            sceneEntityRecognitionClient: FailingStoryBibleRecognitionClient(error: ReviewClientError.contextExceeded)
+        )
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+        scene.plainText = "The ship left Dawn Harbor."
+        try controller.store.save()
+
+        await controller.refreshSceneEntityLinks(for: scene.id)
+
+        XCTAssertEqual(controller.lastError, ReviewClientError.contextExceeded.localizedDescription)
+    }
+
+    func testSceneRecognitionReportsAppleDiagnosticAndFailedPass() async throws {
+        let error = StoryBibleRecognitionError(
+            reason: .guardrailViolation,
+            passLabel: "Places",
+            diagnostic: "Synthetic guardrail diagnostic."
+        )
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionEnabled: true,
+            sceneEntityRecognitionClient: FailingStoryBibleRecognitionClient(error: error)
+        )
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Dawn Harbor", category: .places)
+        scene.plainText = "The ship left Dawn Harbor."
+        try controller.store.save()
+
+        await controller.refreshSceneEntityLinks(for: scene.id)
+
+        let message = try XCTUnwrap(controller.lastError)
+        XCTAssertTrue(message.contains(scene.title))
+        XCTAssertTrue(message.contains("blocked the Places pass with a safety guardrail"))
+        XCTAssertTrue(message.contains("Apple diagnostic: Synthetic guardrail diagnostic."))
+        XCTAssertTrue(message.contains("Existing scene links are unchanged"))
     }
 
     func testDeletingCharacterRemovesItsProfileEntityAndImportedSourceEntry() throws {
@@ -1398,6 +1533,39 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertNil(secondScene.resources.first { $0.mediaType == "application/rtf" })
     }
 
+    func testMurderBoardManualRelationshipsWorkWithRecognitionDisabled() async throws {
+        let client = RecordingStoryBibleRecognitionClient()
+        let controller = WorkspaceController(
+            store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionClient: client
+        )
+        let project = try controller.createProject(title: "Manual Board")
+        let board = try controller.createMurderBoard()
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "visits", notes: nil, from: mara, to: gate)
+        await controller.flushPendingChanges()
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(Set(graph.nodes.map(\.id)), [mara.id, gate.id])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["visits"])
+        XCTAssertTrue(project.documents.allSatisfy { $0.mentions.isEmpty })
+
+        let relationship = try XCTUnwrap(mara.outgoingStoryBibleRelationships.first)
+        relationship.kind = "guards"
+        controller.saveStoryBibleRelationship(relationship)
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["guards"])
+
+        controller.deleteStoryBibleRelationship(relationship)
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertTrue(graph.edges.isEmpty)
+        XCTAssertEqual(graph.nodes.count, 2)
+        let callCount = await client.callCount
+        XCTAssertEqual(callCount, 0)
+        XCTAssertNil(controller.lastError)
+    }
+
     func testMurderBoardAppearsInStoryBibleOverviewAndBinder() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Murder Board Test")
@@ -1407,7 +1575,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(controller.selection, .murderBoard(board.id))
         XCTAssertEqual(controller.murderBoards.map(\.title), ["Main Relationships"])
         let storyBible = try XCTUnwrap(controller.binderItems.first { $0.title == "Story Bible" })
-        let murderBoardItem = try XCTUnwrap(storyBible.children?.first { $0.title == "Murder Board" })
+        let murderBoardItem = try XCTUnwrap(storyBible.children?.first { $0.title == "Relationship Explorer" })
         XCTAssertEqual(murderBoardItem.selection, .murderBoardOverview(project.id))
         XCTAssertEqual(murderBoardItem.children?.map(\.title), ["Main Relationships"])
     }
@@ -1690,8 +1858,29 @@ final class WorkspaceControllerTests: XCTestCase {
     private func makeController() throws -> WorkspaceController {
         WorkspaceController(
             store: try AuthorDataStore(inMemory: true),
+            sceneEntityRecognitionEnabled: true,
             sceneEntityRecognitionClient: TestStoryBibleRecognitionClient()
         )
+    }
+}
+
+private actor RecordingStoryBibleRecognitionClient: StoryBibleEntityRecognitionClient {
+    private(set) var callCount = 0
+
+    func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        callCount += 1
+        throw ReviewClientError.refused
+    }
+}
+
+private struct FailingStoryBibleRecognitionClient: StoryBibleEntityRecognitionClient {
+    let error: any Error
+
+    func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch] {
+        if request.passLabel == "Places" {
+            throw error
+        }
+        return try await TestStoryBibleRecognitionClient().recognizeMentions(in: request)
     }
 }
 

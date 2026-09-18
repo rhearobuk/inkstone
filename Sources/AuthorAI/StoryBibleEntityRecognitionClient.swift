@@ -59,6 +59,36 @@ public protocol StoryBibleEntityRecognitionClient: Sendable {
     func recognizeMentions(in request: StoryBibleRecognitionRequest) async throws -> [StoryBibleRecognitionMatch]
 }
 
+public struct StoryBibleRecognitionError: LocalizedError, Sendable {
+    public enum Reason: Sendable {
+        case guardrailViolation, refusal
+    }
+
+    public let reason: Reason
+    public let passLabel: String
+    public let diagnostic: String
+
+    public init(reason: Reason, passLabel: String, diagnostic: String) {
+        self.reason = reason
+        self.passLabel = passLabel
+        self.diagnostic = diagnostic
+    }
+
+    public var errorDescription: String? {
+        let summary: String
+        switch reason {
+        case .guardrailViolation:
+            summary = "Apple Intelligence blocked the \(passLabel) pass with a safety guardrail."
+        case .refusal:
+            summary = "Apple Intelligence refused the \(passLabel) recognition request."
+        }
+        let detail = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines)
+        return summary + " " + (detail.isEmpty
+            ? "Apple did not provide further detail."
+            : "Apple diagnostic: \(detail)")
+    }
+}
+
 private enum StoryBibleRecognitionPromptBuilder {
     static let instructions = """
     You identify mentions of existing Story Bible entities in a scene.
@@ -120,16 +150,28 @@ public struct AppleIntelligenceStoryBibleRecognitionClient: StoryBibleEntityReco
                     StoryBibleRecognitionMatch(entityID: $0.entityID, surfaceText: $0.surfaceText, occurrence: $0.occurrence)
                 }
             } catch let error as LanguageModelSession.GenerationError {
-                switch error {
-                case .guardrailViolation, .refusal: throw ReviewClientError.refused
-                case .exceededContextWindowSize: throw ReviewClientError.contextExceeded
-                default: throw ReviewClientError.unavailable(error.localizedDescription)
-                }
+                throw Self.recognitionError(error, passLabel: request.passLabel)
             }
         }
         #endif
         throw ReviewClientError.unavailable(Self.unavailableReason ?? "Apple Intelligence is unavailable.")
     }
+
+    #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+    @available(macOS 26, iOS 26, visionOS 26, *)
+    static func recognitionError(_ error: LanguageModelSession.GenerationError, passLabel: String) -> any Error {
+        switch error {
+        case .guardrailViolation(let context):
+            StoryBibleRecognitionError(reason: .guardrailViolation, passLabel: passLabel, diagnostic: context.debugDescription)
+        case .refusal(_, let context):
+            StoryBibleRecognitionError(reason: .refusal, passLabel: passLabel, diagnostic: context.debugDescription)
+        case .exceededContextWindowSize:
+            ReviewClientError.contextExceeded
+        default:
+            ReviewClientError.unavailable(error.localizedDescription)
+        }
+    }
+    #endif
 }
 
 public struct DefaultStoryBibleEntityRecognitionClient: StoryBibleEntityRecognitionClient {

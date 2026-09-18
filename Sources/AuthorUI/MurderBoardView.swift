@@ -3,7 +3,6 @@ import SwiftUI
 
 let murderBoardSectionTypeIdentifier = "storyBible.murderBoard"
 private let murderBoardSourcePrefix = "native.murderBoard."
-private let murderBoardCanvasPadding: CGFloat = 120
 private let murderBoardMaximumVisibleNodes = 80
 
 struct MurderBoardBookScopeCacheKey: Hashable {
@@ -54,6 +53,8 @@ struct MurderBoardViewportState: Codable, Equatable {
 }
 
 struct MurderBoardState: Codable, Equatable {
+    var focusCategory: StoryBibleCategory?
+    var destinationCategories: [StoryBibleCategory]?
     var includedEntityIDs: [UUID] = []
     var visibleEntityKinds: [String] = []
     var hiddenRelationshipKinds: [String] = []
@@ -128,6 +129,16 @@ enum MurderBoardRelationshipRecord {
         case .character(let relationship): relationship.targetCharacter.semanticEntity
         }
     }
+
+    var sentence: String {
+        "\(sourceEntity.canonicalName) \(kind) \(targetEntity.canonicalName)"
+    }
+}
+
+extension StoryBibleCategory {
+    static var murderBoardCategories: [Self] { allCases.filter { $0 != .research } }
+
+    var murderBoardTitle: String { self == .people ? "Characters" : rawValue }
 }
 
 struct MurderBoardGraphEdge: Identifiable {
@@ -153,6 +164,10 @@ struct MurderBoardGraph {
     let visibleEntityCount: Int
     let totalEntityCount: Int
     let isTruncated: Bool
+    var connectionCounts: [StoryBibleCategory: Int] = [:]
+
+    var totalConnectionCount: Int { connectionCounts.values.reduce(0, +) }
+    var hiddenConnectionCount: Int { max(0, totalConnectionCount - edges.count) }
 }
 
 extension WorkspaceController {
@@ -174,7 +189,7 @@ extension WorkspaceController {
     }
 
     @discardableResult
-    public func createMurderBoard(named name: String = "New Murder Board") throws -> Document {
+    public func createMurderBoard(named name: String = "New Relationship Explorer") throws -> Document {
         guard let project = selectedProject else {
             throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
         }
@@ -183,7 +198,7 @@ extension WorkspaceController {
         let board = store.documents.create {
             $0.id = boardID
             $0.sourceIdentifier = murderBoardSourcePrefix + boardID.uuidString
-            $0.title = name.nilIfBlank ?? "New Murder Board"
+            $0.title = name.nilIfBlank ?? "New Relationship Explorer"
             $0.kind = DocumentKind.text.rawValue
             $0.orderIndex = (murderBoardDocuments(in: project).map(\.orderIndex).max() ?? -1) + 1
             $0.createdAt = now
@@ -223,10 +238,11 @@ extension WorkspaceController {
 
     public func deleteMurderBoard(_ board: Document) {
         let projectID = board.project.id
+        let boardID = board.id
         store.context.delete(board)
         do {
             try store.save()
-            if case .murderBoard(let id) = selection, id == board.id {
+            if case .murderBoard(let id) = selection, id == boardID {
                 selection = .murderBoardOverview(projectID)
             }
             refresh()
@@ -273,8 +289,11 @@ extension WorkspaceController {
         }
         let project = board.project
         let allEntities = project.semanticEntities
-            .filter { !$0.isDeleted }
+            .filter { isStoryBibleEntityAvailable($0) }
             .sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }
+        if let category = state.focusCategory {
+            return focusedMurderBoardGraph(in: project, entities: allEntities, category: category, state: state)
+        }
         let availableEntityKindValues = Set(allEntities.map(\.kind))
         let visibleKinds = state.visibleEntityKinds.isEmpty
             ? availableEntityKindValues
@@ -389,6 +408,86 @@ extension WorkspaceController {
         )
     }
 
+    func focusedMurderBoardState(_ saved: MurderBoardState, in project: WritingProject) -> MurderBoardState {
+        var state = saved
+        let entities = project.semanticEntities.filter { isStoryBibleEntityAvailable($0) }
+            .sorted { ($0.canonicalName, $0.id.uuidString) < ($1.canonicalName, $1.id.uuidString) }
+        let selected = entities.first { $0.id == state.selectedEntityID }
+        let category = state.focusCategory
+            ?? selected.flatMap { entity in StoryBibleCategory.murderBoardCategories.first { $0.contains(kind: entity.kind) } }
+            ?? .people
+        state.focusCategory = category
+        if selected == nil || !category.contains(kind: selected?.kind ?? "") {
+            state.selectedEntityID = entities.first { category.contains(kind: $0.kind) }?.id
+        }
+        if state.destinationCategories == nil {
+            let legacyCategories = StoryBibleCategory.murderBoardCategories.filter { category in
+                state.visibleEntityKinds.contains { category.contains(kind: $0) }
+            }
+            let connections = state.selectedEntityID.map { murderBoardConnections(for: $0, in: project) } ?? []
+            let connectedCategories = StoryBibleCategory.murderBoardCategories.filter { category in
+                connections.contains { relationship in
+                    let other = relationship.sourceEntity.id == state.selectedEntityID
+                        ? relationship.targetEntity : relationship.sourceEntity
+                    return category.contains(kind: other.kind)
+                }
+            }
+            state.destinationCategories = !legacyCategories.isEmpty ? legacyCategories
+                : !connectedCategories.isEmpty ? connectedCategories
+                : category == .people ? [.artifacts, .places] : [.people]
+        }
+        return state
+    }
+
+    private func focusedMurderBoardGraph(
+        in project: WritingProject,
+        entities: [SemanticEntity],
+        category: StoryBibleCategory,
+        state: MurderBoardState
+    ) -> MurderBoardGraph {
+        let focus = entities.first { $0.id == state.selectedEntityID && category.contains(kind: $0.kind) }
+        let destinations = state.destinationCategories ?? [.artifacts]
+        let connections = focus.map { murderBoardConnections(for: $0.id, in: project) } ?? []
+        var connectionCounts: [StoryBibleCategory: Int] = [:]
+        let relationships = connections.filter { relationship in
+            let other = relationship.sourceEntity.id == focus?.id ? relationship.targetEntity : relationship.sourceEntity
+            if let category = StoryBibleCategory.murderBoardCategories.first(where: { $0.contains(kind: other.kind) }) {
+                connectionCounts[category, default: 0] += 1
+            }
+            return destinations.contains { $0.contains(kind: other.kind) }
+        }
+        let visibleIDs = Set(relationships.flatMap { [$0.sourceEntity.id, $0.targetEntity.id] })
+            .union(focus.map { [$0.id] } ?? [])
+        let nodes = entities.filter { visibleIDs.contains($0.id) }.map {
+            MurderBoardGraphNode(entity: $0, position: .zero, isPinned: false, isHidden: false, mentionCount: 0)
+        }
+        let edges = relationships.map {
+            MurderBoardGraphEdge(
+                relationship: $0,
+                sourceID: $0.sourceEntity.id,
+                targetID: $0.targetEntity.id,
+                sourcePosition: .zero,
+                targetPosition: .zero
+            )
+        }
+        return MurderBoardGraph(
+            nodes: nodes,
+            edges: edges,
+            availableRelationshipKinds: Array(Set(relationships.map(\.kind))).sorted(),
+            visibleEntityCount: nodes.count,
+            totalEntityCount: entities.count,
+            isTruncated: false,
+            connectionCounts: connectionCounts
+        )
+    }
+
+    private func murderBoardConnections(for entityID: UUID, in project: WritingProject) -> [MurderBoardRelationshipRecord] {
+        graphRelationships(in: project).filter {
+            ($0.sourceEntity.id == entityID || $0.targetEntity.id == entityID)
+                && $0.sourceEntity.id != $0.targetEntity.id
+        }
+    }
+
     private func murderBoardDocuments(in project: WritingProject) -> [Document] {
         project.documents
             .filter { !$0.isDeleted && !isDocumentTrashed($0) && isMurderBoardDocument($0) }
@@ -408,8 +507,8 @@ extension WorkspaceController {
             .flatMap(\.outgoingStoryBibleRelationships)
             .filter {
                 !$0.isDeleted &&
-                    !$0.sourceEntity.isDeleted &&
-                    !$0.targetEntity.isDeleted &&
+                    isStoryBibleEntityAvailable($0.sourceEntity) &&
+                    isStoryBibleEntityAvailable($0.targetEntity) &&
                     storyBibleSeen.insert($0.id).inserted
             }
             .map(MurderBoardRelationshipRecord.storyBible)
@@ -565,12 +664,12 @@ struct MurderBoardOverviewView: View {
     var body: some View {
         List {
             Section {
-                Text("The Murder Board is a visual relationship map over your Story Bible entities and canonical Story Bible relationships.")
+                Text("Choose a Story Bible category and an entity to focus on, then explore its saved connections to other categories.")
                     .foregroundStyle(.secondary)
                 Button {
                     showsNewBoard = true
                 } label: {
-                    Label("New Murder Board", systemImage: "plus.circle")
+                    Label("New Relationship Explorer", systemImage: "plus.circle")
                 }
             }
 
@@ -600,13 +699,13 @@ struct MurderBoardOverviewView: View {
                 }
             }
         }
-        .navigationTitle("Murder Board")
+        .navigationTitle("Relationship Explorer")
         .sheet(isPresented: $showsNewBoard) {
             NavigationStack {
                 Form {
                     TextField("Board name", text: $newBoardName)
                 }
-                .navigationTitle("New Murder Board")
+                .navigationTitle("New Relationship Explorer")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
@@ -617,7 +716,7 @@ struct MurderBoardOverviewView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Create") {
                             do {
-                                let name = newBoardName.nilIfBlank ?? "New Murder Board"
+                                let name = newBoardName.nilIfBlank ?? "New Relationship Explorer"
                                 _ = try controller.createMurderBoard(named: name)
                                 newBoardName = ""
                                 showsNewBoard = false
@@ -636,15 +735,10 @@ struct MurderBoardView: View {
     @ObservedObject var controller: WorkspaceController
     @State private var state = MurderBoardState()
     @State private var selectedRelationshipID: UUID?
+    @State private var showsRelationshipInspector = false
     @State private var showsNewRelationship = false
-    @State private var newRelationshipTargetID: UUID?
-    @State private var newRelationshipKind = "related to"
-    @State private var newRelationshipNotes = ""
     @State private var relationshipKindDraft = ""
     @State private var relationshipNotesDraft = ""
-    @State private var panOrigin: CGSize?
-    @State private var zoomOrigin: Double?
-    @State private var dragOrigins: [UUID: CGPoint] = [:]
     @State private var pendingSaveTask: Task<Void, Never>?
     @State private var pendingRelationshipSaveTask: Task<Void, Never>?
     @State private var pendingTitleSaveTask: Task<Void, Never>?
@@ -653,18 +747,12 @@ struct MurderBoardView: View {
 
     var body: some View {
         if let board = controller.selectedMurderBoard {
-            GeometryReader { proxy in
-                let graph = controller.murderBoardGraph(for: board, state: state)
-                HStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        controls(board: board, graph: graph, size: boardViewportSize(from: proxy.size))
-                        Divider()
-                        canvas(board: board, graph: graph)
-                    }
-                    Divider()
-                    inspector(board: board, graph: graph, size: boardViewportSize(from: proxy.size))
-                        .frame(width: 320)
-                }
+            let graph = controller.murderBoardGraph(for: board, state: state)
+            VStack(spacing: 0) {
+                controls(board: board, graph: graph)
+                Divider()
+                focusedConnections(board: board, graph: graph)
+            }
                 .onAppear {
                     switchBoard(to: board)
                 }
@@ -675,22 +763,50 @@ struct MurderBoardView: View {
                     syncRelationshipDrafts(graph: graph)
                 }
                 .onDisappear {
-                    persistTitleImmediately(for: board)
-                    persistState(for: board)
+                    if !board.isDeleted, board.managedObjectContext != nil {
+                        persistTitleImmediately(for: board)
+                        persistState(for: board)
+                    }
                 }
-            }
             .navigationTitle(board.title)
             .sheet(isPresented: $showsNewRelationship) {
-                relationshipSheet
+                if let node = selectedNode {
+                    StoryBibleRelationshipComposer(controller: controller, source: node.entity) { target in
+                        if let category = StoryBibleCategory.murderBoardCategories.first(where: { $0.contains(kind: target.kind) }),
+                           !destinationCategories.contains(category) {
+                            state.destinationCategories = destinationCategories + [category]
+                        }
+                        schedulePersist(for: board)
+                    }
+                }
+            }
+            .sheet(isPresented: $showsRelationshipInspector, onDismiss: {
+                persistRelationshipDraftImmediately()
+                selectedRelationshipID = nil
+            }) {
+                NavigationStack {
+                    inspector(graph: graph)
+                        .formStyle(.grouped)
+                        .navigationTitle("Relationship")
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") {
+                                    persistRelationshipDraftImmediately()
+                                    showsRelationshipInspector = false
+                                }
+                            }
+                        }
+                }
+                .frame(minWidth: 360, minHeight: 360)
             }
         } else {
-            Text("Select a Murder Board.")
+            Text("Select a Relationship Explorer.")
                 .foregroundStyle(.secondary)
         }
     }
 
-    private func controls(board: Document, graph: MurderBoardGraph, size: CGSize) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func controls(board: Document, graph: MurderBoardGraph) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 TextField(
                     "Board Name",
@@ -706,204 +822,166 @@ struct MurderBoardView: View {
 
                 Button {
                     showsNewRelationship = true
-                    newRelationshipTargetID = selectedNode.flatMap { node in
-                        storyBibleEntities(in: board.project).first(where: { $0.id != node.id })?.id
-                    }
                 } label: {
                     Label("Add Relationship", systemImage: "link.badge.plus")
                 }
                 .disabled(selectedNode == nil)
             }
 
-            HStack {
-                Picker("Start From", selection: Binding(
-                    get: { state.selectedEntityID },
-                    set: {
-                        state.selectedEntityID = $0
-                        selectedRelationshipID = nil
-                        if $0 != nil, state.connectedDepth == .allVisible {
-                            state.connectedDepth = .direct
-                        }
-                        schedulePersist(for: board)
-                    }
-                )) {
-                    Text("All Story Bible Elements").tag(Optional<UUID>.none)
-                    ForEach(startingEntities(in: board.project), id: \.id) { entity in
-                        Text(startingEntityTitle(for: entity)).tag(Optional(entity.id))
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 20) {
+                    focusCategoryPicker(board: board)
+                    focusEntityPicker(board: board)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    focusCategoryPicker(board: board)
+                    focusEntityPicker(board: board)
                 }
             }
 
-            HStack {
-                Picker("Book", selection: Binding(
-                    get: { state.selectedBookID },
-                    set: {
-                        state.selectedBookID = $0
-                        schedulePersist(for: board)
-                    }
-                )) {
-                    Text("All Books").tag(Optional<UUID>.none)
-                    ForEach(controller.murderBoardBooks, id: \.id) { book in
-                        Text(book.title).tag(Optional(book.id))
-                    }
-                }
-                .frame(maxWidth: 240)
-
-                Picker("Depth", selection: Binding(
-                    get: { state.connectedDepth },
-                    set: {
-                        state.connectedDepth = $0
-                        schedulePersist(for: board)
-                    }
-                )) {
-                    ForEach(MurderBoardConnectedDepth.allCases) { depth in
-                        Text(depth.title).tag(depth)
-                    }
-                }
-                .frame(maxWidth: 220)
-                .disabled(state.selectedEntityID == nil)
-
-                Toggle("Show disconnected", isOn: Binding(
-                    get: { state.includeDisconnectedEntities },
-                    set: {
-                        state.includeDisconnectedEntities = $0
-                        schedulePersist(for: board)
-                    }
-                ))
-                    .toggleStyle(.switch)
-            }
-
-            HStack {
-                Menu("Entity Types") {
-                    ForEach(availableEntityKinds(in: board.project), id: \.self) { kind in
-                        let isVisible = state.visibleEntityKinds.isEmpty || state.visibleEntityKinds.contains(kind)
-                        Button {
-                            toggleEntityKind(kind, board: board)
-                        } label: {
-                            Label(kind.capitalized, systemImage: isVisible ? "checkmark.circle.fill" : "circle")
-                        }
-                    }
-                }
-
-                Menu("Relationship Types") {
-                    ForEach(graph.availableRelationshipKinds, id: \.self) { kind in
-                        let isVisible = !state.hiddenRelationshipKinds.contains(kind)
-                        Button {
-                            toggleRelationshipKind(kind, board: board)
-                        } label: {
-                            Label(kind, systemImage: isVisible ? "checkmark.circle.fill" : "circle")
-                        }
-                    }
-                }
-
-                Spacer()
-
-                HStack {
-                    Text("Zoom")
-                    Slider(
-                        value: Binding(
-                            get: { state.viewport.zoom },
-                            set: { state.viewport.zoom = max(0.4, min($0, 2.5)) }
-                        ),
-                        in: 0.4...2.5,
-                        onEditingChanged: { editing in
-                            if !editing { schedulePersist(for: board) }
-                        }
-                    )
-                        .frame(width: 120)
-                    Button("Fit") {
-                        fitVisible(graph: graph, size: size)
-                        schedulePersist(for: board)
-                    }
-                    Button("Auto Layout") {
-                        applyAutomaticLayout(for: graph)
-                        schedulePersist(for: board)
-                    }
-                }
-            }
-
-            if graph.isTruncated {
-                Text("Showing the first \(graph.visibleEntityCount) of \(graph.totalEntityCount) entities. Apply filters to explore more.")
-                    .font(.caption)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Show connections to")
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(StoryBibleCategory.murderBoardCategories) { category in
+                            let isSelected = destinationCategories.contains(category)
+                            Button {
+                                toggleDestinationCategory(category, board: board)
+                            } label: {
+                                Label("\(category.murderBoardTitle) (\(graph.connectionCounts[category, default: 0]))", systemImage: category.systemImage)
+                                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.07),
+                                        in: Capsule()
+                                    )
+                                    .overlay(Capsule().stroke(
+                                        isSelected ? Color.accentColor : Color.clear, lineWidth: 1
+                                    ))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                        }
+                    }
+                }
             }
         }
-        .padding()
+        .padding(20)
     }
 
-    private func canvas(board: Document, graph: MurderBoardGraph) -> some View {
-        GeometryReader { proxy in
-            let size = proxy.size
-            ZStack {
-                Color.secondary.opacity(0.06)
-                    .ignoresSafeArea()
+    private func focusCategoryPicker(board: Document) -> some View {
+        Picker("Start with", selection: Binding(
+            get: { state.focusCategory ?? .people },
+            set: { category in
+                persistRelationshipDraftImmediately()
+                state.focusCategory = category
+                state.selectedEntityID = nil
+                state.destinationCategories = nil
+                state.visibleEntityKinds = []
+                state = controller.focusedMurderBoardState(state, in: board.project)
+                selectedRelationshipID = nil
+                schedulePersist(for: board)
+            }
+        )) {
+            ForEach(StoryBibleCategory.murderBoardCategories) { category in
+                Text(category.murderBoardTitle).tag(category)
+            }
+        }
+        .frame(maxWidth: 300)
+    }
 
-                Canvas { context, _ in
-                    for edge in graph.edges {
-                        let source = screenPoint(for: edge.sourcePosition, in: size)
-                        let target = screenPoint(for: edge.targetPosition, in: size)
-                        var path = Path()
-                        path.move(to: source)
-                        path.addLine(to: target)
-                        context.stroke(path, with: .color(.secondary.opacity(0.45)), lineWidth: selectedRelationshipID == edge.id ? 3 : 1.5)
-                    }
+    private func focusEntityPicker(board: Document) -> some View {
+        Picker("Focus on", selection: Binding(
+            get: { state.selectedEntityID },
+            set: {
+                persistRelationshipDraftImmediately()
+                state.selectedEntityID = $0
+                if $0 != nil {
+                    state.destinationCategories = nil
+                    state.visibleEntityKinds = []
+                    state = controller.focusedMurderBoardState(state, in: board.project)
                 }
+                selectedRelationshipID = nil
+                schedulePersist(for: board)
+            }
+        )) {
+            Text("Choose an entry").tag(Optional<UUID>.none)
+            ForEach(startingEntities(in: board.project), id: \.id) { entity in
+                Text(entity.canonicalName).tag(Optional(entity.id))
+            }
+        }
+        .frame(maxWidth: 360)
+    }
 
-                if graph.edges.count <= 60 {
-                    ForEach(graph.edges) { edge in
-                        Button {
-                            selectedRelationshipID = edge.id
-                            state.selectedEntityID = nil
+    private var destinationCategories: [StoryBibleCategory] {
+        let selected = state.destinationCategories ?? [.artifacts]
+        return StoryBibleCategory.murderBoardCategories.filter { selected.contains($0) }
+    }
+
+    private func focusedConnections(board: Document, graph: MurderBoardGraph) -> some View {
+        VStack(spacing: 0) {
+            if let focusID = state.selectedEntityID, graph.nodes.contains(where: { $0.id == focusID }) {
+                HStack(spacing: 12) {
+                    Text("Showing \(graph.edges.count) of \(graph.totalConnectionCount) saved connections")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if graph.hiddenConnectionCount > 0 {
+                        Button("Show all \(graph.totalConnectionCount) connections") {
+                            state.destinationCategories = StoryBibleCategory.murderBoardCategories.filter {
+                                graph.connectionCounts[$0, default: 0] > 0
+                            }
                             schedulePersist(for: board)
-                        } label: {
-                            Text(edge.relationship.kind)
-                                .font(.caption)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(.thinMaterial, in: Capsule())
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(edge.relationship.kind)
-                        .accessibilityValue("\(edge.relationship.sourceEntity.canonicalName) to \(edge.relationship.targetEntity.canonicalName)")
-                        .position(screenPoint(for: edge.labelPosition, in: size))
+                        .buttonStyle(.borderless)
                     }
+                    Spacer()
                 }
-
-                ForEach(graph.nodes) { node in
-                    MurderBoardNodeView(
-                        node: node,
-                        isSelected: state.selectedEntityID == node.id,
-                        open: { controller.openStoryBibleCard(for: node.entity) }
-                    )
-                    .position(screenPoint(for: node.position, in: size))
-                    .simultaneousGesture(TapGesture(count: 2).onEnded {
-                        controller.openStoryBibleCard(for: node.entity)
-                    })
-                    .simultaneousGesture(TapGesture().onEnded {
-                        state.selectedEntityID = node.id
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                MurderBoardDiagram(
+                    graph: graph,
+                    focusID: focusID,
+                    categories: destinationCategories,
+                    selectRelationship: { edge in
+                        persistRelationshipDraftImmediately()
+                        selectedRelationshipID = edge.id
+                        syncRelationshipDrafts(graph: graph)
+                        showsRelationshipInspector = true
+                    },
+                    openEntity: { controller.openStoryBibleCard(for: $0) },
+                    focusEntity: { entity in
+                        persistRelationshipDraftImmediately()
+                        state.focusCategory = StoryBibleCategory.murderBoardCategories.first { $0.contains(kind: entity.kind) }
+                        state.selectedEntityID = entity.id
+                        state.destinationCategories = nil
+                        state.visibleEntityKinds = []
+                        state = controller.focusedMurderBoardState(state, in: board.project)
                         selectedRelationshipID = nil
                         schedulePersist(for: board)
-                    })
-                    .highPriorityGesture(nodeDragGesture(for: node, board: board))
-                }
+                    }
+                )
+            } else {
+                ContentUnavailableView(
+                    "Choose your focus",
+                    systemImage: "point.3.connected.trianglepath.dotted",
+                    description: Text(
+                        startingEntities(in: board.project).isEmpty
+                            ? "There are no entries in this category yet. Add one in the Story Bible or choose another category."
+                            : "Choose a Story Bible entry above to explore its saved relationships."
+                    )
+                )
+                .padding(40)
             }
-            .contentShape(Rectangle())
-            .gesture(canvasPanGesture(board: board))
-            .simultaneousGesture(canvasZoomGesture(board: board))
-            .clipped()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.secondary.opacity(0.04))
     }
 
-    private func inspector(board: Document, graph: MurderBoardGraph, size: CGSize) -> some View {
+    private func inspector(graph: MurderBoardGraph) -> some View {
         Form {
-            Section("Board") {
-                LabeledContent("Visible entities", value: "\(graph.visibleEntityCount)")
-                LabeledContent("Relationships", value: "\(graph.edges.count)")
-                if let selectedBook = state.selectedBookID.flatMap({ id in controller.murderBoardBooks.first(where: { $0.id == id }) }) {
-                    LabeledContent("Book scope", value: selectedBook.title)
-                }
-            }
-
             if let relationship = selectedRelationship(graph: graph) {
                 Section("Selected Relationship") {
                     LabeledContent("Source", value: relationship.sourceEntity.canonicalName)
@@ -946,116 +1024,12 @@ struct MurderBoardView: View {
                         selectedRelationshipID = nil
                         relationshipKindDraft = ""
                         relationshipNotesDraft = ""
-                    }
-                }
-            } else if let node = selectedNode {
-                Section("Selected Entity") {
-                    LabeledContent("Name", value: node.entity.canonicalName)
-                    LabeledContent("Type", value: node.entity.kind.capitalized)
-                    LabeledContent("Scene links", value: "\(controller.linkedScenes(for: node.entity).count)")
-                    if let summary = node.entity.summary?.nilIfBlank {
-                        Text(summary)
-                    }
-                    Toggle("Pinned", isOn: Binding(
-                        get: { state.nodeState(for: node.id)?.isPinned ?? false },
-                        set: { value in
-                            state.updateNodeState(node.id) {
-                                $0.x = node.position.x
-                                $0.y = node.position.y
-                                $0.isPinned = value
-                            }
-                            schedulePersist(for: board)
-                        }
-                    ))
-                    Toggle("Hidden on this board", isOn: Binding(
-                        get: { state.nodeState(for: node.id)?.isHidden ?? false },
-                        set: { value in
-                            state.updateNodeState(node.id) {
-                                $0.x = node.position.x
-                                $0.y = node.position.y
-                                $0.isHidden = value
-                            }
-                            schedulePersist(for: board)
-                        }
-                    ))
-                    Button("Open Story Bible Entry") {
-                        controller.openStoryBibleCard(for: node.entity)
-                    }
-                    Button("Center & Fit") {
-                        state.selectedEntityID = node.id
-                        fitVisible(graph: graph, size: size)
-                        schedulePersist(for: board)
-                    }
-                }
-
-                Section("Relationships") {
-                    if relatedEdges(for: node, graph: graph).isEmpty {
-                        Text("No visible relationships.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(relatedEdges(for: node, graph: graph)) { edge in
-                            Button {
-                                selectedRelationshipID = edge.id
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(edge.relationship.kind)
-                                    Text(otherEntityName(for: edge, selectedID: node.id))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
+                        showsRelationshipInspector = false
                     }
                 }
             } else {
-                Section("Selection") {
-                    Text("Select a node or relationship to inspect and edit it.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var relationshipSheet: some View {
-        NavigationStack {
-            Form {
-                if let node = selectedNode {
-                    LabeledContent("Source", value: node.entity.canonicalName)
-                }
-                Picker("Target", selection: $newRelationshipTargetID) {
-                    ForEach(relationshipTargets, id: \.id) { target in
-                        Text(target.canonicalName).tag(Optional(target.id))
-                    }
-                }
-                TextField("Relationship", text: $newRelationshipKind)
-                TextField("Notes", text: $newRelationshipNotes, axis: .vertical)
-            }
-            .navigationTitle("New Relationship")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { resetRelationshipComposer() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        guard let node = selectedNode,
-                              let target = relationshipTargets.first(where: { $0.id == newRelationshipTargetID }) else {
-                            return
-                        }
-                        do {
-                            try controller.addStoryBibleRelationship(
-                                kind: newRelationshipKind,
-                                notes: newRelationshipNotes,
-                                from: node.entity,
-                                to: target
-                            )
-                            resetRelationshipComposer()
-                        } catch {
-                            controller.report(error)
-                        }
-                    }
-                    .disabled(selectedNode == nil || newRelationshipTargetID == nil || newRelationshipKind.nilIfBlank == nil)
-                }
+                Text("This relationship is no longer available.")
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1066,185 +1040,44 @@ struct MurderBoardView: View {
         return graph.nodes.first { $0.id == state.selectedEntityID }
     }
 
-    private var relationshipTargets: [SemanticEntity] {
-        guard let selectedNode, let project = controller.selectedMurderBoard?.project else { return [] }
-        return storyBibleEntities(in: project).filter { $0.id != selectedNode.id }
-    }
-
     private func storyBibleEntities(in project: WritingProject) -> [SemanticEntity] {
         project.semanticEntities
-            .filter { !$0.isDeleted }
+            .filter { controller.isStoryBibleEntityAvailable($0) }
             .sorted {
                 $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
             }
     }
 
-    private func availableEntityKinds(in project: WritingProject) -> [String] {
-        Array(Set(storyBibleEntities(in: project).map(\.kind))).sorted()
-    }
-
     private func startingEntities(in project: WritingProject) -> [SemanticEntity] {
-        storyBibleEntities(in: project)
+        storyBibleEntities(in: project).filter { (state.focusCategory ?? .people).contains(kind: $0.kind) }
     }
 
     private func selectedRelationship(graph: MurderBoardGraph) -> MurderBoardRelationshipRecord? {
         graph.edges.first { $0.id == selectedRelationshipID }?.relationship
     }
 
-    private func relatedEdges(for node: MurderBoardGraphNode, graph: MurderBoardGraph) -> [MurderBoardGraphEdge] {
-        graph.edges.filter { $0.sourceID == node.id || $0.targetID == node.id }
-    }
-
-    private func otherEntityName(for edge: MurderBoardGraphEdge, selectedID: UUID) -> String {
-        selectedID == edge.sourceID ? edge.relationship.targetEntity.canonicalName : edge.relationship.sourceEntity.canonicalName
-    }
-
-    private func startingEntityTitle(for entity: SemanticEntity) -> String {
-        "\(entity.canonicalName) (\(entity.kind.capitalized))"
-    }
-
     private func loadState(from board: Document) {
         pendingTitleSaveTask?.cancel()
         persistRelationshipDraftImmediately()
         pendingSaveTask?.cancel()
-        state = controller.murderBoardState(for: board)
+        state = controller.focusedMurderBoardState(controller.murderBoardState(for: board), in: board.project)
         selectedRelationshipID = nil
         relationshipKindDraft = ""
         relationshipNotesDraft = ""
         loadedBoardID = board.id
         boardTitleDraft = board.title
+        controller.saveMurderBoardState(state, for: board)
     }
 
-    private func toggleEntityKind(_ kind: String, board: Document) {
-        let availableKinds = Set(availableEntityKinds(in: board.project))
-        var visible = state.visibleEntityKinds.isEmpty ? availableKinds : Set(state.visibleEntityKinds)
-        if visible.contains(kind), visible.count > 1 {
-            visible.remove(kind)
+    private func toggleDestinationCategory(_ category: StoryBibleCategory, board: Document) {
+        var categories = destinationCategories
+        if categories.contains(category) {
+            categories.removeAll { $0 == category }
         } else {
-            visible.insert(kind)
+            categories.append(category)
         }
-        state.visibleEntityKinds = visible == availableKinds ? [] : Array(visible).sorted()
+        state.destinationCategories = categories
         schedulePersist(for: board)
-    }
-
-    private func toggleRelationshipKind(_ kind: String, board: Document) {
-        var hidden = Set(state.hiddenRelationshipKinds)
-        if hidden.contains(kind) {
-            hidden.remove(kind)
-        } else {
-            hidden.insert(kind)
-        }
-        state.hiddenRelationshipKinds = Array(hidden).sorted()
-        schedulePersist(for: board)
-    }
-
-    private func applyAutomaticLayout(for graph: MurderBoardGraph) {
-        let positions = murderBoardAutomaticPositions(for: graph.nodes.map(\.id))
-        for node in graph.nodes {
-            guard let position = positions[node.id] else { continue }
-            state.updateNodeState(node.id) {
-                if !$0.isPinned {
-                    $0.x = position.x
-                    $0.y = position.y
-                }
-            }
-        }
-        state.layoutMode = .automatic
-    }
-
-    private func fitVisible(graph: MurderBoardGraph, size: CGSize) {
-        guard let first = graph.nodes.first else { return }
-        var minX = first.position.x
-        var maxX = first.position.x
-        var minY = first.position.y
-        var maxY = first.position.y
-        for node in graph.nodes.dropFirst() {
-            minX = min(minX, node.position.x)
-            maxX = max(maxX, node.position.x)
-            minY = min(minY, node.position.y)
-            maxY = max(maxY, node.position.y)
-        }
-        let width = max(maxX - minX, 220)
-        let height = max(maxY - minY, 220)
-        let zoom = min(
-            2.5,
-            max(
-                0.4,
-                min((size.width - murderBoardCanvasPadding) / width, (size.height - murderBoardCanvasPadding) / height)
-            )
-        )
-        state.viewport.zoom = zoom
-        state.viewport.offsetX = -(minX + maxX) / 2 * zoom
-        state.viewport.offsetY = -(minY + maxY) / 2 * zoom
-    }
-
-    private func screenPoint(for world: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(
-            x: size.width / 2 + state.viewport.offsetX + world.x * state.viewport.zoom,
-            y: size.height / 2 + state.viewport.offsetY + world.y * state.viewport.zoom
-        )
-    }
-
-    private func canvasPanGesture(board: Document) -> some Gesture {
-        DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                if panOrigin == nil {
-                    panOrigin = CGSize(width: state.viewport.offsetX, height: state.viewport.offsetY)
-                }
-                let origin = panOrigin ?? .zero
-                state.viewport.offsetX = origin.width + value.translation.width
-                state.viewport.offsetY = origin.height + value.translation.height
-            }
-            .onEnded { _ in
-                panOrigin = nil
-                schedulePersist(for: board)
-            }
-    }
-
-    private func canvasZoomGesture(board: Document) -> some Gesture {
-        MagnificationGesture()
-            .onChanged { value in
-                if zoomOrigin == nil {
-                    zoomOrigin = state.viewport.zoom
-                }
-                let origin = zoomOrigin ?? state.viewport.zoom
-                state.viewport.zoom = max(0.4, min(origin * value, 2.5))
-            }
-            .onEnded { _ in
-                zoomOrigin = nil
-                schedulePersist(for: board)
-            }
-    }
-
-    private func nodeDragGesture(for node: MurderBoardGraphNode, board: Document) -> some Gesture {
-        DragGesture(minimumDistance: 1)
-            .onChanged { value in
-                if dragOrigins[node.id] == nil {
-                    dragOrigins[node.id] = node.position
-                }
-                let origin = dragOrigins[node.id] ?? node.position
-                let zoom = max(state.viewport.zoom, 0.01)
-                state.updateNodeState(node.id) {
-                    $0.x = origin.x + value.translation.width / zoom
-                    $0.y = origin.y + value.translation.height / zoom
-                }
-                state.layoutMode = .manual
-            }
-            .onEnded { _ in
-                dragOrigins[node.id] = nil
-                schedulePersist(for: board)
-            }
-    }
-
-    private func resetRelationshipComposer() {
-        newRelationshipTargetID = nil
-        newRelationshipKind = "related to"
-        newRelationshipNotes = ""
-        showsNewRelationship = false
-    }
-
-    private func boardViewportSize(from totalSize: CGSize) -> CGSize {
-        CGSize(width: max(400, totalSize.width - 320), height: totalSize.height)
     }
 
     private func switchBoard(to board: Document) {
@@ -1353,50 +1186,6 @@ struct MurderBoardView: View {
         relationship.kind = normalizedKind
         relationship.notes = notes
         controller.saveCharacterRelationship(relationship)
-    }
-}
-
-private struct MurderBoardNodeView: View {
-    let node: MurderBoardGraphNode
-    let isSelected: Bool
-    let open: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(node.entity.canonicalName)
-                .font(.headline)
-                .lineLimit(2)
-            Text(node.entity.kind.capitalized)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if node.mentionCount > 0 {
-                Text("\(node.mentionCount) scene links")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(10)
-        .frame(width: 160, alignment: .leading)
-        .background(fillColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isSelected ? 2 : 1)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
-        .contextMenu {
-            Button("Open Story Bible Entry", action: open)
-        }
-    }
-
-    private var fillColor: Color {
-        switch node.entity.kind {
-        case SemanticEntityKind.character.rawValue: Color.blue.opacity(0.12)
-        case SemanticEntityKind.location.rawValue: Color.green.opacity(0.12)
-        case SemanticEntityKind.organization.rawValue: Color.orange.opacity(0.12)
-        case SemanticEntityKind.object.rawValue: Color.purple.opacity(0.12)
-        case SemanticEntityKind.event.rawValue: Color.red.opacity(0.12)
-        default: Color.gray.opacity(0.12)
-        }
     }
 }
 

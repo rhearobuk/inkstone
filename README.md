@@ -155,6 +155,60 @@ Apple Intelligence is the default provider when no other provider preference exi
 
 Results are critique and recommendations, with evidence and user-controlled addressed/dismissed status and notes. They do not rewrite or apply changes to the manuscript. History stores snapshots and warns when the current text differs. Model feedback can be mistaken. Mature fiction is submitted as literary material; providers may still refuse it, in which case refusals and incomplete coverage remain visible.
 
+Automatic scene-to-Story-Bible recognition is currently disabled behind
+`WorkspaceController`'s default-off `sceneEntityRecognitionEnabled` switch while
+the logic is refined. Autosave, pending-change flushes, and explicit scene-link
+refreshes do not run recognition or remove existing links. There is no regex
+fallback. Relationship Explorer remains independent: it displays existing Story Bible
+entities and saved relationships, and supports manual relationship editing.
+Existing scene links remain visible, but are not refreshed.
+
+Relationship Explorer uses **Start with → Focus on → Show connections to**: choose
+a Story Bible category, a specific entry, and one or more destination categories.
+The focused entry is a compact node connected to surrounding nodes, arranged by
+category. Each relationship is drawn as a line with its label on the line and an
+arrowhead at the saved target. Only direct saved relationships are shown,
+including incoming connections. Click a line label to inspect, edit, or delete
+the relationship, or click a surrounding node to refocus. Drag to pan and use
+the small zoom/Fit controls to navigate; empty categories do not occupy diagram
+space. Use
+**Add Relationship** and its **Story Bible category** picker to link the focus to any
+category, including Places, independently of the display filters. A newly linked
+category is revealed on the board automatically. Choosing a new focus initially
+shows its connected categories. Category buttons show unfiltered connection
+counts; the diagram shows visible versus total connections with a **Show all**
+action when filters hide links. Category and focus selections are saved per board.
+Story Bible cards also provide a category-based relationship composer; character
+dossiers distinguish character-only relationships from general Story Bible links.
+The shared composer requires a category first, then an entry from that category.
+Changing the category clears the previous entry; no mixed list is presented.
+Existing explicit owner, related-character, and organization-member selections
+on older cards are backfilled into shared relationship records on opening the
+workspace. Editing or deleting these records updates the corresponding card
+selections, so removed links are not recreated on the next launch.
+Old boards retain their saved focus where possible; their old book, depth,
+visibility, and layout settings do not restrict the focused explorer.
+The feature was previously named Murder Board; its storage identifiers remain
+compatible, so existing saved views continue to open.
+
+Imported text entries under Places, Locations, or Settings are presented as
+structured Place cards. Their original body text is copied verbatim into the
+editable Description field. The card provides relationships to other Story Bible
+entries and appears as a target in the shared relationship composer. Original
+source documents and resources remain intact; subsequent imports do not
+overwrite edits to the card's name or description.
+
+When explicitly enabled in code, recognition uses only on-device Apple
+Intelligence, independently of AI Editor's model selection.
+Recognition runs sequentially by entity category, with
+up to 24 candidates per request; each request includes the full scene text.
+If Apple blocks a request, the banner distinguishes a safety-guardrail block from
+a model refusal, identifies the scene and category pass, and includes Apple's
+diagnostic when supplied. Apple may not identify the specific trigger.
+The scene's existing links remain unchanged. Scene edits are saved
+before automatic linking runs. No alternative model or cloud fallback is used.
+This recognition does not infer new relationships between Story Bible entities.
+
 The V5 Core Data model migrates existing stores. Review snapshots remain local and consume storage until the review/project is deleted. OpenAI requests use `store: false`; this is not a promise of zero provider retention. Reported token usage is shown when available, and API calls may incur charges.
 
 For a safe manual preview, run a debug build with `--editor-preview`. This opens a synthetic in-memory project instead of the saved project database. Standard validation: `swift test`. Optional runtime tests: `AUTHOR_APPLE_SMOKE=1 swift test --filter EditorialReviewTests/testAppleRuntimeSmokeWhenExplicitlyEnabled`; optional mature-theme checks use `AUTHOR_APPLE_MATURE_SMOKE=1`. These use synthetic material only and require an available local model. The UI rendering check uses `AUTHOR_RENDER_EDITOR=1 swift test --filter EditorPanelRenderTests`.

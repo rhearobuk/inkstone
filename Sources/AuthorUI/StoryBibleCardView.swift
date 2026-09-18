@@ -19,6 +19,8 @@ struct StoryBibleCardView: View {
                         .accessibilityIdentifier("storyBible.description")
                 }
 
+                StoryBibleRelationshipsSection(entity: card.semanticEntity, controller: controller)
+
                 switch card.semanticEntity.kind {
                 case SemanticEntityKind.location.rawValue:
                     placeFields(card)
@@ -63,7 +65,18 @@ struct StoryBibleCardView: View {
                 }
 
                 StoryBibleLinkedScenesSection(entity: card.semanticEntity, controller: controller)
-                StoryBibleRelationshipsSection(entity: card.semanticEntity, controller: controller)
+                if let source = controller.importedPlaceSource(for: card.semanticEntity) {
+                    Section("Imported Source") {
+                        LabeledContent("Original title", value: source.title)
+                        DisclosureGroup("Original imported text") {
+                            Text(source.plainText ?? "")
+                                .textSelection(.enabled)
+                        }
+                        Text("The original document and its resources are preserved separately from this card.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(card.semanticEntity.canonicalName)

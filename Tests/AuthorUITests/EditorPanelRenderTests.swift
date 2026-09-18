@@ -7,6 +7,108 @@ import AuthorData
 
 @MainActor
 final class EditorPanelRenderTests: XCTestCase {
+    func testRelationshipComposerAndImportedPlaceCardRender() throws {
+        guard let outputPath = ProcessInfo.processInfo.environment["AUTHOR_RENDER_RELATIONSHIP_FORMS"] else {
+            throw XCTSkip("Opt-in relationship form rendering")
+        }
+        _ = NSApplication.shared
+        let controller = WorkspaceController(store: try AuthorDataStore(inMemory: true))
+        let project = try controller.createProject(title: "Place relationships")
+        let person = try controller.addStoryBibleEntry(named: "Mara", category: .people)
+        let places = controller.store.documents.create {
+            $0.sourceIdentifier = $0.id.uuidString
+            $0.title = "Places"
+            $0.kind = DocumentKind.folder.rawValue
+            $0.project = project
+        }
+        let place = controller.store.documents.create {
+            $0.sourceIdentifier = $0.id.uuidString
+            $0.title = "Moon Gate"
+            $0.kind = DocumentKind.text.rawValue
+            $0.plainText = "A silver arch at the city boundary.\nThe gate opens at dawn."
+            $0.project = project
+            $0.parent = places
+        }
+        try controller.store.save()
+        try controller.normalizeImportedPlaceCards()
+        let card = try XCTUnwrap(controller.importedPlaceCard(for: place))
+        try controller.addStoryBibleRelationship(kind: "visits", notes: nil, from: person, to: card.semanticEntity)
+        controller.selection = .storyBibleCard(card.id)
+        let views: [(String, AnyView, NSSize)] = [
+            ("relationship-composer", AnyView(StoryBibleRelationshipComposer(controller: controller, source: person)), NSSize(width: 520, height: 380)),
+            ("imported-place", AnyView(StoryBibleCardView(controller: controller)), NSSize(width: 720, height: 850))
+        ]
+        for (name, view, size) in views {
+            let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark))
+            host.appearance = NSAppearance(named: .darkAqua)
+            host.frame = NSRect(origin: .zero, size: size)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try data.write(to: URL(fileURLWithPath: outputPath).appendingPathComponent("\(name).png"))
+            XCTAssertGreaterThan(data.count, 1000)
+            window.close()
+        }
+    }
+
+    func testFocusedMurderBoardRendersAtWideAndNarrowWidths() throws {
+        guard let outputPath = ProcessInfo.processInfo.environment["AUTHOR_RENDER_MURDER_BOARD"] else {
+            throw XCTSkip("Opt-in Relationship Explorer rendering")
+        }
+        _ = NSApplication.shared
+        let controller = WorkspaceController(store: try AuthorDataStore(inMemory: true))
+        _ = try controller.createProject(title: "Connections")
+        let board = try controller.createMurderBoard(named: "Glinda's connections")
+        let glinda = try controller.addStoryBibleEntry(named: "Glinda", category: .people)
+        for name in ["Wand", "Bubble Carriage"] {
+            let artifact = try controller.addStoryBibleEntry(named: name, category: .artifacts)
+            controller.setCharacters(
+                [try XCTUnwrap(glinda.characterProfile)],
+                for: try XCTUnwrap(artifact.storyBibleCard),
+                relationship: .artifact
+            )
+        }
+        for name in ["Emerald City", "Munchkinland"] {
+            let place = try controller.addStoryBibleEntry(named: name, category: .places)
+            try controller.addStoryBibleRelationship(kind: "visits", notes: nil, from: glinda, to: place)
+        }
+        controller.openMurderBoard(board)
+        let wand = try XCTUnwrap(controller.storyBibleRelationshipTargets.first { $0.canonicalName == "Wand" })
+        let previews: [(String, Int, UUID, StoryBibleCategory, [StoryBibleCategory])] = [
+            ("1000", 1000, glinda.id, .people, [.artifacts, .places]),
+            ("540", 540, glinda.id, .people, [.artifacts, .places]),
+            ("wand", 1000, wand.id, .artifacts, [.people, .artifacts])
+        ]
+        for (name, width, focusID, category, destinations) in previews {
+            var state = MurderBoardState()
+            state.focusCategory = category
+            state.selectedEntityID = focusID
+            state.destinationCategories = destinations
+            controller.saveMurderBoardState(state, for: board)
+            let host = NSHostingView(rootView: MurderBoardView(controller: controller).environment(\.colorScheme, .dark))
+            host.appearance = NSAppearance(named: .darkAqua)
+            host.frame = NSRect(x: 0, y: 0, width: width, height: 760)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try data.write(to: URL(fileURLWithPath: outputPath).appendingPathComponent("murder-board-\(name).png"))
+            XCTAssertGreaterThan(data.count, 1000)
+            window.close()
+        }
+    }
+
     func testPanelRendersAtSidebarWidth() throws {
         guard ProcessInfo.processInfo.environment["AUTHOR_RENDER_EDITOR"] == "1" else { throw XCTSkip("Opt-in visual inspection artifact") }
         _ = NSApplication.shared

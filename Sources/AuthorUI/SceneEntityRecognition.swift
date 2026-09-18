@@ -11,6 +11,17 @@ struct SceneEntityLinkSummary: Identifiable, Equatable {
     var id: UUID { documentID }
 }
 
+enum SceneEntityRecognitionError: LocalizedError {
+    case refused(sceneTitle: String, reason: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .refused(let sceneTitle, let reason):
+            "Automatic Story Bible linking stopped for scene \"\(sceneTitle)\". \(reason) Existing scene links are unchanged. This feature uses only on-device Apple Intelligence."
+        }
+    }
+}
+
 @MainActor
 struct SceneEntityRecognitionService {
     private static let mentionSourcePrefix = "storyBible.entityReference."
@@ -47,7 +58,14 @@ struct SceneEntityRecognitionService {
         }
 
         let entities = Array(document.project.semanticEntities.filter { !$0.isDeleted })
-        let matches = try await resolveMentions(in: text, entities: entities)
+        let matches: [ResolvedCandidateMatch]
+        do {
+            matches = try await resolveMentions(in: text, entities: entities)
+        } catch let error as StoryBibleRecognitionError {
+            throw SceneEntityRecognitionError.refused(sceneTitle: document.title, reason: error.localizedDescription)
+        } catch ReviewClientError.refused {
+            throw SceneEntityRecognitionError.refused(sceneTitle: document.title, reason: "Apple Intelligence declined the recognition request.")
+        }
 
         removeRecognizedMentions(from: document)
         for match in matches {
