@@ -371,7 +371,8 @@ extension WorkspaceController {
             !$0.isDeleted &&
                 !$0.document.isDeleted &&
                 !isDocumentTrashed($0.document) &&
-                $0.document.narrativeType == NarrativeType.scene.rawValue
+                $0.document.narrativeType == NarrativeType.scene.rawValue &&
+                ($0.sourceIdentifier?.hasPrefix("storyBible.entityReference.") ?? false)
         }.count
     }
 
@@ -1072,14 +1073,14 @@ struct MurderBoardView: View {
 
     private func schedulePersist(for board: Document) {
         pendingSaveTask?.cancel()
-        let snapshot = state
         let boardID = board.id
         pendingSaveTask = Task { @MainActor in
             defer { pendingSaveTask = nil }
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             guard let persistedBoard = try? controller.store.documents.fetch(id: boardID) else { return }
-            controller.saveMurderBoardState(snapshot, for: persistedBoard)
+            guard !Task.isCancelled, loadedBoardID == boardID else { return }
+            controller.saveMurderBoardState(state, for: persistedBoard)
         }
     }
 
