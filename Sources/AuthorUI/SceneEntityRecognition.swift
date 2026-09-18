@@ -231,10 +231,29 @@ struct SceneEntityRecognitionService {
                 range: searchRange
             )
             guard foundRange.location != NSNotFound else { break }
-            ranges.append(foundRange)
+            if isWholeMentionBoundary(foundRange, in: text) {
+                ranges.append(foundRange)
+            }
             searchStart = foundRange.location + max(1, foundRange.length)
         }
         return ranges
+    }
+
+    private func isWholeMentionBoundary(_ range: NSRange, in text: NSString) -> Bool {
+        let lettersAndNumbers = CharacterSet.alphanumerics
+        let beforeIndex = range.location - 1
+        if beforeIndex >= 0,
+           let scalar = UnicodeScalar(text.character(at: beforeIndex)),
+           lettersAndNumbers.contains(scalar) {
+            return false
+        }
+        let afterIndex = range.location + range.length
+        if afterIndex < text.length,
+           let scalar = UnicodeScalar(text.character(at: afterIndex)),
+           lettersAndNumbers.contains(scalar) {
+            return false
+        }
+        return true
     }
 
     private func mentionContext(in text: NSString, range: NSRange) -> String {
