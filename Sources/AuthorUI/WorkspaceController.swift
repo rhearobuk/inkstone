@@ -2758,7 +2758,7 @@ public final class WorkspaceController: ObservableObject {
     }
 }
 
-private extension String {
+extension String {
     var nilIfBlank: String? {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
     }

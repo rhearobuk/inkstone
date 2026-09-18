@@ -211,7 +211,7 @@ extension WorkspaceController {
         guard board.title != normalized else { return }
         board.title = normalized
         board.modifiedAt = Date()
-        board.project.modifiedAt = board.modifiedAt ?? Date()
+        board.project.modifiedAt = board.modifiedAt
         do {
             try store.save()
             refresh()
@@ -234,7 +234,7 @@ extension WorkspaceController {
         }
     }
 
-    public func murderBoardState(for board: Document) -> MurderBoardState {
+    func murderBoardState(for board: Document) -> MurderBoardState {
         guard isMurderBoardDocument(board),
               let data = board.plainText?.data(using: .utf8),
               let state = try? JSONDecoder().decode(MurderBoardState.self, from: data) else {
@@ -243,23 +243,22 @@ extension WorkspaceController {
         return state
     }
 
-    public func saveMurderBoardState(_ state: MurderBoardState, for board: Document) {
+    func saveMurderBoardState(_ state: MurderBoardState, for board: Document) {
         guard isMurderBoardDocument(board) else { return }
         let encoded = encodeMurderBoardState(state)
         guard board.plainText != encoded else { return }
         board.plainText = encoded
         board.modifiedAt = Date()
-        board.project.modifiedAt = board.modifiedAt ?? Date()
+        board.project.modifiedAt = board.modifiedAt
         do {
             try store.save()
             objectWillChange.send()
-            lastError = nil
         } catch {
             report(error)
         }
     }
 
-    public func murderBoardGraph(for board: Document, state: MurderBoardState) -> MurderBoardGraph {
+    func murderBoardGraph(for board: Document, state: MurderBoardState) -> MurderBoardGraph {
         guard isMurderBoardDocument(board) else {
             return MurderBoardGraph(
                 nodes: [],
@@ -449,7 +448,7 @@ extension WorkspaceController {
     }
 
     private func murderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
-        let sceneDocuments = project.documents.compactMap { document -> Document? in
+        let sceneDocuments: [Document] = Array(project.documents).compactMap { document -> Document? in
             guard !document.isDeleted,
                   !isDocumentTrashed(document),
                   document.narrativeType == NarrativeType.scene.rawValue,
@@ -458,17 +457,17 @@ extension WorkspaceController {
             }
             return document
         }
-        let mentionedEntityIDs = Set(sceneDocuments.flatMap { document in
+        let mentionedEntityIDs: Set<UUID> = Set(sceneDocuments.flatMap { document in
             document.mentions.compactMap { mention in
                 guard !mention.isDeleted,
                       mention.source.hasPrefix("storyBible.entityReference."),
-                      !mention.entity.isDeleted else {
+                      !mention.semanticEntity.isDeleted else {
                     return nil
                 }
-                return mention.entity.id
+                return mention.semanticEntity.id
             }
         })
-        let sourceBackedEntityIDs = Set(project.characterProfiles.compactMap { profile in
+        let sourceBackedEntityIDs: Set<UUID> = Set(Array(project.characterProfiles).compactMap { profile in
             guard !profile.isDeleted,
                   !profile.semanticEntity.isDeleted,
                   let sourceDocument = profile.sourceDocument,
