@@ -324,6 +324,8 @@ public final class WorkspaceController: ObservableObject {
     @Published public var selectedProjectID: UUID?
     @Published public var selection: WorkspaceSelection?
     @Published public private(set) var binderItems: [BinderItem] = []
+    @Published public private(set) var cachedMurderBoards: [Document] = []
+    @Published public private(set) var cachedMurderBoardBooks: [Document] = []
     @Published public var activeDropTarget: ActiveDropTarget?
     @Published public var labelFilter: String?
     @Published public var statusFilter: String?
@@ -1670,19 +1672,17 @@ public final class WorkspaceController: ObservableObject {
     public func flushPendingChanges() {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
-        let activeRecognitionIDs = activeSceneRecognitionDocumentIDs
         let pendingDocumentSaveIDs = pendingDocumentSaveIDs
             .union(pendingSceneRecognitionTasks.keys)
-            .union(activeRecognitionIDs)
-        let synchronousRefreshIDs = pendingDocumentSaveIDs.subtracting(activeRecognitionIDs)
+            .union(activeSceneRecognitionDocumentIDs)
         self.pendingDocumentSaveIDs.removeAll()
-        for documentID in synchronousRefreshIDs {
+        for documentID in pendingDocumentSaveIDs {
             pendingSceneRecognitionTasks[documentID]?.cancel()
             pendingSceneRecognitionTasks[documentID] = nil
         }
         do {
             try store.save()
-            for documentID in synchronousRefreshIDs {
+            for documentID in pendingDocumentSaveIDs {
                 try SceneEntityRecognitionService(store: store).refreshSceneLinks(for: documentID, saveChanges: false)
             }
             try store.save()
@@ -2334,6 +2334,8 @@ public final class WorkspaceController: ObservableObject {
     private func rebuildBinder() {
         guard let project = selectedProject else {
             binderItems = []
+            cachedMurderBoards = []
+            cachedMurderBoardBooks = []
             labelLookup = [:]
             statusLookup = [:]
             sectionTypeLookup = [:]
@@ -2350,6 +2352,21 @@ public final class WorkspaceController: ObservableObject {
         sectionTypeLookup = Dictionary(
             uniqueKeysWithValues: project.sectionTypeDefinitions.map { ($0.sourceIdentifier, $0) }
         )
+        cachedMurderBoards = project.documents
+            .filter {
+                !$0.isDeleted &&
+                    !isDocumentTrashed($0) &&
+                    $0.parent == nil &&
+                    $0.sectionTypeIdentifier == murderBoardSectionTypeIdentifier
+            }
+            .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
+        cachedMurderBoardBooks = project.documents
+            .filter {
+                !$0.isDeleted &&
+                    !isDocumentTrashed($0) &&
+                    $0.narrativeType == NarrativeType.book.rawValue
+            }
+            .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
 
         let entities = project.semanticEntities.filter {
             $0.characterProfile?.sourceDocument == nil

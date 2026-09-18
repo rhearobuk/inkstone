@@ -1,7 +1,7 @@
 import AuthorData
 import SwiftUI
 
-private let murderBoardSectionTypeIdentifier = "storyBible.murderBoard"
+let murderBoardSectionTypeIdentifier = "storyBible.murderBoard"
 private let murderBoardSourcePrefix = "native.murderBoard."
 private let murderBoardCanvasPadding: CGFloat = 120
 private let murderBoardMaximumVisibleNodes = 80
@@ -116,19 +116,11 @@ extension WorkspaceController {
     }
 
     public var murderBoards: [Document] {
-        guard let project = selectedProject else { return [] }
-        return murderBoardDocuments(in: project)
+        cachedMurderBoards
     }
 
     public var murderBoardBooks: [Document] {
-        guard let project = selectedProject else { return [] }
-        return project.documents
-            .filter {
-                !$0.isDeleted &&
-                    !isDocumentTrashed($0) &&
-                    $0.narrativeType == NarrativeType.book.rawValue
-            }
-            .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
+        cachedMurderBoardBooks
     }
 
     public func isMurderBoardDocument(_ document: Document) -> Bool {
@@ -953,7 +945,11 @@ struct MurderBoardView: View {
     }
 
     private var startingEntities: [SemanticEntity] {
-        controller.storyBibleRelationshipTargets.filter { !$0.isDeleted }
+        (controller.selectedProject?.semanticEntities ?? [])
+            .filter { !$0.isDeleted }
+            .sorted {
+                $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
+            }
     }
 
     private func selectedRelationship(graph: MurderBoardGraph) -> StoryBibleRelationship? {
