@@ -1702,10 +1702,7 @@ public final class WorkspaceController: ObservableObject {
         do {
             try store.save()
             for documentID in recognitionRefreshIDs {
-                try await SceneEntityRecognitionService(
-                    store: store,
-                    recognitionClient: sceneEntityRecognitionClient
-                ).refreshSceneLinks(for: documentID, saveChanges: false)
+                try await sceneEntityRecognitionService().refreshSceneLinks(for: documentID, saveChanges: false)
             }
             try store.save()
             refresh()
@@ -1717,10 +1714,7 @@ public final class WorkspaceController: ObservableObject {
 
     public func refreshSceneEntityLinks(for documentID: UUID) async {
         do {
-            try await SceneEntityRecognitionService(
-                store: store,
-                recognitionClient: sceneEntityRecognitionClient
-            ).refreshSceneLinks(for: documentID)
+            try await sceneEntityRecognitionService().refreshSceneLinks(for: documentID)
             refresh()
             lastError = nil
         } catch is CancellationError {
@@ -1731,8 +1725,11 @@ public final class WorkspaceController: ObservableObject {
 
     public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
         let excludedDocumentIDs = Set(entity.project.documents.filter { isDocumentTrashed($0) }.map(\.id))
-        return SceneEntityRecognitionService(store: store, recognitionClient: sceneEntityRecognitionClient)
-            .linkedScenes(for: entity, excludingDocumentIDs: excludedDocumentIDs)
+        return sceneEntityRecognitionService().linkedScenes(for: entity, excludingDocumentIDs: excludedDocumentIDs)
+    }
+
+    private func sceneEntityRecognitionService() -> SceneEntityRecognitionService {
+        SceneEntityRecognitionService(store: store, recognitionClient: sceneEntityRecognitionClient)
     }
 
     private func scheduleDocumentSave(after delay: Duration, documentID: UUID) {

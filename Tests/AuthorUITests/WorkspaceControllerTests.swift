@@ -1531,6 +1531,41 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
     }
 
+    func testMurderBoardBookScopeIncludesSourceBackedRelationshipsWithoutSceneMentions() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported Scope")
+        let board = try controller.createMurderBoard(named: "Scoped")
+        let book = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.book.rawValue })
+        let sourceDocument = try controller.addDocument(title: "Imported Character", kind: .text, parentID: book.id)
+        let importedEntity = controller.store.semanticEntities.create {
+            $0.canonicalName = "Dorothy Gale"
+            $0.kind = SemanticEntityKind.character.rawValue
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+        }
+        controller.store.characterProfiles.create {
+            $0.firstName = "Dorothy"
+            $0.lastName = "Gale"
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+            $0.semanticEntity = importedEntity
+            $0.sourceDocument = sourceDocument
+        }
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: importedEntity, to: oz)
+
+        var state = MurderBoardState()
+        state.selectedBookID = book.id
+        let graph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
+    }
+
     func testMurderBoardGraphReflectsCanonicalRelationshipUpdates() throws {
         let controller = try makeController()
         _ = try controller.createProject(title: "Canonical Graph")
@@ -1541,15 +1576,52 @@ final class WorkspaceControllerTests: XCTestCase {
 
         var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
         let relationship = try XCTUnwrap(graph.edges.first?.relationship)
-        XCTAssertEqual(relationship.kind, "visits")
+        guard case .storyBible(let storyBibleRelationship) = relationship else {
+            return XCTFail("Expected a Story Bible relationship edge.")
+        }
+        XCTAssertEqual(storyBibleRelationship.kind, "visits")
 
-        relationship.kind = "guards"
-        relationship.notes = "Updated"
-        controller.saveStoryBibleRelationship(relationship)
+        storyBibleRelationship.kind = "guards"
+        storyBibleRelationship.notes = "Updated"
+        controller.saveStoryBibleRelationship(storyBibleRelationship)
 
         graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
         XCTAssertEqual(graph.edges.first?.relationship.kind, "guards")
         XCTAssertEqual(graph.edges.first?.relationship.notes, "Updated")
+    }
+
+    func testMurderBoardGraphIncludesCharacterRelationshipsAndSupportsNodeFilters() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Character Graph")
+        let board = try controller.createMurderBoard(named: "Canonical")
+        let dorothy = try controller.addStoryBibleEntry(named: "Dorothy Gale", category: .people)
+        let toto = try controller.addStoryBibleEntry(named: "Toto", category: .people)
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+        let dorothyProfile = try XCTUnwrap(dorothy.characterProfile)
+        let totoProfile = try XCTUnwrap(toto.characterProfile)
+
+        try controller.addCharacterRelationship(kind: "travels with", notes: "Road companion", from: dorothyProfile, to: totoProfile)
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: dorothy, to: oz)
+
+        var state = MurderBoardState()
+        state.selectedEntityID = dorothy.id
+        state.connectedDepth = .direct
+        state.includeDisconnectedEntities = false
+        var graph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Toto", "Oz"])
+        XCTAssertEqual(Set(graph.edges.map(\.relationship.kind)), ["travels to", "travels with"])
+
+        state.visibleEntityKinds = [SemanticEntityKind.character.rawValue]
+        graph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Toto"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels with"])
+
+        state.visibleEntityKinds = []
+        state.nodeStates = [MurderBoardNodeState(entityID: toto.id, x: 0, y: 0, isPinned: false, isHidden: true)]
+        graph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
     }
 
     func testMurderBoardGraphRemovesDeletedRelationships() throws {
@@ -1562,8 +1634,11 @@ final class WorkspaceControllerTests: XCTestCase {
 
         var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
         let relationship = try XCTUnwrap(graph.edges.first?.relationship)
+        guard case .storyBible(let storyBibleRelationship) = relationship else {
+            return XCTFail("Expected a Story Bible relationship edge.")
+        }
 
-        controller.deleteStoryBibleRelationship(relationship)
+        controller.deleteStoryBibleRelationship(storyBibleRelationship)
 
         graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
         XCTAssertTrue(graph.edges.isEmpty)

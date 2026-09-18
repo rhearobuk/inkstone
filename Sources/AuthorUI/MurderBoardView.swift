@@ -468,11 +468,23 @@ extension WorkspaceController {
                 return mention.entity.id
             }
         })
+        let sourceBackedEntityIDs = Set(project.characterProfiles.compactMap { profile in
+            guard !profile.isDeleted,
+                  !profile.semanticEntity.isDeleted,
+                  let sourceDocument = profile.sourceDocument,
+                  !sourceDocument.isDeleted,
+                  !isDocumentTrashed(sourceDocument),
+                  murderBoardContains(sourceDocument, in: book) else {
+                return nil
+            }
+            return profile.semanticEntity.id
+        })
+        let scopedEntitySeeds = mentionedEntityIDs.union(sourceBackedEntityIDs)
         let relationshipEntityIDs = Set(graphRelationships(in: project).flatMap { relationship in
             let endpointIDs = [relationship.sourceEntity.id, relationship.targetEntity.id]
-            return endpointIDs.contains(where: mentionedEntityIDs.contains) ? endpointIDs : []
+            return endpointIDs.contains(where: scopedEntitySeeds.contains) ? endpointIDs : []
         })
-        return mentionedEntityIDs.union(relationshipEntityIDs)
+        return scopedEntitySeeds.union(relationshipEntityIDs)
     }
 
     private func cachedMurderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
