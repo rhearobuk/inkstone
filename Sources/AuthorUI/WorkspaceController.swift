@@ -1206,39 +1206,20 @@ public final class WorkspaceController: ObservableObject {
             throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
         }
         let now = Date()
-        let entity = store.semanticEntities.create {
-            $0.canonicalName = name
-            $0.kind = (kind ?? category.defaultEntityKind).rawValue
-            $0.source = ProvenanceAgent.human.rawValue
-            $0.createdAt = now
-            $0.modifiedAt = now
-            $0.project = project
-        }
-        let card = store.storyBibleCards.create {
-            $0.createdAt = now
-            $0.modifiedAt = now
-            $0.project = project
-            $0.semanticEntity = entity
-        }
-        if entity.kind == SemanticEntityKind.character.rawValue {
-            let nameComponents = name.split(whereSeparator: \.isWhitespace).map(String.init)
-            let profile = store.characterProfiles.create {
-                $0.firstName = nameComponents.first ?? name
-                $0.middleName = nameComponents.count > 2
-                    ? nameComponents.dropFirst().dropLast().joined(separator: " ")
-                    : nil
-                $0.lastName = nameComponents.count > 1 ? nameComponents.last : nil
-                $0.source = ProvenanceAgent.human.rawValue
-                $0.createdAt = now
-                $0.modifiedAt = now
-                $0.project = project
-                $0.semanticEntity = entity
-            }
+        let creation = createStoryBibleEntity(
+            in: store,
+            project: project,
+            name: name,
+            kind: kind ?? category.defaultEntityKind,
+            source: .human,
+            at: now
+        )
+        let entity = creation.entity
+        if let profile = creation.profile {
             selection = .characterProfile(profile.id)
         } else {
-            selection = .storyBibleCard(card.id)
+            selection = .storyBibleCard(creation.card.id)
         }
-        project.modifiedAt = now
         try store.save()
         refresh()
         return entity

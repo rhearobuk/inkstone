@@ -141,36 +141,13 @@ struct SceneEntityRecognitionService {
         in project: WritingProject,
         kind: SemanticEntityKind
     ) throws -> SemanticEntity {
-        let now = Date()
-        let entity = store.semanticEntities.create {
-            $0.canonicalName = name
-            $0.kind = kind.rawValue
-            $0.source = ProvenanceAgent.automation.rawValue
-            $0.createdAt = now
-            $0.modifiedAt = now
-            $0.project = project
-        }
-        _ = store.storyBibleCards.create {
-            $0.createdAt = now
-            $0.modifiedAt = now
-            $0.project = project
-            $0.semanticEntity = entity
-        }
-        if kind == .character {
-            let parts = name.split(whereSeparator: \.isWhitespace).map(String.init)
-            store.characterProfiles.create {
-                $0.firstName = parts.first ?? name
-                $0.middleName = parts.count > 2 ? parts.dropFirst().dropLast().joined(separator: " ") : nil
-                $0.lastName = parts.count > 1 ? parts.last : nil
-                $0.source = ProvenanceAgent.automation.rawValue
-                $0.createdAt = now
-                $0.modifiedAt = now
-                $0.project = project
-                $0.semanticEntity = entity
-            }
-        }
-        project.modifiedAt = now
-        return entity
+        createStoryBibleEntity(
+            in: store,
+            project: project,
+            name: name,
+            kind: kind,
+            source: .automation
+        ).entity
     }
 
     private func index(_ entity: SemanticEntity, in lookup: inout [String: SemanticEntity]) {

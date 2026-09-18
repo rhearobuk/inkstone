@@ -212,7 +212,8 @@ extension WorkspaceController {
         board.project.modifiedAt = board.modifiedAt ?? Date()
         do {
             try store.save()
-            refresh()
+            objectWillChange.send()
+            lastError = nil
         } catch {
             report(error)
         }
@@ -221,7 +222,7 @@ extension WorkspaceController {
     public func murderBoardGraph(for board: Document, state: MurderBoardState) -> MurderBoardGraph {
         let project = board.project
         let allEntities = project.semanticEntities
-            .filter { $0.characterProfile?.sourceDocument == nil }
+            .filter { !$0.isDeleted && $0.characterProfile?.sourceDocument == nil }
             .sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }
         let visibleKinds = state.visibleEntityKinds.isEmpty
             ? Set(SemanticEntityKind.allCases.map(\.rawValue))
@@ -238,11 +239,10 @@ extension WorkspaceController {
                 (bookScopedEntityIDs?.contains(entity.id) ?? true)
         }
 
-        let availableRelationshipKinds = Array(Set(project.semanticEntities.flatMap { entity in
-            entity.outgoingStoryBibleRelationships.map(\.kind)
-        })).sorted()
+        let allRelationships = uniqueRelationships(in: project)
+        let availableRelationshipKinds = Array(Set(allRelationships.map(\.kind))).sorted()
         let hiddenRelationshipKinds = Set(state.hiddenRelationshipKinds)
-        var relationships = uniqueRelationships(in: project).filter { relationship in
+        var relationships = allRelationships.filter { relationship in
             !hiddenRelationshipKinds.contains(relationship.kind)
         }
 
@@ -292,7 +292,7 @@ extension WorkspaceController {
                 ),
                 isPinned: saved?.isPinned ?? false,
                 isHidden: saved?.isHidden ?? false,
-                mentionCount: entity.mentions.count
+                mentionCount: murderBoardSceneMentionCount(for: entity)
             )
         }
         let positionLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0.position) })
@@ -337,11 +337,25 @@ extension WorkspaceController {
         var seen = Set<UUID>()
         return project.semanticEntities
             .flatMap(\.outgoingStoryBibleRelationships)
-            .filter { seen.insert($0.id).inserted }
+            .filter {
+                !$0.isDeleted &&
+                    !$0.sourceEntity.isDeleted &&
+                    !$0.targetEntity.isDeleted &&
+                    seen.insert($0.id).inserted
+            }
             .sorted {
                 ($0.kind, $0.sourceEntity.canonicalName, $0.targetEntity.canonicalName, $0.id.uuidString) <
                     ($1.kind, $1.sourceEntity.canonicalName, $1.targetEntity.canonicalName, $1.id.uuidString)
             }
+    }
+
+    private func murderBoardSceneMentionCount(for entity: SemanticEntity) -> Int {
+        entity.mentions.filter {
+            !$0.isDeleted &&
+                !$0.document.isDeleted &&
+                !isDocumentTrashed($0.document) &&
+                $0.document.narrativeType == NarrativeType.scene.rawValue
+        }.count
     }
 
     private func murderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
@@ -482,6 +496,7 @@ struct MurderBoardView: View {
     @State private var panOrigin: CGSize?
     @State private var zoomOrigin: Double?
     @State private var dragOrigins: [UUID: CGPoint] = [:]
+    @State private var pendingSaveTask: Task<Void, Never>?
 
     var body: some View {
         if let board = controller.selectedMurderBoard {
@@ -504,8 +519,9 @@ struct MurderBoardView: View {
                     loadState(from: board)
                 }
                 .onChange(of: state) { _, newValue in
-                    controller.saveMurderBoardState(newValue, for: board)
+                    schedulePersist(for: board)
                 }
+                .onDisappear { persistState(for: board) }
             }
             .navigationTitle(board.title)
             .sheet(isPresented: $showsNewRelationship) {
@@ -852,6 +868,7 @@ struct MurderBoardView: View {
     }
 
     private func loadState(from board: Document) {
+        pendingSaveTask?.cancel()
         state = controller.murderBoardState(for: board)
         selectedRelationshipID = nil
     }
@@ -980,6 +997,22 @@ struct MurderBoardView: View {
 
     private func boardViewportSize(from totalSize: CGSize) -> CGSize {
         CGSize(width: max(400, totalSize.width - 320), height: totalSize.height)
+    }
+
+    private func schedulePersist(for board: Document) {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            controller.saveMurderBoardState(state, for: board)
+            pendingSaveTask = nil
+        }
+    }
+
+    private func persistState(for board: Document) {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = nil
+        controller.saveMurderBoardState(state, for: board)
     }
 }
 
