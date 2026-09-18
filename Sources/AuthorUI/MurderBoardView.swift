@@ -235,7 +235,7 @@ extension WorkspaceController {
         }
         let project = board.project
         let allEntities = project.semanticEntities
-            .filter { !$0.isDeleted && $0.characterProfile?.sourceDocument == nil }
+            .filter { !$0.isDeleted }
             .sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }
         let visibleKinds = state.visibleEntityKinds.isEmpty
             ? Set(SemanticEntityKind.allCases.map(\.rawValue))
@@ -597,6 +597,24 @@ struct MurderBoardView: View {
             }
 
             HStack {
+                Picker("Start From", selection: Binding(
+                    get: { state.selectedEntityID },
+                    set: {
+                        state.selectedEntityID = $0
+                        selectedRelationshipID = nil
+                        if $0 != nil, state.connectedDepth == .allVisible {
+                            state.connectedDepth = .direct
+                        }
+                        schedulePersist(for: board)
+                    }
+                )) {
+                    Text("All Story Bible Elements").tag(Optional<UUID>.none)
+                    ForEach(startingEntities, id: \.id) { entity in
+                        Text(startingEntityTitle(for: entity)).tag(Optional(entity.id))
+                    }
+                }
+                .frame(maxWidth: 320)
+
                 Picker("Book", selection: Binding(
                     get: { state.selectedBookID },
                     set: {
@@ -926,6 +944,10 @@ struct MurderBoardView: View {
         return controller.storyBibleRelationshipTargets.filter { $0.id != selectedNode.id }
     }
 
+    private var startingEntities: [SemanticEntity] {
+        controller.storyBibleRelationshipTargets.filter { !$0.isDeleted }
+    }
+
     private func selectedRelationship(graph: MurderBoardGraph) -> StoryBibleRelationship? {
         graph.edges.first { $0.id == selectedRelationshipID }?.relationship
     }
@@ -936,6 +958,10 @@ struct MurderBoardView: View {
 
     private func otherEntityName(for edge: MurderBoardGraphEdge, selectedID: UUID) -> String {
         selectedID == edge.sourceID ? edge.relationship.targetEntity.canonicalName : edge.relationship.sourceEntity.canonicalName
+    }
+
+    private func startingEntityTitle(for entity: SemanticEntity) -> String {
+        "\(entity.canonicalName) (\(entity.kind.capitalized))"
     }
 
     private func loadState(from board: Document) {

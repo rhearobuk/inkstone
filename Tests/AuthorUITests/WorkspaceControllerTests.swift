@@ -1429,6 +1429,49 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertTrue(graph.edges.isEmpty)
     }
 
+    func testMurderBoardGraphIncludesSourceBackedCharacterEntities() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported Graph")
+        let board = try controller.createMurderBoard(named: "Imported")
+        let importCard = controller.store.documents.create {
+            $0.sourceIdentifier = "imported-character-card"
+            $0.title = "Imported Character"
+            $0.kind = DocumentKind.text.rawValue
+            $0.orderIndex = 0
+            $0.project = project
+        }
+        let importedEntity = controller.store.semanticEntities.create {
+            $0.canonicalName = "Dorothy Gale"
+            $0.kind = SemanticEntityKind.character.rawValue
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+        }
+        controller.store.characterProfiles.create {
+            $0.firstName = "Dorothy"
+            $0.lastName = "Gale"
+            $0.source = ProvenanceAgent.sourceImport.rawValue
+            $0.createdAt = Date()
+            $0.modifiedAt = Date()
+            $0.project = project
+            $0.semanticEntity = importedEntity
+            $0.sourceDocument = importCard
+        }
+        let oz = try controller.addStoryBibleEntry(named: "Oz", category: .places)
+        try controller.addStoryBibleRelationship(kind: "travels to", notes: nil, from: importedEntity, to: oz)
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+
+        var state = MurderBoardState()
+        state.selectedEntityID = importedEntity.id
+        state.connectedDepth = .direct
+        graph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(Set(graph.nodes.map(\.entity.canonicalName)), ["Dorothy Gale", "Oz"])
+        XCTAssertEqual(graph.edges.map(\.relationship.kind), ["travels to"])
+    }
+
     private func makeController() throws -> WorkspaceController {
         WorkspaceController(store: try AuthorDataStore(inMemory: true))
     }
