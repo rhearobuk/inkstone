@@ -398,11 +398,12 @@ public struct AuthorWorkspaceView: View {
     }
 
     private func flushDeferredBindingTasks() {
-        for task in deferredBindingTasks.values {
+        let keys = Array(deferredBindingTasks.keys)
+        for key in keys {
+            guard let task = deferredBindingTasks.removeValue(forKey: key) else { continue }
             task.task.cancel()
             task.apply()
         }
-        deferredBindingTasks.removeAll()
     }
 
     private struct DeferredBindingTask {

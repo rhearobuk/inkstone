@@ -51,7 +51,7 @@ struct SceneEntityRecognitionService {
 
         removeRecognizedMentions(from: document)
         for match in matches {
-            createMention(match.candidate, source: Self.mentionSourcePrefix + "appleIntelligence", entity: match.entity, document: document)
+            createMention(match.candidate, source: Self.mentionSourcePrefix + "recognized", entity: match.entity, document: document)
         }
 
         let refreshTime = Date()

@@ -246,11 +246,10 @@ extension WorkspaceController {
     public func saveMurderBoardState(_ state: MurderBoardState, for board: Document) {
         guard isMurderBoardDocument(board) else { return }
         let encoded = encodeMurderBoardState(state)
-        if board.plainText != encoded {
-            board.plainText = encoded
-            board.modifiedAt = Date()
-            board.project.modifiedAt = board.modifiedAt ?? Date()
-        }
+        guard board.plainText != encoded else { return }
+        board.plainText = encoded
+        board.modifiedAt = Date()
+        board.project.modifiedAt = board.modifiedAt ?? Date()
         do {
             try store.save()
             objectWillChange.send()
@@ -275,8 +274,9 @@ extension WorkspaceController {
         let allEntities = project.semanticEntities
             .filter { !$0.isDeleted }
             .sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }
+        let availableEntityKindValues = Set(allEntities.map(\.kind))
         let visibleKinds = state.visibleEntityKinds.isEmpty
-            ? Set(SemanticEntityKind.allCases.map(\.rawValue))
+            ? availableEntityKindValues
             : Set(state.visibleEntityKinds)
         let hiddenEntityIDs = Set(state.nodeStates.filter(\.isHidden).map(\.entityID))
         let selectedBook = state.selectedBookID.flatMap { id in project.documents.first { !$0.isDeleted && $0.id == id } }
@@ -762,12 +762,12 @@ struct MurderBoardView: View {
 
             HStack {
                 Menu("Entity Types") {
-                    ForEach(SemanticEntityKind.allCases, id: \.rawValue) { kind in
-                        let isVisible = state.visibleEntityKinds.isEmpty || state.visibleEntityKinds.contains(kind.rawValue)
+                    ForEach(availableEntityKinds(in: board.project), id: \.self) { kind in
+                        let isVisible = state.visibleEntityKinds.isEmpty || state.visibleEntityKinds.contains(kind)
                         Button {
-                            toggleEntityKind(kind.rawValue, board: board)
+                            toggleEntityKind(kind, board: board)
                         } label: {
-                            Label(kind.rawValue.capitalized, systemImage: isVisible ? "checkmark.circle.fill" : "circle")
+                            Label(kind.capitalized, systemImage: isVisible ? "checkmark.circle.fill" : "circle")
                         }
                     }
                 }
@@ -1066,6 +1066,10 @@ struct MurderBoardView: View {
             }
     }
 
+    private func availableEntityKinds(in project: WritingProject) -> [String] {
+        Array(Set(storyBibleEntities(in: project).map(\.kind))).sorted()
+    }
+
     private func startingEntities(in project: WritingProject) -> [SemanticEntity] {
         storyBibleEntities(in: project)
     }
@@ -1099,13 +1103,14 @@ struct MurderBoardView: View {
     }
 
     private func toggleEntityKind(_ kind: String, board: Document) {
-        var visible = state.visibleEntityKinds.isEmpty ? Set(SemanticEntityKind.allCases.map(\.rawValue)) : Set(state.visibleEntityKinds)
+        let availableKinds = Set(availableEntityKinds(in: board.project))
+        var visible = state.visibleEntityKinds.isEmpty ? availableKinds : Set(state.visibleEntityKinds)
         if visible.contains(kind), visible.count > 1 {
             visible.remove(kind)
         } else {
             visible.insert(kind)
         }
-        state.visibleEntityKinds = visible.count == SemanticEntityKind.allCases.count ? [] : Array(visible).sorted()
+        state.visibleEntityKinds = visible == availableKinds ? [] : Array(visible).sorted()
         schedulePersist(for: board)
     }
 
@@ -1393,10 +1398,4 @@ private func murderBoardAutomaticPositions(for entityIDs: [UUID]) -> [UUID: CGPo
         let point = CGPoint(x: cos(angle) * radius, y: sin(angle) * radius)
         return (id, point)
     })
-}
-
-private extension String {
-    var nilIfBlank: String? {
-        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
-    }
 }
