@@ -381,6 +381,8 @@ extension WorkspaceController {
             entity.mentions.contains { mention in
                 !mention.document.isDeleted &&
                     !isDocumentTrashed(mention.document) &&
+                    mention.document.narrativeType == NarrativeType.scene.rawValue &&
+                    mention.source.hasPrefix("storyBible.entityReference.") &&
                     murderBoardContains(mention.document, in: book)
             } ? entity.id : nil
         })
@@ -797,6 +799,8 @@ struct MurderBoardView: View {
                         pendingRelationshipSaveTask?.cancel()
                         controller.deleteStoryBibleRelationship(relationship)
                         selectedRelationshipID = nil
+                        relationshipKindDraft = ""
+                        relationshipNotesDraft = ""
                     }
                 }
             } else if let node = selectedNode {

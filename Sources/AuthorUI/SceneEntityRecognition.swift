@@ -157,7 +157,7 @@ struct SceneEntityRecognitionService {
     }
 
     private func index(_ entity: SemanticEntity, in lookup: inout [String: SemanticEntity]) {
-        for key in normalizedLookupKeys(for: entity.canonicalName) where lookup[key] == nil {
+        for key in normalizedLookupKeys(for: entity.canonicalName, kindHint: entity.kind) where lookup[key] == nil {
             lookup[key] = entity
         }
         for alias in entity.aliases {
@@ -223,13 +223,24 @@ struct SceneEntityRecognitionService {
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
     }
 
-    private func normalizedLookupKeys(for value: String) -> [String] {
+    private func normalizedLookupKeys(for value: String, kindHint: String? = nil) -> [String] {
         let normalizedValue = normalized(value)
         guard !normalizedValue.isEmpty else { return [] }
         if normalizedValue.hasPrefix("the ") {
             return [normalizedValue, String(normalizedValue.dropFirst(4))]
         }
-        return [normalizedValue, "the \(normalizedValue)"]
+        if supportsLeadingArticleVariant(for: value, kindHint: kindHint) {
+            return [normalizedValue, "the \(normalizedValue)"]
+        }
+        return [normalizedValue]
+    }
+
+    private func supportsLeadingArticleVariant(for value: String, kindHint: String?) -> Bool {
+        if kindHint == SemanticEntityKind.organization.rawValue {
+            return true
+        }
+        let words = value.split(separator: " ").map(String.init)
+        return words.contains(where: { Self.organizationKeywords.contains($0) })
     }
 
     private func isLikelyCharacterName(_ words: [String]) -> Bool {
