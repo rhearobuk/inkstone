@@ -209,9 +209,10 @@ extension WorkspaceController {
     public func renameMurderBoard(_ board: Document, title: String) {
         let normalized = title.nilIfBlank ?? "Untitled Board"
         guard board.title != normalized else { return }
+        let now = Date()
         board.title = normalized
-        board.modifiedAt = Date()
-        board.project.modifiedAt = board.modifiedAt
+        board.modifiedAt = now
+        board.project.modifiedAt = now
         do {
             try store.save()
             refresh()
@@ -247,9 +248,10 @@ extension WorkspaceController {
         guard isMurderBoardDocument(board) else { return }
         let encoded = encodeMurderBoardState(state)
         guard board.plainText != encoded else { return }
+        let now = Date()
         board.plainText = encoded
-        board.modifiedAt = Date()
-        board.project.modifiedAt = board.modifiedAt
+        board.modifiedAt = now
+        board.project.modifiedAt = now
         do {
             try store.save()
             objectWillChange.send()
