@@ -285,7 +285,7 @@ extension WorkspaceController {
         }
 
         var isTruncated = false
-        if state.selectedEntityID == nil,
+        if state.connectedDepth == .allVisible,
            state.selectedBookID == nil,
            entities.count > murderBoardMaximumVisibleNodes {
             let prioritizedIDs = uniqueEntityIDs(from: relationships)
