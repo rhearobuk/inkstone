@@ -23,7 +23,7 @@ public struct AuthorWorkspaceView: View {
     @State private var showsNewStoryBibleEntry = false
     @State private var storyBibleEntryName = ""
     @State private var storyBibleEntryCategory: StoryBibleCategory?
-    @State private var deferredBindingTask: Task<Void, Never>?
+    @State private var deferredBindingTasks: [String: Task<Void, Never>] = [:]
     @FocusState private var isBinderFindFocused: Bool
 
     public init(controller: WorkspaceController, editorInitiallyVisible: Bool = false) {
@@ -146,6 +146,7 @@ public struct AuthorWorkspaceView: View {
                         Toggle(
                             "Show Hidden Items",
                             isOn: deferredBinding(
+                                key: "showsHiddenDocuments",
                                 get: { controller.showsHiddenDocuments },
                                 set: { controller.showsHiddenDocuments = $0 }
                             )
@@ -372,13 +373,14 @@ public struct AuthorWorkspaceView: View {
     }
 
     private func deferredBinding(
+        key: String,
         get: @escaping @MainActor @Sendable () -> Bool,
         set: @escaping @MainActor @Sendable (Bool) -> Void
     ) -> Binding<Bool> {
         Binding(get: get) { newValue in
-            deferredBindingTask?.cancel()
-            deferredBindingTask = Task { @MainActor in
-                defer { deferredBindingTask = nil }
+            deferredBindingTasks[key]?.cancel()
+            deferredBindingTasks[key] = Task { @MainActor in
+                defer { deferredBindingTasks[key] = nil }
                 await Task.yield()
                 guard !Task.isCancelled else { return }
                 set(newValue)
@@ -453,6 +455,7 @@ public struct AuthorWorkspaceView: View {
                     Toggle(
                         "Show Hidden Projects",
                         isOn: deferredBinding(
+                            key: "showsHiddenProjects",
                             get: { controller.showsHiddenProjects },
                             set: { controller.showsHiddenProjects = $0 }
                         )
