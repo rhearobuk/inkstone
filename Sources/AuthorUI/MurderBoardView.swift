@@ -141,8 +141,10 @@ extension WorkspaceController {
             throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
         }
         let now = Date()
+        let boardID = UUID()
         let board = store.documents.create {
-            $0.sourceIdentifier = murderBoardSourcePrefix + $0.id.uuidString
+            $0.id = boardID
+            $0.sourceIdentifier = murderBoardSourcePrefix + boardID.uuidString
             $0.title = name.nilIfBlank ?? "New Murder Board"
             $0.kind = DocumentKind.text.rawValue
             $0.orderIndex = (murderBoardDocuments(in: project).map(\.orderIndex).max() ?? -1) + 1

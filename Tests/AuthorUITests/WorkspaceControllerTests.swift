@@ -380,6 +380,24 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(Set(scene.mentions.map(\.semanticEntity.id)), [entity.id])
     }
 
+    func testSceneSaveReusesCanonicalOrganizationWhenSceneAddsLeadingThe() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "World")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        let entity = try controller.addStoryBibleEntry(named: "Harbor Council", category: .organizations)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "the Harbor Council summoned Mara Venn."
+        )
+        controller.flushPendingChanges()
+
+        XCTAssertEqual(project.semanticEntities.filter { $0.kind == SemanticEntityKind.organization.rawValue }.count, 1)
+        XCTAssertEqual(scene.mentions.first { $0.surfaceText == "the Harbor Council" }?.semanticEntity.id, entity.id)
+    }
+
     func testSceneSaveRecognizesLowercaseLeadingOrganizationReference() throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")

@@ -92,6 +92,7 @@ struct SceneEntityRecognitionService {
             $0.document.narrativeType == NarrativeType.scene.rawValue
                 && !$0.document.isDeleted
                 && !excludingDocumentIDs.contains($0.document.id)
+                && $0.source.hasPrefix(Self.mentionSourcePrefix)
         }, by: { $0.document.id })
 
         return grouped.values.compactMap { mentions in
@@ -152,11 +153,11 @@ struct SceneEntityRecognitionService {
     }
 
     private func index(_ entity: SemanticEntity, in lookup: inout [String: SemanticEntity]) {
-        for key in normalizedLookupKeys(for: entity.canonicalName) where lookup[key] == nil {
+        for key in normalizedLookupKeys(for: entity.canonicalName, kind: entity.kind) where lookup[key] == nil {
             lookup[key] = entity
         }
         for alias in entity.aliases {
-            for key in normalizedLookupKeys(for: alias.name) where lookup[key] == nil {
+            for key in normalizedLookupKeys(for: alias.name, kind: entity.kind) where lookup[key] == nil {
                 lookup[key] = entity
             }
         }
@@ -218,11 +219,14 @@ struct SceneEntityRecognitionService {
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
     }
 
-    private func normalizedLookupKeys(for value: String) -> [String] {
+    private func normalizedLookupKeys(for value: String, kind: String? = nil) -> [String] {
         let normalizedValue = normalized(value)
         guard !normalizedValue.isEmpty else { return [] }
         if normalizedValue.hasPrefix("the ") {
             return [normalizedValue, String(normalizedValue.dropFirst(4))]
+        }
+        if kind == SemanticEntityKind.organization.rawValue {
+            return [normalizedValue, "the \(normalizedValue)"]
         }
         return [normalizedValue]
     }
