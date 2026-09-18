@@ -1310,7 +1310,7 @@ final class WorkspaceControllerTests: XCTestCase {
 
     func testMurderBoardStatePersistsAndDeletingBoardKeepsStoryBibleData() throws {
         let controller = try makeController()
-        _ = try controller.createProject(title: "Persistence")
+        let project = try controller.createProject(title: "Persistence")
         let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
         let moonGate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
         try controller.addStoryBibleRelationship(kind: "guards", notes: "Night watch", from: mara, to: moonGate)
@@ -1334,9 +1334,13 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.nodeState(for: mara.id)?.isPinned, true)
         XCTAssertEqual(persisted.hiddenRelationshipKinds, ["betrays"])
 
+        controller.renameMurderBoard(board, title: "Night Watch")
+        XCTAssertEqual(controller.murderBoards.map(\.title), ["Night Watch"])
+
         controller.deleteMurderBoard(board)
 
         XCTAssertEqual(controller.murderBoards.count, 0)
+        XCTAssertEqual(controller.selection, .murderBoardOverview(project.id))
         XCTAssertEqual(controller.selectedProject?.semanticEntities.count, 2)
         XCTAssertEqual(mara.outgoingStoryBibleRelationships.count, 1)
     }

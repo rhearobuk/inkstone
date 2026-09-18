@@ -1693,6 +1693,7 @@ public final class WorkspaceController: ObservableObject {
         do {
             try SceneEntityRecognitionService(store: store).refreshSceneLinks(for: documentID)
             refresh()
+            lastError = nil
         } catch {
             report(error)
         }

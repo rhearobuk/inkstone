@@ -367,7 +367,9 @@ extension WorkspaceController {
     private func murderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
         Set(project.semanticEntities.compactMap { entity in
             entity.mentions.contains { mention in
-                !mention.document.isDeleted && murderBoardContains(mention.document, in: book)
+                !mention.document.isDeleted &&
+                    !isDocumentTrashed(mention.document) &&
+                    murderBoardContains(mention.document, in: book)
             } ? entity.id : nil
         })
     }
@@ -535,7 +537,7 @@ struct MurderBoardView: View {
                 .onChange(of: board.id) { _, _ in
                     loadState(from: board)
                 }
-                .onChange(of: state) { _, newValue in
+                .onChange(of: state) { _, _ in
                     schedulePersist(for: board)
                 }
                 .onDisappear { persistState(for: board) }
