@@ -6,6 +6,12 @@ private let murderBoardSourcePrefix = "native.murderBoard."
 private let murderBoardCanvasPadding: CGFloat = 120
 private let murderBoardMaximumVisibleNodes = 80
 
+struct MurderBoardBookScopeCacheKey: Hashable {
+    let projectID: UUID
+    let projectModifiedAt: Date?
+    let bookID: UUID
+}
+
 struct MurderBoardNodeState: Codable, Equatable, Identifiable {
     var entityID: UUID
     var x: Double
@@ -235,7 +241,7 @@ extension WorkspaceController {
         let includedEntityIDs = state.includedEntityIDs.isEmpty ? nil : Set(state.includedEntityIDs)
         let hiddenEntityIDs = Set(state.nodeStates.filter(\.isHidden).map(\.entityID))
         let selectedBook = state.selectedBookID.flatMap { id in project.documents.first { !$0.isDeleted && $0.id == id } }
-        let bookScopedEntityIDs = selectedBook.map { murderBoardEntityIDs(in: $0, project: project) }
+        let bookScopedEntityIDs = selectedBook.map { cachedMurderBoardEntityIDs(in: $0, project: project) }
 
         var entities = allEntities.filter { entity in
             visibleKinds.contains(entity.kind) &&
@@ -409,6 +415,20 @@ extension WorkspaceController {
         return mentionedEntityIDs.union(relationshipEntityIDs)
     }
 
+    private func cachedMurderBoardEntityIDs(in book: Document, project: WritingProject) -> Set<UUID> {
+        let key = MurderBoardBookScopeCacheKey(
+            projectID: project.id,
+            projectModifiedAt: project.modifiedAt,
+            bookID: book.id
+        )
+        if let cached = murderBoardBookScopedEntityCache[key] {
+            return cached
+        }
+        let entityIDs = murderBoardEntityIDs(in: book, project: project)
+        murderBoardBookScopedEntityCache[key] = entityIDs
+        return entityIDs
+    }
+
     private func murderBoardContains(_ document: Document, in book: Document) -> Bool {
         document.id == book.id || document.ancestors.contains(where: { $0.id == book.id })
     }
@@ -554,7 +574,9 @@ struct MurderBoardView: View {
     @State private var dragOrigins: [UUID: CGPoint] = [:]
     @State private var pendingSaveTask: Task<Void, Never>?
     @State private var pendingRelationshipSaveTask: Task<Void, Never>?
+    @State private var pendingTitleSaveTask: Task<Void, Never>?
     @State private var loadedBoardID: UUID?
+    @State private var boardTitleDraft = ""
 
     var body: some View {
         if let board = controller.selectedMurderBoard {
@@ -580,6 +602,7 @@ struct MurderBoardView: View {
                     syncRelationshipDrafts(graph: graph)
                 }
                 .onDisappear {
+                    persistTitleImmediately(for: board)
                     persistState(for: board)
                 }
             }
@@ -598,12 +621,15 @@ struct MurderBoardView: View {
             HStack {
                 TextField(
                     "Board Name",
-                    text: Binding(
-                        get: { board.title },
-                        set: { controller.renameMurderBoard(board, title: $0) }
-                    )
+                    text: $boardTitleDraft
                 )
                 .textFieldStyle(.roundedBorder)
+                .onChange(of: boardTitleDraft) { _, _ in
+                    scheduleTitlePersist(for: board)
+                }
+                .onSubmit {
+                    persistTitleImmediately(for: board)
+                }
 
                 Button {
                     showsNewRelationship = true
@@ -991,6 +1017,7 @@ struct MurderBoardView: View {
     }
 
     private func loadState(from board: Document) {
+        pendingTitleSaveTask?.cancel()
         persistRelationshipDraftImmediately()
         pendingSaveTask?.cancel()
         state = controller.murderBoardState(for: board)
@@ -998,6 +1025,7 @@ struct MurderBoardView: View {
         relationshipKindDraft = ""
         relationshipNotesDraft = ""
         loadedBoardID = board.id
+        boardTitleDraft = board.title
     }
 
     private func toggleEntityKind(_ kind: String, board: Document) {
@@ -1135,6 +1163,7 @@ struct MurderBoardView: View {
         if let loadedBoardID,
            loadedBoardID != board.id,
            let previousBoard = try? controller.store.documents.fetch(id: loadedBoardID) {
+            persistTitleImmediately(for: previousBoard)
             persistState(for: previousBoard)
         }
         loadState(from: board)
@@ -1143,6 +1172,7 @@ struct MurderBoardView: View {
     private func schedulePersist(for board: Document) {
         pendingSaveTask?.cancel()
         let boardID = board.id
+        let stateSnapshot = state
         pendingSaveTask = Task { @MainActor in
             defer { pendingSaveTask = nil }
             try? await Task.sleep(for: .milliseconds(250))
@@ -1150,7 +1180,7 @@ struct MurderBoardView: View {
             guard let persistedBoard = try? controller.store.documents.fetch(id: boardID) else { return }
             guard !Task.isCancelled, loadedBoardID == boardID else { return }
             persistRelationshipDraftImmediately()
-            controller.saveMurderBoardState(state, for: persistedBoard)
+            controller.saveMurderBoardState(stateSnapshot, for: persistedBoard)
         }
     }
 
@@ -1160,6 +1190,26 @@ struct MurderBoardView: View {
         persistRelationshipDraftImmediately()
         guard let persistedBoard = try? controller.store.documents.fetch(id: board.id) else { return }
         controller.saveMurderBoardState(state, for: persistedBoard)
+    }
+
+    private func scheduleTitlePersist(for board: Document) {
+        pendingTitleSaveTask?.cancel()
+        let boardID = board.id
+        let title = boardTitleDraft
+        pendingTitleSaveTask = Task { @MainActor in
+            defer { pendingTitleSaveTask = nil }
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, loadedBoardID == boardID else { return }
+            guard let persistedBoard = try? controller.store.documents.fetch(id: boardID) else { return }
+            controller.renameMurderBoard(persistedBoard, title: title)
+        }
+    }
+
+    private func persistTitleImmediately(for board: Document) {
+        pendingTitleSaveTask?.cancel()
+        pendingTitleSaveTask = nil
+        guard let persistedBoard = try? controller.store.documents.fetch(id: board.id) else { return }
+        controller.renameMurderBoard(persistedBoard, title: boardTitleDraft)
     }
 
     private func syncRelationshipDrafts(graph: MurderBoardGraph) {

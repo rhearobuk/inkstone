@@ -380,6 +380,9 @@ public struct AuthorWorkspaceView: View {
         Binding(get: get) { newValue in
             deferredBindingTasks[key]?.task.cancel()
             let taskID = UUID()
+            let apply = { @MainActor in
+                set(newValue)
+            }
             let task = Task { @MainActor in
                 defer {
                     if deferredBindingTasks[key]?.id == taskID {
@@ -388,15 +391,16 @@ public struct AuthorWorkspaceView: View {
                 }
                 try? await Task.sleep(for: .milliseconds(10))
                 guard !Task.isCancelled else { return }
-                set(newValue)
+                apply()
             }
-            deferredBindingTasks[key] = DeferredBindingTask(id: taskID, task: task)
+            deferredBindingTasks[key] = DeferredBindingTask(id: taskID, task: task, apply: apply)
         }
     }
 
-    private func cancelDeferredBindingTasks() {
+    private func flushDeferredBindingTasks() {
         for task in deferredBindingTasks.values {
             task.task.cancel()
+            task.apply()
         }
         deferredBindingTasks.removeAll()
     }
@@ -404,6 +408,7 @@ public struct AuthorWorkspaceView: View {
     private struct DeferredBindingTask {
         let id: UUID
         let task: Task<Void, Never>
+        let apply: @MainActor @Sendable () -> Void
     }
 
     private func editorIsInline(width: CGFloat) -> Bool {
@@ -547,7 +552,7 @@ public struct AuthorWorkspaceView: View {
                     }
                 }
                 .onDisappear {
-                    cancelDeferredBindingTasks()
+                    flushDeferredBindingTasks()
                 }
             }
 

@@ -328,6 +328,7 @@ public final class WorkspaceController: ObservableObject {
     @Published public private(set) var binderItems: [BinderItem] = []
     @Published public private(set) var cachedMurderBoards: [Document] = []
     @Published public private(set) var cachedMurderBoardBooks: [Document] = []
+    var murderBoardBookScopedEntityCache: [MurderBoardBookScopeCacheKey: Set<UUID>] = [:]
     @Published public var activeDropTarget: ActiveDropTarget?
     @Published public var labelFilter: String?
     @Published public var statusFilter: String?
@@ -758,6 +759,7 @@ public final class WorkspaceController: ObservableObject {
 
     public func refresh() {
         do {
+            murderBoardBookScopedEntityCache.removeAll()
             let allProjects = try store.projects.fetchAll(
                 sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
             )
