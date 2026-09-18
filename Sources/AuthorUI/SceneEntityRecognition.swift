@@ -31,7 +31,7 @@ struct SceneEntityRecognitionService {
         self.recognitionClient = recognitionClient
     }
 
-    func refreshSceneLinks(for documentID: UUID, saveChanges: Bool = true) throws {
+    func refreshSceneLinks(for documentID: UUID, saveChanges: Bool = true) async throws {
         guard let document = try store.documents.fetch(id: documentID),
               document.narrativeType == NarrativeType.scene.rawValue else {
             return
@@ -47,12 +47,7 @@ struct SceneEntityRecognitionService {
         }
 
         let entities = document.project.semanticEntities.filter { !$0.isDeleted }
-        let matches: [ResolvedCandidateMatch]
-        do {
-            matches = try resolveMentions(in: text, entities: entities)
-        } catch {
-            return
-        }
+        let matches = try await resolveMentions(in: text, entities: entities)
 
         removeRecognizedMentions(from: document)
         for match in matches {
@@ -120,7 +115,7 @@ struct SceneEntityRecognitionService {
         }
     }
 
-    private func resolveMentions(in text: String, entities: [SemanticEntity]) throws -> [ResolvedCandidateMatch] {
+    private func resolveMentions(in text: String, entities: [SemanticEntity]) async throws -> [ResolvedCandidateMatch] {
         let nsText = text as NSString
         let entityLookup = Dictionary(uniqueKeysWithValues: entities.map { ($0.id.uuidString, $0) })
         var occupiedRanges: [NSRange] = []
@@ -141,7 +136,7 @@ struct SceneEntityRecognitionService {
                     passLabel: recognitionPassLabel(for: kind),
                     candidates: batch
                 )
-                let matches = try waitForRecognition(request)
+                let matches = try await recognitionClient.recognizeMentions(in: request)
                 for match in matches {
                     guard let entity = entityLookup[match.entityID],
                           let candidate = nextAvailableMatch(
@@ -157,24 +152,6 @@ struct SceneEntityRecognitionService {
         }
 
         return resolved.sorted { $0.candidate.range.location < $1.candidate.range.location }
-    }
-
-    private func waitForRecognition(_ request: StoryBibleRecognitionRequest) throws -> [StoryBibleRecognitionMatch] {
-        let semaphore = DispatchSemaphore(value: 0)
-        let box = RecognitionResultBox()
-
-        Task.detached(priority: .userInitiated) {
-            do {
-                box.result = .success(try await recognitionClient.recognizeMentions(in: request))
-            } catch {
-                box.result = .failure(error)
-            }
-            semaphore.signal()
-        }
-
-        semaphore.wait()
-        guard let result = box.result else { return [] }
-        return try result.get()
     }
 
     private func recognitionCandidates(in entities: [SemanticEntity], kind: SemanticEntityKind) -> [StoryBibleRecognitionCandidate] {
@@ -267,9 +244,5 @@ struct SceneEntityRecognitionService {
     private struct ResolvedCandidateMatch {
         let candidate: CandidateMatch
         let entity: SemanticEntity
-    }
-
-    private final class RecognitionResultBox: @unchecked Sendable {
-        var result: Result<[StoryBibleRecognitionMatch], Error>?
     }
 }

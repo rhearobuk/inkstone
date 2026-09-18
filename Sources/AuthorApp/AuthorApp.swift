@@ -52,7 +52,7 @@ struct InkstoneApp: App {
                             if phase == .active {
                                 controller.refresh()
                             } else {
-                                controller.flushPendingChanges()
+                                await controller.flushPendingChanges()
                             }
                         }
                     }

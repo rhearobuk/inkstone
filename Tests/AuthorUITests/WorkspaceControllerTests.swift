@@ -304,7 +304,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.notes.first?.body, "It only opens at dawn.")
     }
 
-    func testSceneSaveLinksExistingStoryBibleEntitiesWithoutAutoCreation() throws {
+    func testSceneSaveLinksExistingStoryBibleEntitiesWithoutAutoCreation() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -318,19 +318,19 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         let entities = project.semanticEntities
         XCTAssertEqual(Set(entities.map(\.canonicalName)), ["Mara Venn", "The Lantern Society", "Moon Gate"])
         XCTAssertEqual(scene.mentions.count, 3)
 
-        controller.refreshSceneEntityLinks(for: scene.id)
+        await controller.refreshSceneEntityLinks(for: scene.id)
 
         XCTAssertEqual(project.semanticEntities.count, 3)
         XCTAssertEqual(scene.mentions.count, 3)
     }
 
-    func testLinkedScenesReturnsSceneBacklinksForStoryBibleEntry() throws {
+    func testLinkedScenesReturnsSceneBacklinksForStoryBibleEntry() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -344,7 +344,7 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         let entity = try XCTUnwrap(project.semanticEntities.first { $0.canonicalName == "Moon Gate" })
         let linkedScenes = controller.linkedScenes(for: entity)
@@ -354,7 +354,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(linkedScenes.first?.matchedTexts, ["Moon Gate"])
     }
 
-    func testManualSceneRefreshClearsRecognizedMentionsWhenSceneBecomesEmpty() throws {
+    func testManualSceneRefreshClearsRecognizedMentionsWhenSceneBecomesEmpty() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -368,18 +368,18 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
         XCTAssertEqual(scene.mentions.count, 3)
 
         scene.plainText = ""
         try controller.store.save()
 
-        controller.refreshSceneEntityLinks(for: scene.id)
+        await controller.refreshSceneEntityLinks(for: scene.id)
 
         XCTAssertTrue(scene.mentions.isEmpty)
     }
 
-    func testSceneSaveReusesExistingAliasInsteadOfCreatingDuplicateEntity() throws {
+    func testSceneSaveReusesExistingAliasInsteadOfCreatingDuplicateEntity() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -400,14 +400,14 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "The Gate opened, and Moon Gate answered."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         XCTAssertEqual(project.semanticEntities.filter { $0.kind == SemanticEntityKind.location.rawValue }.count, 1)
         XCTAssertEqual(scene.mentions.count, 2)
         XCTAssertEqual(Set(scene.mentions.map(\.semanticEntity.id)), [entity.id])
     }
 
-    func testSceneSaveReusesCanonicalOrganizationWhenSceneAddsLeadingThe() throws {
+    func testSceneSaveReusesCanonicalOrganizationWhenSceneAddsLeadingThe() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -420,13 +420,13 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "the Harbor Council summoned Mara Venn."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         XCTAssertEqual(project.semanticEntities.filter { $0.kind == SemanticEntityKind.organization.rawValue }.count, 1)
         XCTAssertEqual(scene.mentions.first { $0.surfaceText == "the Harbor Council" }?.semanticEntity.id, entity.id)
     }
 
-    func testSceneSaveDoesNotAutoCreateUnknownEntities() throws {
+    func testSceneSaveDoesNotAutoCreateUnknownEntities() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -437,13 +437,13 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "the Harbor Council summoned Mara Venn."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         XCTAssertTrue(project.semanticEntities.isEmpty)
         XCTAssertTrue(scene.mentions.isEmpty)
     }
 
-    func testSceneSaveLinksExistingMixedCaseEntities() throws {
+    func testSceneSaveLinksExistingMixedCaseEntities() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -457,12 +457,12 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "R.J. met NASA beside McAllister Square."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         XCTAssertEqual(Set(scene.mentions.map(\.semanticEntity.canonicalName)), ["R.J.", "NASA", "McAllister Square"])
     }
 
-    func testSceneSaveReusesExistingEntitiesAndTrimsTrailingJoiners() throws {
+    func testSceneSaveReusesExistingEntitiesAndTrimsTrailingJoiners() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Oz")
         let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
@@ -477,7 +477,7 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "Dorothy Gale was in Winkie Country and slapped Glinda. The tin man watched."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         XCTAssertEqual(
             Set(scene.mentions.map(\.semanticEntity.canonicalName)),
@@ -488,7 +488,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(project.semanticEntities.filter { $0.canonicalName == "Tin Man" }.count, 1)
     }
 
-    func testFlushPendingChangesRefreshesSceneLinksForAllEditedScenes() throws {
+    func testFlushPendingChangesRefreshesSceneLinksForAllEditedScenes() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "World")
         let scenes = project.documents
@@ -514,13 +514,13 @@ final class WorkspaceControllerTests: XCTestCase {
             plainText: "Mara Venn met the Harbor Council."
         )
 
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         XCTAssertEqual(firstScene.mentions.map(\.surfaceText).sorted(), ["Captain Ilex", "Dawn Harbor"])
-        XCTAssertEqual(secondScene.mentions.map(\.surfaceText).sorted(), ["Harbor Council", "Mara Venn"])
+        XCTAssertEqual(secondScene.mentions.map(\.surfaceText).sorted(), ["Mara Venn", "the Harbor Council"])
     }
 
-    func testLinkedScenesOmitsTrashedScenes() throws {
+    func testLinkedScenesOmitsTrashedScenes() async throws {
         let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
         let controller = WorkspaceController(
             store: try AuthorDataStore(inMemory: true),
@@ -539,11 +539,29 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "Mara Venn met The Lantern Society beneath Moon Gate."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
         controller.trashDocument(scene.id)
 
         let entity = try XCTUnwrap(project.semanticEntities.first { $0.canonicalName == "Moon Gate" })
         XCTAssertTrue(controller.linkedScenes(for: entity).isEmpty)
+    }
+
+    func testSceneRecognitionMatchesWholeMentionsOnly() async throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Boundaries")
+        let scene = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.scene.rawValue })
+        _ = try controller.addStoryBibleEntry(named: "Tin", category: .people)
+        _ = try controller.addStoryBibleEntry(named: "Tin Man", category: .people)
+
+        controller.updateDocument(
+            documentID: scene.id,
+            title: scene.title,
+            synopsis: scene.synopsis,
+            plainText: "The tin man watched."
+        )
+        await controller.flushPendingChanges()
+
+        XCTAssertEqual(scene.mentions.map(\.semanticEntity.canonicalName), ["Tin Man"])
     }
 
     func testDeletingCharacterRemovesItsProfileEntityAndImportedSourceEntry() throws {
@@ -714,7 +732,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(persisted.plainText, "Rain covered the station.")
     }
 
-    func testProjectTextReplacementSupportsEscapedNewLines() throws {
+    func testProjectTextReplacementSupportsEscapedNewLines() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Draft")
         let scene = try XCTUnwrap(
@@ -727,7 +745,7 @@ final class WorkspaceControllerTests: XCTestCase {
             plainText: "First line\nSecond line\nFirst line\nSecond line"
         )
 
-        let summary = try controller.replaceProjectText(
+        let summary = try await controller.replaceProjectText(
             searchText: "first line\\nsecond line",
             with: "Opening\\nClosing"
         )
@@ -808,7 +826,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(manuscriptItem.children?.map(\.title), ["Opening Scene", "Second Scene"])
     }
 
-    func testFlushPendingChangesPersistsDebouncedDocumentEdit() throws {
+    func testFlushPendingChangesPersistsDebouncedDocumentEdit() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Draft")
         let scene = try XCTUnwrap(
@@ -824,7 +842,7 @@ final class WorkspaceControllerTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.store.context.hasChanges)
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
         XCTAssertFalse(controller.store.context.hasChanges)
         XCTAssertEqual(
             try controller.store.documents.require(id: scene.id).plainText,
@@ -1408,7 +1426,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(mara.outgoingStoryBibleRelationships.count, 1)
     }
 
-    func testMurderBoardGraphFiltersByBookDepthAndRelationshipType() throws {
+    func testMurderBoardGraphFiltersByBookDepthAndRelationshipType() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Scoped Graph")
         let board = try controller.createMurderBoard(named: "Scoped")
@@ -1439,7 +1457,7 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: sceneTwo.synopsis,
             plainText: "Lantern Society gathered at Moon Gate."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         var state = MurderBoardState()
         state.selectedBookID = bookOne.id
@@ -1464,7 +1482,7 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertTrue(hiddenGraph.edges.isEmpty)
     }
 
-    func testMurderBoardBookScopeKeepsRelationshipConnectedNodes() throws {
+    func testMurderBoardBookScopeKeepsRelationshipConnectedNodes() async throws {
         let controller = try makeController()
         let project = try controller.createProject(title: "Book Scope")
         let board = try controller.createMurderBoard(named: "Scoped")
@@ -1480,7 +1498,7 @@ final class WorkspaceControllerTests: XCTestCase {
             synopsis: scene.synopsis,
             plainText: "Dorothy Gale arrived."
         )
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
 
         var state = MurderBoardState()
         state.selectedBookID = book.id
@@ -1649,9 +1667,28 @@ private struct TestStoryBibleRecognitionClient: StoryBibleEntityRecognitionClien
                 range: NSRange(location: start, length: text.length - start)
             )
             guard range.location != NSNotFound else { break }
-            results.append(range)
+            if isWholeMentionBoundary(range, in: text) {
+                results.append(range)
+            }
             start = range.location + max(1, range.length)
         }
         return results
+    }
+
+    private func isWholeMentionBoundary(_ range: NSRange, in text: NSString) -> Bool {
+        let lettersAndNumbers = CharacterSet.alphanumerics
+        let beforeIndex = range.location - 1
+        if beforeIndex >= 0,
+           let scalar = UnicodeScalar(text.character(at: beforeIndex)),
+           lettersAndNumbers.contains(scalar) {
+            return false
+        }
+        let afterIndex = range.location + range.length
+        if afterIndex < text.length,
+           let scalar = UnicodeScalar(text.character(at: afterIndex)),
+           lettersAndNumbers.contains(scalar) {
+            return false
+        }
+        return true
     }
 }

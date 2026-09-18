@@ -1600,14 +1600,14 @@ public final class WorkspaceController: ObservableObject {
         searchText: String,
         with replacementText: String,
         caseSensitive: Bool = false
-    ) throws -> ProjectTextReplacementSummary {
+    ) async throws -> ProjectTextReplacementSummary {
         let searchText = interpretedSearchText(searchText)
         guard !searchText.isEmpty else { throw WorkspaceError.emptySearchText }
         guard let project = selectedProject else {
             throw WorkspaceError.missingProject(selectedProjectID ?? UUID())
         }
 
-        flushPendingChanges()
+        await flushPendingChanges()
         let replacementText = interpretedSearchText(replacementText)
         let matchingDocuments = documents(in: project)
             .filter { !isDocumentTrashed($0) }
@@ -1676,7 +1676,7 @@ public final class WorkspaceController: ObservableObject {
         )
     }
 
-    public func flushPendingChanges() {
+    public func flushPendingChanges() async {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
         let pendingDocumentSaveIDs = pendingDocumentSaveIDs
@@ -1690,7 +1690,7 @@ public final class WorkspaceController: ObservableObject {
         do {
             try store.save()
             for documentID in pendingDocumentSaveIDs {
-                try SceneEntityRecognitionService(
+                try await SceneEntityRecognitionService(
                     store: store,
                     recognitionClient: sceneEntityRecognitionClient
                 ).refreshSceneLinks(for: documentID, saveChanges: false)
@@ -1703,9 +1703,9 @@ public final class WorkspaceController: ObservableObject {
         }
     }
 
-    public func refreshSceneEntityLinks(for documentID: UUID) {
+    public func refreshSceneEntityLinks(for documentID: UUID) async {
         do {
-            try SceneEntityRecognitionService(
+            try await SceneEntityRecognitionService(
                 store: store,
                 recognitionClient: sceneEntityRecognitionClient
             ).refreshSceneLinks(for: documentID)
@@ -1762,7 +1762,7 @@ public final class WorkspaceController: ObservableObject {
             guard !Task.isCancelled else { return }
             self.activeSceneRecognitionDocumentIDs.insert(documentID)
             defer { self.activeSceneRecognitionDocumentIDs.remove(documentID) }
-            self.refreshSceneEntityLinks(for: documentID)
+            await self.refreshSceneEntityLinks(for: documentID)
         }
     }
 
