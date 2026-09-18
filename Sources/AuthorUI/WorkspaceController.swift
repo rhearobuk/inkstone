@@ -1716,8 +1716,9 @@ public final class WorkspaceController: ObservableObject {
     }
 
     public func linkedScenes(for entity: SemanticEntity) -> [SceneEntityLinkSummary] {
+        let excludedDocumentIDs = Set(entity.project.documents.filter { isDocumentTrashed($0) }.map(\.id))
         SceneEntityRecognitionService(store: store)
-            .linkedScenes(for: entity, excludingDocumentIDs: trashedDocumentIDSet())
+            .linkedScenes(for: entity, excludingDocumentIDs: excludedDocumentIDs)
     }
 
     private func scheduleDocumentSave(after delay: Duration, documentID: UUID) {
@@ -1741,10 +1742,6 @@ public final class WorkspaceController: ObservableObject {
                 self?.report(error)
             }
         }
-    }
-
-    private func trashedDocumentIDSet() -> Set<UUID> {
-        Set((projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? []).compactMap(UUID.init(uuidString:)))
     }
 
     private func scheduleSceneEntityRecognition(for documentID: UUID) {

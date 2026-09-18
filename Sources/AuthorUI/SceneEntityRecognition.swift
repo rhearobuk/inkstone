@@ -14,7 +14,7 @@ struct SceneEntityLinkSummary: Identifiable, Equatable {
 struct SceneEntityRecognitionService {
     private static let mentionSourcePrefix = "storyBible.entityReference."
     private static let candidateRegex = try? NSRegularExpression(
-        pattern: #"\b(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?)(?:\s+(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?|of|the|and))*"#
+        pattern: #"\b(?:(?:[Tt]he)\s+)?(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?)(?:\s+(?:[A-Z][a-z]+(?:['’-][A-Z][a-z]+)?|of|the|and))*"#
     )
     private static let ignoredSingleWordMatches = Set([
         "A", "An", "And", "But", "For", "He", "Her", "His", "I", "It", "Its", "Mr", "Mrs",
@@ -55,18 +55,15 @@ struct SceneEntityRecognitionService {
         let existingEntities = document.project.semanticEntities
         var entitiesByNormalizedName: [String: SemanticEntity] = [:]
         for entity in existingEntities {
-            for alias in entity.aliases {
-                entitiesByNormalizedName[normalized(alias.name)] = entity
-            }
             index(entity, in: &entitiesByNormalizedName)
         }
 
         for candidate in candidateMatches(in: text) {
-            let normalizedName = normalized(candidate.text)
-            guard !normalizedName.isEmpty else { continue }
+            let lookupKeys = normalizedLookupKeys(for: candidate.text)
+            guard !lookupKeys.isEmpty else { continue }
             let entity: SemanticEntity
             let source: String
-            if let existing = entitiesByNormalizedName[normalizedName] {
+            if let existing = lookupKeys.lazy.compactMap({ entitiesByNormalizedName[$0] }).first {
                 entity = existing
                 source = Self.mentionSourcePrefix + "exactMatch"
             } else {
@@ -111,7 +108,8 @@ struct SceneEntityRecognitionService {
     }
 
     private func removeRecognizedMentions(from document: Document) {
-        for mention in document.mentions where mention.source.hasPrefix(Self.mentionSourcePrefix) {
+        let recognizedMentions = document.mentions.filter { $0.source.hasPrefix(Self.mentionSourcePrefix) }
+        for mention in recognizedMentions {
             store.context.delete(mention)
         }
     }
@@ -172,14 +170,12 @@ struct SceneEntityRecognitionService {
     }
 
     private func index(_ entity: SemanticEntity, in lookup: inout [String: SemanticEntity]) {
-        let canonicalName = normalized(entity.canonicalName)
-        if !canonicalName.isEmpty {
-            lookup[canonicalName] = entity
+        for key in normalizedLookupKeys(for: entity.canonicalName) where lookup[key] == nil {
+            lookup[key] = entity
         }
         for alias in entity.aliases {
-            let aliasName = normalized(alias.name)
-            if !aliasName.isEmpty {
-                lookup[aliasName] = entity
+            for key in normalizedLookupKeys(for: alias.name) where lookup[key] == nil {
+                lookup[key] = entity
             }
         }
     }
@@ -224,7 +220,7 @@ struct SceneEntityRecognitionService {
         if words.contains(where: { Self.locationKeywords.contains($0) }) {
             return .location
         }
-        if words.contains(where: { Self.organizationKeywords.contains($0) }) || name.hasPrefix("The ") {
+        if words.contains(where: { Self.organizationKeywords.contains($0) }) || normalized(name).hasPrefix("the ") {
             return .organization
         }
         if isLikelyCharacterName(words) {
@@ -238,6 +234,15 @@ struct SceneEntityRecognitionService {
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+    }
+
+    private func normalizedLookupKeys(for value: String) -> [String] {
+        let normalizedValue = normalized(value)
+        guard !normalizedValue.isEmpty else { return [] }
+        if normalizedValue.hasPrefix("the ") {
+            return [normalizedValue, String(normalizedValue.dropFirst(4))]
+        }
+        return [normalizedValue]
     }
 
     private func isLikelyCharacterName(_ words: [String]) -> Bool {
