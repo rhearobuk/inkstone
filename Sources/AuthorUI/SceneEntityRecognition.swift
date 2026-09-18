@@ -101,12 +101,12 @@ struct SceneEntityRecognitionService {
 
         return grouped.values.compactMap { mentions in
             guard let document = mentions.first?.document else { return nil }
-            let matchedTexts = Array(NSOrderedSet(array: mentions.map(\.surfaceText))) as? [String] ?? []
+            let matchedTexts = Array(Set(mentions.map(\.surfaceText))).sorted()
             return SceneEntityLinkSummary(
                 documentID: document.id,
                 documentTitle: document.title,
                 mentionCount: mentions.count,
-                matchedTexts: matchedTexts.sorted()
+                matchedTexts: matchedTexts
             )
         }
         .sorted {

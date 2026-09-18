@@ -1412,6 +1412,23 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertEqual(graph.edges.first?.relationship.notes, "Updated")
     }
 
+    func testMurderBoardGraphRemovesDeletedRelationships() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Relationship Deletion")
+        let board = try controller.createMurderBoard(named: "Canonical")
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "visits", notes: "Chapter 1", from: mara, to: gate)
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        let relationship = try XCTUnwrap(graph.edges.first?.relationship)
+
+        controller.deleteStoryBibleRelationship(relationship)
+
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertTrue(graph.edges.isEmpty)
+    }
+
     private func makeController() throws -> WorkspaceController {
         WorkspaceController(store: try AuthorDataStore(inMemory: true))
     }

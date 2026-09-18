@@ -372,7 +372,7 @@ extension WorkspaceController {
                 !$0.document.isDeleted &&
                 !isDocumentTrashed($0.document) &&
                 $0.document.narrativeType == NarrativeType.scene.rawValue &&
-                ($0.sourceIdentifier?.hasPrefix("storyBible.entityReference.") ?? false)
+            $0.source.hasPrefix("storyBible.entityReference.")
         }.count
     }
 
@@ -524,10 +524,13 @@ struct MurderBoardView: View {
     @State private var newRelationshipTargetID: UUID?
     @State private var newRelationshipKind = "related to"
     @State private var newRelationshipNotes = ""
+    @State private var relationshipKindDraft = ""
+    @State private var relationshipNotesDraft = ""
     @State private var panOrigin: CGSize?
     @State private var zoomOrigin: Double?
     @State private var dragOrigins: [UUID: CGPoint] = [:]
     @State private var pendingSaveTask: Task<Void, Never>?
+    @State private var pendingRelationshipSaveTask: Task<Void, Never>?
     @State private var loadedBoardID: UUID?
 
     var body: some View {
@@ -550,7 +553,13 @@ struct MurderBoardView: View {
                 .onChange(of: board.id) { _, _ in
                     switchBoard(to: board)
                 }
-                .onDisappear { persistState(for: board) }
+                .onChange(of: selectedRelationshipID) { _, _ in
+                    syncRelationshipDrafts(graph: graph)
+                }
+                .onDisappear {
+                    persistRelationshipDraftImmediately()
+                    persistState(for: board)
+                }
             }
             .navigationTitle(board.title)
             .sheet(isPresented: $showsNewRelationship) {
@@ -760,20 +769,20 @@ struct MurderBoardView: View {
                     TextField(
                         "Relationship",
                         text: Binding(
-                            get: { relationship.kind },
+                            get: { relationshipKindDraft },
                             set: {
-                                relationship.kind = $0
-                                controller.saveStoryBibleRelationship(relationship)
+                                relationshipKindDraft = $0
+                                scheduleRelationshipPersist()
                             }
                         )
                     )
                     TextField(
                         "Notes",
                         text: Binding(
-                            get: { relationship.notes ?? "" },
+                            get: { relationshipNotesDraft },
                             set: {
-                                relationship.notes = $0.nilIfBlank
-                                controller.saveStoryBibleRelationship(relationship)
+                                relationshipNotesDraft = $0
+                                scheduleRelationshipPersist()
                             }
                         ),
                         axis: .vertical
@@ -785,6 +794,7 @@ struct MurderBoardView: View {
                         controller.openStoryBibleCard(for: relationship.targetEntity)
                     }
                     Button("Delete Relationship", role: .destructive) {
+                        pendingRelationshipSaveTask?.cancel()
                         controller.deleteStoryBibleRelationship(relationship)
                         selectedRelationshipID = nil
                     }
@@ -925,9 +935,12 @@ struct MurderBoardView: View {
     }
 
     private func loadState(from board: Document) {
+        persistRelationshipDraftImmediately()
         pendingSaveTask?.cancel()
         state = controller.murderBoardState(for: board)
         selectedRelationshipID = nil
+        relationshipKindDraft = ""
+        relationshipNotesDraft = ""
         loadedBoardID = board.id
     }
 
@@ -1089,6 +1102,44 @@ struct MurderBoardView: View {
         pendingSaveTask = nil
         guard let persistedBoard = try? controller.store.documents.fetch(id: board.id) else { return }
         controller.saveMurderBoardState(state, for: persistedBoard)
+    }
+
+    private func syncRelationshipDrafts(graph: MurderBoardGraph) {
+        guard let relationship = selectedRelationship(graph: graph) else {
+            relationshipKindDraft = ""
+            relationshipNotesDraft = ""
+            return
+        }
+        relationshipKindDraft = relationship.kind
+        relationshipNotesDraft = relationship.notes ?? ""
+    }
+
+    private func scheduleRelationshipPersist() {
+        pendingRelationshipSaveTask?.cancel()
+        guard let relationshipID = selectedRelationshipID else { return }
+        let kind = relationshipKindDraft
+        let notes = relationshipNotesDraft.nilIfBlank
+        pendingRelationshipSaveTask = Task { @MainActor in
+            defer { pendingRelationshipSaveTask = nil }
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            guard let relationship = try? controller.store.storyBibleRelationships.fetch(id: relationshipID) else { return }
+            relationship.kind = kind
+            relationship.notes = notes
+            controller.saveStoryBibleRelationship(relationship)
+        }
+    }
+
+    private func persistRelationshipDraftImmediately() {
+        pendingRelationshipSaveTask?.cancel()
+        pendingRelationshipSaveTask = nil
+        guard let relationshipID = selectedRelationshipID,
+              let relationship = try? controller.store.storyBibleRelationships.fetch(id: relationshipID) else {
+            return
+        }
+        relationship.kind = relationshipKindDraft
+        relationship.notes = relationshipNotesDraft.nilIfBlank
+        controller.saveStoryBibleRelationship(relationship)
     }
 }
 
