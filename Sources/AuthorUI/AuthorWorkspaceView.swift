@@ -386,7 +386,7 @@ public struct AuthorWorkspaceView: View {
                         deferredBindingTasks[key] = nil
                     }
                 }
-                await Task.yield()
+                try? await Task.sleep(for: .milliseconds(10))
                 guard !Task.isCancelled else { return }
                 set(newValue)
             }

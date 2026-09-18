@@ -1747,11 +1747,10 @@ public final class WorkspaceController: ObservableObject {
                 try await Task.sleep(for: delay)
                 guard !Task.isCancelled, let self else { return }
                 let pendingDocumentSaveIDs = self.pendingDocumentSaveIDs
+                self.pendingDocumentSaveIDs.subtract(pendingDocumentSaveIDs)
                 self.pendingDocumentSave = nil
                 try self.store.save()
-                let completedDocumentIDs = pendingDocumentSaveIDs.filter { !self.pendingDocumentSaveIDs.contains($0) }
-                self.pendingDocumentSaveIDs.subtract(completedDocumentIDs)
-                for documentID in completedDocumentIDs {
+                for documentID in pendingDocumentSaveIDs {
                     self.scheduleSceneEntityRecognition(for: documentID)
                 }
                 if !self.pendingDocumentSaveIDs.isEmpty {
