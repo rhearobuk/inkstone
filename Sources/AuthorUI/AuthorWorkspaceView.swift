@@ -23,7 +23,6 @@ public struct AuthorWorkspaceView: View {
     @State private var showsNewStoryBibleEntry = false
     @State private var storyBibleEntryName = ""
     @State private var storyBibleEntryCategory: StoryBibleCategory?
-    @State private var deferredBindingTasks: [String: DeferredBindingTask] = [:]
     @FocusState private var isBinderFindFocused: Bool
 
     public init(controller: WorkspaceController, editorInitiallyVisible: Bool = false) {
@@ -145,8 +144,7 @@ public struct AuthorWorkspaceView: View {
                     Menu {
                         Toggle(
                             "Show Hidden Items",
-                            isOn: deferredBinding(
-                                key: "showsHiddenDocuments",
+                            isOn: Binding(
                                 get: { controller.showsHiddenDocuments },
                                 set: { controller.showsHiddenDocuments = $0 }
                             )
@@ -372,46 +370,6 @@ public struct AuthorWorkspaceView: View {
         }
     }
 
-    private func deferredBinding(
-        key: String,
-        get: @escaping @MainActor @Sendable () -> Bool,
-        set: @escaping @MainActor @Sendable (Bool) -> Void
-    ) -> Binding<Bool> {
-        Binding(get: get) { newValue in
-            deferredBindingTasks[key]?.task.cancel()
-            let taskID = UUID()
-            let apply = { @MainActor in
-                set(newValue)
-            }
-            let task = Task { @MainActor in
-                defer {
-                    if deferredBindingTasks[key]?.id == taskID {
-                        deferredBindingTasks[key] = nil
-                    }
-                }
-                try? await Task.sleep(for: .milliseconds(10))
-                guard !Task.isCancelled else { return }
-                apply()
-            }
-            deferredBindingTasks[key] = DeferredBindingTask(id: taskID, task: task, apply: apply)
-        }
-    }
-
-    private func flushDeferredBindingTasks() {
-        let keys = Array(deferredBindingTasks.keys)
-        for key in keys {
-            guard let task = deferredBindingTasks.removeValue(forKey: key) else { continue }
-            task.task.cancel()
-            task.apply()
-        }
-    }
-
-    private struct DeferredBindingTask {
-        let id: UUID
-        let task: Task<Void, Never>
-        let apply: @MainActor @Sendable () -> Void
-    }
-
     private func editorIsInline(width: CGFloat) -> Bool {
         #if os(macOS)
         true
@@ -478,8 +436,7 @@ public struct AuthorWorkspaceView: View {
                 Menu {
                     Toggle(
                         "Show Hidden Projects",
-                        isOn: deferredBinding(
-                            key: "showsHiddenProjects",
+                        isOn: Binding(
                             get: { controller.showsHiddenProjects },
                             set: { controller.showsHiddenProjects = $0 }
                         )
@@ -551,9 +508,6 @@ public struct AuthorWorkspaceView: View {
                             Label("Move to Trash", systemImage: "trash")
                         }
                     }
-                }
-                .onDisappear {
-                    flushDeferredBindingTasks()
                 }
             }
 

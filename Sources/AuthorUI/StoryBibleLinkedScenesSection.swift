@@ -45,8 +45,7 @@ struct StoryBibleLinkedScenesSection: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(scene.documentTitle)
-        .accessibilityValue(accessibilityValue(for: scene))
+        .accessibilityLabel("\(scene.documentTitle), \(accessibilityValue(for: scene))")
         .accessibilityAddTraits(.isButton)
         button
     }
