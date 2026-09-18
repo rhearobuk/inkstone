@@ -13,6 +13,8 @@ public enum WorkspaceSelection: Hashable, Sendable {
     case projectDefinition(UUID)
     case storyBible(UUID)
     case storyBibleCategory(projectID: UUID, category: StoryBibleCategory)
+    case murderBoardOverview(UUID)
+    case murderBoard(UUID)
     case gallery(UUID)
     case galleryItem(UUID)
     case narrative(UUID)
@@ -144,6 +146,8 @@ public struct BinderItem: Identifiable {
         case projectDefinition
         case storyBible
         case storyBibleCategory(StoryBibleCategory)
+        case murderBoardOverview
+        case murderBoard
         case gallery
         case galleryItem
         case narrative
@@ -2262,9 +2266,9 @@ public final class WorkspaceController: ObservableObject {
 
     private func isProjectSearchItem(_ item: BinderItem) -> Bool {
         switch item.kind {
-        case .document, .characterProfile, .semanticEntity, .galleryItem:
+        case .document, .characterProfile, .semanticEntity, .galleryItem, .murderBoard:
             true
-        case .projectDefinition, .storyBible, .storyBibleCategory, .gallery, .narrative, .trash:
+        case .projectDefinition, .storyBible, .storyBibleCategory, .murderBoardOverview, .gallery, .narrative, .trash:
             false
         }
     }
@@ -2398,7 +2402,9 @@ public final class WorkspaceController: ObservableObject {
         let storyBibleRoots = Dictionary(grouping: roots.compactMap { document in
             storyBibleCategory(for: document).map { ($0, document) }
         }, by: \.0)
+        let murderBoardRoots = roots.filter { isMurderBoardDocument($0) }
         let narrativeRoots = roots.filter { storyBibleCategory(for: $0) == nil }
+            .filter { !isMurderBoardDocument($0) }
         let visibleNarrativeRoots: [Document]
         let narrativeDocumentID: UUID?
         if narrativeRoots.count == 1,
@@ -2454,7 +2460,27 @@ public final class WorkspaceController: ObservableObject {
                         storyBibleCategory: category,
                         children: semanticItems + documentItems
                     )
-                }
+                } + [
+                    BinderItem(
+                        id: "story-bible.murder-board",
+                        title: "Murder Board",
+                        systemImage: "point.3.connected.trianglepath.dotted",
+                        selection: .murderBoardOverview(project.id),
+                        kind: .murderBoardOverview,
+                        isContainer: true,
+                        children: murderBoardRoots.map { board in
+                            BinderItem(
+                                id: board.id.uuidString,
+                                title: board.title,
+                                searchableText: [board.title, board.synopsis].compactMap { $0 }.joined(separator: "\n"),
+                                systemImage: "circle.hexagongrid",
+                                selection: .murderBoard(board.id),
+                                kind: .murderBoard,
+                                documentID: board.id
+                            )
+                        }
+                    )
+                ]
             ),
             BinderItem(
                 id: "gallery",
@@ -2657,6 +2683,7 @@ public final class WorkspaceController: ObservableObject {
     /// Project Definition), based on its root ancestor's classification.
     public func isNarrativeDocument(_ document: Document) -> Bool {
         let root = document.ancestors.last ?? document
+        if isMurderBoardDocument(root) { return false }
         return storyBibleCategory(for: root) == nil
     }
 

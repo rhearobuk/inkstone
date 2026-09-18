@@ -1245,6 +1245,10 @@ private struct WorkspaceDetailView: View {
                 StoryBibleOverview(controller: controller)
             case .storyBibleCategory(_, let category):
                 StoryBibleCategoryView(category: category, controller: controller)
+            case .murderBoardOverview:
+                MurderBoardOverviewView(controller: controller)
+            case .murderBoard:
+                MurderBoardView(controller: controller)
             case .gallery:
                 GalleryView(controller: controller)
             case .galleryItem:
@@ -1414,14 +1418,28 @@ private struct StoryBibleOverview: View {
     @ObservedObject var controller: WorkspaceController
 
     var body: some View {
-        List(StoryBibleCategory.allCases) { category in
-            Button {
-                guard let projectID = controller.selectedProjectID else { return }
-                controller.selection = .storyBibleCategory(projectID: projectID, category: category)
-            } label: {
-                Label(category.rawValue, systemImage: category.systemImage)
+        List {
+            Section("Entries") {
+                ForEach(StoryBibleCategory.allCases) { category in
+                    Button {
+                        guard let projectID = controller.selectedProjectID else { return }
+                        controller.selection = .storyBibleCategory(projectID: projectID, category: category)
+                    } label: {
+                        Label(category.rawValue, systemImage: category.systemImage)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
+
+            Section("Tools") {
+                Button {
+                    guard let projectID = controller.selectedProjectID else { return }
+                    controller.selection = .murderBoardOverview(projectID)
+                } label: {
+                    Label("Murder Board", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                .buttonStyle(.plain)
+            }
         }
         .navigationTitle("Story Bible")
     }
