@@ -272,7 +272,11 @@ extension WorkspaceController {
         if state.selectedEntityID == nil,
            state.selectedBookID == nil,
            entities.count > murderBoardMaximumVisibleNodes {
-            entities = Array(entities.prefix(murderBoardMaximumVisibleNodes))
+            let prioritizedIDs = uniqueEntityIDs(from: relationships)
+            let remainingIDs = entities.map(\.id).filter { !prioritizedIDs.contains($0) }
+            let keptIDs = Array((prioritizedIDs + remainingIDs).prefix(murderBoardMaximumVisibleNodes))
+            let keptIDSet = Set(keptIDs)
+            entities = entities.filter { keptIDSet.contains($0.id) }
             isTruncated = true
         }
 
@@ -407,6 +411,17 @@ extension WorkspaceController {
             }
             return visited
         }
+    }
+
+    private func uniqueEntityIDs(from relationships: [StoryBibleRelationship]) -> [UUID] {
+        var seen = Set<UUID>()
+        var ids: [UUID] = []
+        for relationship in relationships {
+            for id in [relationship.sourceEntity.id, relationship.targetEntity.id] where seen.insert(id).inserted {
+                ids.append(id)
+            }
+        }
+        return ids
     }
 }
 
@@ -1001,10 +1016,13 @@ struct MurderBoardView: View {
 
     private func schedulePersist(for board: Document) {
         pendingSaveTask?.cancel()
+        let snapshot = state
+        let boardID = board.id
         pendingSaveTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            controller.saveMurderBoardState(state, for: board)
+            guard let persistedBoard = try? controller.store.documents.fetch(id: boardID) else { return }
+            controller.saveMurderBoardState(snapshot, for: persistedBoard)
             pendingSaveTask = nil
         }
     }
@@ -1012,7 +1030,8 @@ struct MurderBoardView: View {
     private func persistState(for board: Document) {
         pendingSaveTask?.cancel()
         pendingSaveTask = nil
-        controller.saveMurderBoardState(state, for: board)
+        guard let persistedBoard = try? controller.store.documents.fetch(id: board.id) else { return }
+        controller.saveMurderBoardState(state, for: persistedBoard)
     }
 }
 

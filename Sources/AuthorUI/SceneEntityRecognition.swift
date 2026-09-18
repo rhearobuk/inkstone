@@ -81,7 +81,8 @@ struct SceneEntityRecognitionService {
         }
 
         if let documentModifiedAt = document.modifiedAt {
-            document.project.modifiedAt = max(document.project.modifiedAt, documentModifiedAt)
+            let projectModifiedAt = document.project.modifiedAt ?? documentModifiedAt
+            document.project.modifiedAt = max(projectModifiedAt, documentModifiedAt)
         }
         try store.save()
     }
