@@ -13,7 +13,7 @@ struct StoryBibleLinkedScenesSection: View {
             } else {
                 ForEach(linkedScenes) { scene in
                     Button {
-                        controller.selection = .document(scene.documentID)
+                        controller.openDocument(scene.documentID)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {

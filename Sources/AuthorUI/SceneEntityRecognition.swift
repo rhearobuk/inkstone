@@ -242,7 +242,7 @@ struct SceneEntityRecognitionService {
         if normalizedValue.hasPrefix("the ") {
             return [normalizedValue, String(normalizedValue.dropFirst(4))]
         }
-        return [normalizedValue]
+        return [normalizedValue, "the \(normalizedValue)"]
     }
 
     private func isLikelyCharacterName(_ words: [String]) -> Bool {

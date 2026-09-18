@@ -1722,18 +1722,25 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func scheduleDocumentSave(after delay: Duration, documentID: UUID) {
-        pendingDocumentSave?.cancel()
         pendingDocumentSaveIDs.insert(documentID)
+        pendingDocumentSave?.cancel()
+        startPendingDocumentSave(after: delay)
+    }
+
+    private func startPendingDocumentSave(after delay: Duration) {
         pendingDocumentSave = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: delay)
                 guard !Task.isCancelled, let self else { return }
-                self.pendingDocumentSave = nil
                 let pendingDocumentSaveIDs = self.pendingDocumentSaveIDs
-                self.pendingDocumentSaveIDs.removeAll()
                 try self.store.save()
+                self.pendingDocumentSave = nil
+                self.pendingDocumentSaveIDs.subtract(pendingDocumentSaveIDs)
                 for documentID in pendingDocumentSaveIDs {
                     self.scheduleSceneEntityRecognition(for: documentID)
+                }
+                if !self.pendingDocumentSaveIDs.isEmpty {
+                    self.startPendingDocumentSave(after: .milliseconds(250))
                 }
                 self.lastError = nil
             } catch is CancellationError {
@@ -1754,6 +1761,11 @@ public final class WorkspaceController: ObservableObject {
             defer { self.activeSceneRecognitionDocumentIDs.remove(documentID) }
             self.refreshSceneEntityLinks(for: documentID)
         }
+    }
+
+    public func openDocument(_ documentID: UUID) {
+        selection = .document(documentID)
+        refresh()
     }
 
     // MARK: - Narrative Metadata (Book/Section/Chapter/Scene)
