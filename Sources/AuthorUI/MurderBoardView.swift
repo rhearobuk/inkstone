@@ -258,19 +258,21 @@ extension WorkspaceController {
         var relationships = allRelationships.filter { relationship in
             !hiddenRelationshipKinds.contains(relationship.kind)
         }
+        let scopedEntityIDs: Set<UUID>?
 
         if let selectedEntityID = state.selectedEntityID,
            state.connectedDepth != .allVisible {
-            let scopedRelationshipIDs = murderBoardVisibleEntityIDs(
+            scopedEntityIDs = murderBoardVisibleEntityIDs(
                 selectedEntityID: selectedEntityID,
                 entities: entities,
                 relationships: relationships,
                 depth: state.connectedDepth
             )
-            entities = entities.filter { scopedRelationshipIDs.contains($0.id) }
+        } else {
+            scopedEntityIDs = nil
         }
 
-        let visibleEntityIDs = Set(entities.map(\.id))
+        let visibleEntityIDs = scopedEntityIDs ?? Set(entities.map(\.id))
         relationships = relationships.filter {
             visibleEntityIDs.contains($0.sourceEntity.id) && visibleEntityIDs.contains($0.targetEntity.id)
         }

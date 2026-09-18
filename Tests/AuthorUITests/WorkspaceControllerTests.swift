@@ -1359,6 +1359,7 @@ final class WorkspaceControllerTests: XCTestCase {
         let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
         let lantern = try controller.addStoryBibleEntry(named: "Lantern Society", category: .organizations)
         let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        let glinda = try controller.addStoryBibleEntry(named: "Glinda", category: .people)
 
         try controller.addStoryBibleRelationship(kind: "member of", notes: nil, from: mara, to: lantern)
         try controller.addStoryBibleRelationship(kind: "meets at", notes: nil, from: lantern, to: gate)
@@ -1367,7 +1368,7 @@ final class WorkspaceControllerTests: XCTestCase {
             documentID: sceneOne.id,
             title: sceneOne.title,
             synopsis: sceneOne.synopsis,
-            plainText: "Mara Venn met the Lantern Society."
+            plainText: "Mara Venn met the Lantern Society while Glinda watched."
         )
         controller.updateDocument(
             documentID: sceneTwo.id,
@@ -1381,10 +1382,19 @@ final class WorkspaceControllerTests: XCTestCase {
         state.selectedBookID = bookOne.id
         state.selectedEntityID = mara.id
         state.connectedDepth = .direct
+        state.includeDisconnectedEntities = false
         let scopedGraph = controller.murderBoardGraph(for: board, state: state)
 
         XCTAssertEqual(Set(scopedGraph.nodes.map(\.entity.canonicalName)), ["Mara Venn", "Lantern Society"])
         XCTAssertEqual(scopedGraph.edges.map(\.relationship.kind), ["member of"])
+
+        state.includeDisconnectedEntities = true
+        let disconnectedGraph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertEqual(
+            Set(disconnectedGraph.nodes.map(\.entity.canonicalName)),
+            ["Glinda", "Lantern Society", "Mara Venn"]
+        )
+        XCTAssertEqual(disconnectedGraph.edges.map(\.relationship.kind), ["member of"])
 
         state.hiddenRelationshipKinds = ["member of"]
         let hiddenGraph = controller.murderBoardGraph(for: board, state: state)

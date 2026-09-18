@@ -24,8 +24,8 @@ struct SceneEntityRecognitionService {
         "You"
     ])
     private static let locationKeywords = Set([
-        "Abbey", "Bay", "Bridge", "Castle", "City", "Court", "Garden", "Gate", "Harbor",
-        "Harbour", "Hill", "House", "Inn", "Island", "Keep", "Lake", "Manor", "Market",
+        "Abbey", "Bay", "Bridge", "Castle", "City", "Garden", "Gate", "Harbor",
+        "Harbour", "Hill", "Inn", "Island", "Keep", "Lake", "Manor", "Market",
         "Mountain", "Palace", "Park", "Port", "River", "Road", "Square", "Street", "Temple",
         "Tower", "Valley", "Village", "Wood"
     ])
@@ -230,7 +230,7 @@ struct SceneEntityRecognitionService {
             return [normalizedValue, String(normalizedValue.dropFirst(4))]
         }
         if supportsLeadingArticleVariant(for: value, kindHint: kindHint) {
-            return [normalizedValue, "the \(normalizedValue)"]
+            return [normalizedValue, normalized("the \(value)")]
         }
         return [normalizedValue]
     }
