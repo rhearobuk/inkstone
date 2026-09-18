@@ -1439,6 +1439,15 @@ private struct StoryBibleOverview: View {
                     Label("Murder Board", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 .buttonStyle(.plain)
+
+                ForEach(controller.murderBoards, id: \.id) { board in
+                    Button {
+                        controller.openMurderBoard(board)
+                    } label: {
+                        Label(board.title, systemImage: "circle.hexagongrid")
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .navigationTitle("Story Bible")

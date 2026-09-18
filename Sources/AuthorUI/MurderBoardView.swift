@@ -489,12 +489,12 @@ struct MurderBoardView: View {
                 let graph = controller.murderBoardGraph(for: board, state: state)
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
-                        controls(board: board, graph: graph, size: proxy.size)
+                        controls(board: board, graph: graph, size: boardViewportSize(from: proxy.size))
                         Divider()
-                        canvas(board: board, graph: graph, size: proxy.size)
+                        canvas(graph: graph)
                     }
                     Divider()
-                    inspector(board: board, graph: graph, size: proxy.size)
+                    inspector(board: board, graph: graph, size: boardViewportSize(from: proxy.size))
                         .frame(width: 320)
                 }
                 .onAppear {
@@ -614,60 +614,63 @@ struct MurderBoardView: View {
         .padding()
     }
 
-    private func canvas(board: Document, graph: MurderBoardGraph, size: CGSize) -> some View {
-        ZStack {
-            Color.secondary.opacity(0.06)
-                .ignoresSafeArea()
+    private func canvas(graph: MurderBoardGraph) -> some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack {
+                Color.secondary.opacity(0.06)
+                    .ignoresSafeArea()
 
-            Canvas { context, _ in
-                for edge in graph.edges {
-                    let source = screenPoint(for: edge.sourcePosition, in: size)
-                    let target = screenPoint(for: edge.targetPosition, in: size)
-                    var path = Path()
-                    path.move(to: source)
-                    path.addLine(to: target)
-                    context.stroke(path, with: .color(.secondary.opacity(0.45)), lineWidth: selectedRelationshipID == edge.id ? 3 : 1.5)
-                }
-            }
-
-            if graph.edges.count <= 60 {
-                ForEach(graph.edges) { edge in
-                    Button {
-                        selectedRelationshipID = edge.id
-                        state.selectedEntityID = nil
-                    } label: {
-                        Text(edge.relationship.kind)
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.thinMaterial, in: Capsule())
+                Canvas { context, _ in
+                    for edge in graph.edges {
+                        let source = screenPoint(for: edge.sourcePosition, in: size)
+                        let target = screenPoint(for: edge.targetPosition, in: size)
+                        var path = Path()
+                        path.move(to: source)
+                        path.addLine(to: target)
+                        context.stroke(path, with: .color(.secondary.opacity(0.45)), lineWidth: selectedRelationshipID == edge.id ? 3 : 1.5)
                     }
-                    .buttonStyle(.plain)
-                    .position(screenPoint(for: edge.labelPosition, in: size))
+                }
+
+                if graph.edges.count <= 60 {
+                    ForEach(graph.edges) { edge in
+                        Button {
+                            selectedRelationshipID = edge.id
+                            state.selectedEntityID = nil
+                        } label: {
+                            Text(edge.relationship.kind)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.thinMaterial, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .position(screenPoint(for: edge.labelPosition, in: size))
+                    }
+                }
+
+                ForEach(graph.nodes) { node in
+                    MurderBoardNodeView(
+                        node: node,
+                        isSelected: state.selectedEntityID == node.id,
+                        open: { controller.openStoryBibleCard(for: node.entity) }
+                    )
+                    .position(screenPoint(for: node.position, in: size))
+                    .simultaneousGesture(TapGesture(count: 2).onEnded {
+                        controller.openStoryBibleCard(for: node.entity)
+                    })
+                    .simultaneousGesture(TapGesture().onEnded {
+                        state.selectedEntityID = node.id
+                        selectedRelationshipID = nil
+                    })
+                    .highPriorityGesture(nodeDragGesture(for: node))
                 }
             }
-
-            ForEach(graph.nodes) { node in
-                MurderBoardNodeView(
-                    node: node,
-                    isSelected: state.selectedEntityID == node.id,
-                    open: { controller.openStoryBibleCard(for: node.entity) }
-                )
-                .position(screenPoint(for: node.position, in: size))
-                .simultaneousGesture(TapGesture(count: 2).onEnded {
-                    controller.openStoryBibleCard(for: node.entity)
-                })
-                .simultaneousGesture(TapGesture().onEnded {
-                    state.selectedEntityID = node.id
-                    selectedRelationshipID = nil
-                })
-                .highPriorityGesture(nodeDragGesture(for: node))
-            }
+            .contentShape(Rectangle())
+            .gesture(canvasPanGesture())
+            .simultaneousGesture(canvasZoomGesture())
+            .clipped()
         }
-        .contentShape(Rectangle())
-        .gesture(canvasPanGesture())
-        .simultaneousGesture(canvasZoomGesture())
-        .clipped()
     }
 
     private func inspector(board: Document, graph: MurderBoardGraph, size: CGSize) -> some View {
@@ -973,6 +976,10 @@ struct MurderBoardView: View {
         newRelationshipKind = "related to"
         newRelationshipNotes = ""
         showsNewRelationship = false
+    }
+
+    private func boardViewportSize(from totalSize: CGSize) -> CGSize {
+        CGSize(width: max(400, totalSize.width - 320), height: totalSize.height)
     }
 }
 

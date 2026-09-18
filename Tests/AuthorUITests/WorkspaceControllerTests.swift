@@ -1276,6 +1276,120 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertNil(secondScene.resources.first { $0.mediaType == "application/rtf" })
     }
 
+    func testMurderBoardAppearsInStoryBibleOverviewAndBinder() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Murder Board Test")
+
+        let board = try controller.createMurderBoard(named: "Main Relationships")
+
+        XCTAssertEqual(controller.selection, .murderBoard(board.id))
+        XCTAssertEqual(controller.murderBoards.map(\.title), ["Main Relationships"])
+        let storyBible = try XCTUnwrap(controller.binderItems.first { $0.title == "Story Bible" })
+        let murderBoardItem = try XCTUnwrap(storyBible.children?.first { $0.title == "Murder Board" })
+        XCTAssertEqual(murderBoardItem.selection, .murderBoardOverview(project.id))
+        XCTAssertEqual(murderBoardItem.children?.map(\.title), ["Main Relationships"])
+    }
+
+    func testMurderBoardStatePersistsAndDeletingBoardKeepsStoryBibleData() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Persistence")
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let moonGate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "guards", notes: "Night watch", from: mara, to: moonGate)
+        let board = try controller.createMurderBoard(named: "Guard Web")
+
+        var state = MurderBoardState()
+        state.selectedEntityID = mara.id
+        state.connectedDepth = .twoHops
+        state.hiddenRelationshipKinds = ["betrays"]
+        state.nodeStates = [
+            MurderBoardNodeState(entityID: mara.id, x: 120, y: -80, isPinned: true),
+            MurderBoardNodeState(entityID: moonGate.id, x: -160, y: 90)
+        ]
+
+        controller.saveMurderBoardState(state, for: board)
+
+        let persisted = controller.murderBoardState(for: board)
+        XCTAssertEqual(persisted.selectedEntityID, mara.id)
+        XCTAssertEqual(persisted.connectedDepth, .twoHops)
+        XCTAssertEqual(persisted.nodeState(for: mara.id)?.x, 120)
+        XCTAssertEqual(persisted.nodeState(for: mara.id)?.isPinned, true)
+        XCTAssertEqual(persisted.hiddenRelationshipKinds, ["betrays"])
+
+        controller.deleteMurderBoard(board)
+
+        XCTAssertEqual(controller.murderBoards.count, 0)
+        XCTAssertEqual(controller.selectedProject?.semanticEntities.count, 2)
+        XCTAssertEqual(mara.outgoingStoryBibleRelationships.count, 1)
+    }
+
+    func testMurderBoardGraphFiltersByBookDepthAndRelationshipType() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Scoped Graph")
+        let board = try controller.createMurderBoard(named: "Scoped")
+        let narrative = try XCTUnwrap(project.documents.first { $0.title == "Narrative" })
+        let bookOne = try XCTUnwrap(project.documents.first { $0.narrativeType == NarrativeType.book.rawValue })
+        let bookTwo = try controller.addDocument(title: "Book Two", kind: .folder, parentID: narrative.id)
+        controller.setNarrativeType(bookTwo, to: .book)
+        let sceneOne = try XCTUnwrap(bookOne.orderedChildren.first)
+        let sceneTwo = try controller.addDocument(title: "Book Two Scene", kind: .text, parentID: bookTwo.id)
+
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let lantern = try controller.addStoryBibleEntry(named: "Lantern Society", category: .organizations)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+
+        try controller.addStoryBibleRelationship(kind: "member of", notes: nil, from: mara, to: lantern)
+        try controller.addStoryBibleRelationship(kind: "meets at", notes: nil, from: lantern, to: gate)
+
+        controller.updateDocument(
+            documentID: sceneOne.id,
+            title: sceneOne.title,
+            synopsis: sceneOne.synopsis,
+            plainText: "Mara Venn met the Lantern Society."
+        )
+        controller.updateDocument(
+            documentID: sceneTwo.id,
+            title: sceneTwo.title,
+            synopsis: sceneTwo.synopsis,
+            plainText: "Lantern Society gathered at Moon Gate."
+        )
+        controller.flushPendingChanges()
+
+        var state = MurderBoardState()
+        state.selectedBookID = bookOne.id
+        state.selectedEntityID = mara.id
+        state.connectedDepth = .direct
+        let scopedGraph = controller.murderBoardGraph(for: board, state: state)
+
+        XCTAssertEqual(Set(scopedGraph.nodes.map(\.entity.canonicalName)), ["Mara Venn", "Lantern Society"])
+        XCTAssertEqual(scopedGraph.edges.map(\.relationship.kind), ["member of"])
+
+        state.hiddenRelationshipKinds = ["member of"]
+        let hiddenGraph = controller.murderBoardGraph(for: board, state: state)
+        XCTAssertTrue(hiddenGraph.edges.isEmpty)
+    }
+
+    func testMurderBoardGraphReflectsCanonicalRelationshipUpdates() throws {
+        let controller = try makeController()
+        _ = try controller.createProject(title: "Canonical Graph")
+        let board = try controller.createMurderBoard(named: "Canonical")
+        let mara = try controller.addStoryBibleEntry(named: "Mara Venn", category: .people)
+        let gate = try controller.addStoryBibleEntry(named: "Moon Gate", category: .places)
+        try controller.addStoryBibleRelationship(kind: "visits", notes: "Chapter 1", from: mara, to: gate)
+
+        var graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        let relationship = try XCTUnwrap(graph.edges.first?.relationship)
+        XCTAssertEqual(relationship.kind, "visits")
+
+        relationship.kind = "guards"
+        relationship.notes = "Updated"
+        controller.saveStoryBibleRelationship(relationship)
+
+        graph = controller.murderBoardGraph(for: board, state: MurderBoardState())
+        XCTAssertEqual(graph.edges.first?.relationship.kind, "guards")
+        XCTAssertEqual(graph.edges.first?.relationship.notes, "Updated")
+    }
+
     private func makeController() throws -> WorkspaceController {
         WorkspaceController(store: try AuthorDataStore(inMemory: true))
     }
