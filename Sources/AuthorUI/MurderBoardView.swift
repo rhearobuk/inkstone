@@ -90,8 +90,48 @@ struct MurderBoardGraphNode: Identifiable {
     var id: UUID { entity.id }
 }
 
+enum MurderBoardRelationshipRecord {
+    case storyBible(StoryBibleRelationship)
+    case character(CharacterRelationship)
+
+    var id: UUID {
+        switch self {
+        case .storyBible(let relationship): relationship.id
+        case .character(let relationship): relationship.id
+        }
+    }
+
+    var kind: String {
+        switch self {
+        case .storyBible(let relationship): relationship.kind
+        case .character(let relationship): relationship.kind
+        }
+    }
+
+    var notes: String? {
+        switch self {
+        case .storyBible(let relationship): relationship.notes
+        case .character(let relationship): relationship.notes
+        }
+    }
+
+    var sourceEntity: SemanticEntity {
+        switch self {
+        case .storyBible(let relationship): relationship.sourceEntity
+        case .character(let relationship): relationship.sourceCharacter.semanticEntity
+        }
+    }
+
+    var targetEntity: SemanticEntity {
+        switch self {
+        case .storyBible(let relationship): relationship.targetEntity
+        case .character(let relationship): relationship.targetCharacter.semanticEntity
+        }
+    }
+}
+
 struct MurderBoardGraphEdge: Identifiable {
-    let relationship: StoryBibleRelationship
+    let relationship: MurderBoardRelationshipRecord
     let sourceID: UUID
     let targetID: UUID
     let sourcePosition: CGPoint
@@ -238,7 +278,6 @@ extension WorkspaceController {
         let visibleKinds = state.visibleEntityKinds.isEmpty
             ? Set(SemanticEntityKind.allCases.map(\.rawValue))
             : Set(state.visibleEntityKinds)
-        let includedEntityIDs = state.includedEntityIDs.isEmpty ? nil : Set(state.includedEntityIDs)
         let hiddenEntityIDs = Set(state.nodeStates.filter(\.isHidden).map(\.entityID))
         let selectedBook = state.selectedBookID.flatMap { id in project.documents.first { !$0.isDeleted && $0.id == id } }
         let bookScopedEntityIDs = selectedBook.map { cachedMurderBoardEntityIDs(in: $0, project: project) }
@@ -246,12 +285,11 @@ extension WorkspaceController {
         var entities = allEntities.filter { entity in
             visibleKinds.contains(entity.kind) &&
                 !hiddenEntityIDs.contains(entity.id) &&
-                (includedEntityIDs?.contains(entity.id) ?? true) &&
                 (bookScopedEntityIDs?.contains(entity.id) ?? true)
         }
         let baseVisibleEntityIDs = Set(entities.map(\.id))
 
-        let allRelationships = uniqueRelationships(in: project)
+        let allRelationships = graphRelationships(in: project)
         let availableRelationshipKinds = Array(Set(allRelationships.map(\.kind))).sorted()
         let hiddenRelationshipKinds = Set(state.hiddenRelationshipKinds)
         var relationships = allRelationships.filter { relationship in
@@ -363,20 +401,35 @@ extension WorkspaceController {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private func uniqueRelationships(in project: WritingProject) -> [StoryBibleRelationship] {
-        var seen = Set<UUID>()
-        return project.semanticEntities
+    private func graphRelationships(in project: WritingProject) -> [MurderBoardRelationshipRecord] {
+        var storyBibleSeen = Set<UUID>()
+        let storyBibleRelationships = project.semanticEntities
             .flatMap(\.outgoingStoryBibleRelationships)
             .filter {
                 !$0.isDeleted &&
                     !$0.sourceEntity.isDeleted &&
                     !$0.targetEntity.isDeleted &&
-                    seen.insert($0.id).inserted
+                    storyBibleSeen.insert($0.id).inserted
             }
-            .sorted {
-                ($0.kind, $0.sourceEntity.canonicalName, $0.targetEntity.canonicalName, $0.id.uuidString) <
-                    ($1.kind, $1.sourceEntity.canonicalName, $1.targetEntity.canonicalName, $1.id.uuidString)
+            .map(MurderBoardRelationshipRecord.storyBible)
+
+        var characterSeen = Set<UUID>()
+        let characterRelationships = project.characterProfiles
+            .flatMap(\.outgoingRelationships)
+            .filter {
+                !$0.isDeleted &&
+                    !$0.sourceCharacter.isDeleted &&
+                    !$0.targetCharacter.isDeleted &&
+                    !$0.sourceCharacter.semanticEntity.isDeleted &&
+                    !$0.targetCharacter.semanticEntity.isDeleted &&
+                    characterSeen.insert($0.id).inserted
             }
+            .map(MurderBoardRelationshipRecord.character)
+
+        return (storyBibleRelationships + characterRelationships).sorted {
+            ($0.kind, $0.sourceEntity.canonicalName, $0.targetEntity.canonicalName, $0.id.uuidString) <
+                ($1.kind, $1.sourceEntity.canonicalName, $1.targetEntity.canonicalName, $1.id.uuidString)
+        }
     }
 
     private func murderBoardSceneMentionCounts(in project: WritingProject) -> [UUID: Int] {
@@ -415,7 +468,7 @@ extension WorkspaceController {
                 return mention.entity.id
             }
         })
-        let relationshipEntityIDs = Set(uniqueRelationships(in: project).flatMap { relationship in
+        let relationshipEntityIDs = Set(graphRelationships(in: project).flatMap { relationship in
             let endpointIDs = [relationship.sourceEntity.id, relationship.targetEntity.id]
             return endpointIDs.contains(where: mentionedEntityIDs.contains) ? endpointIDs : []
         })
@@ -443,7 +496,7 @@ extension WorkspaceController {
     private func murderBoardVisibleEntityIDs(
         selectedEntityID: UUID,
         entities: [SemanticEntity],
-        relationships: [StoryBibleRelationship],
+        relationships: [MurderBoardRelationshipRecord],
         depth: MurderBoardConnectedDepth
     ) -> Set<UUID> {
         let allowedIDs = Set(entities.map(\.id))
@@ -479,7 +532,7 @@ extension WorkspaceController {
         }
     }
 
-    private func uniqueEntityIDs(from relationships: [StoryBibleRelationship]) -> [UUID] {
+    private func uniqueEntityIDs(from relationships: [MurderBoardRelationshipRecord]) -> [UUID] {
         var seen = Set<UUID>()
         var ids: [UUID] = []
         for relationship in relationships {
@@ -641,7 +694,7 @@ struct MurderBoardView: View {
                 Button {
                     showsNewRelationship = true
                     newRelationshipTargetID = selectedNode.flatMap { node in
-                        controller.storyBibleRelationshipTargets.first(where: { $0.id != node.id })?.id
+                        storyBibleEntities(in: board.project).first(where: { $0.id != node.id })?.id
                     }
                 } label: {
                     Label("Add Relationship", systemImage: "link.badge.plus")
@@ -662,12 +715,13 @@ struct MurderBoardView: View {
                     }
                 )) {
                     Text("All Story Bible Elements").tag(Optional<UUID>.none)
-                    ForEach(startingEntities, id: \.id) { entity in
+                    ForEach(startingEntities(in: board.project), id: \.id) { entity in
                         Text(startingEntityTitle(for: entity)).tag(Optional(entity.id))
                     }
                 }
-                .frame(maxWidth: 320)
+            }
 
+            HStack {
                 Picker("Book", selection: Binding(
                     get: { state.selectedBookID },
                     set: {
@@ -870,7 +924,12 @@ struct MurderBoardView: View {
                     }
                     Button("Delete Relationship", role: .destructive) {
                         pendingRelationshipSaveTask?.cancel()
-                        controller.deleteStoryBibleRelationship(relationship)
+                        switch relationship {
+                        case .storyBible(let storyBibleRelationship):
+                            controller.deleteStoryBibleRelationship(storyBibleRelationship)
+                        case .character(let characterRelationship):
+                            controller.deleteCharacterRelationship(characterRelationship)
+                        }
                         selectedRelationshipID = nil
                         relationshipKindDraft = ""
                         relationshipNotesDraft = ""
@@ -995,19 +1054,23 @@ struct MurderBoardView: View {
     }
 
     private var relationshipTargets: [SemanticEntity] {
-        guard let selectedNode else { return [] }
-        return controller.storyBibleRelationshipTargets.filter { $0.id != selectedNode.id }
+        guard let selectedNode, let project = controller.selectedMurderBoard?.project else { return [] }
+        return storyBibleEntities(in: project).filter { $0.id != selectedNode.id }
     }
 
-    private var startingEntities: [SemanticEntity] {
-        (controller.selectedProject?.semanticEntities ?? [])
+    private func storyBibleEntities(in project: WritingProject) -> [SemanticEntity] {
+        project.semanticEntities
             .filter { !$0.isDeleted }
             .sorted {
                 $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
             }
     }
 
-    private func selectedRelationship(graph: MurderBoardGraph) -> StoryBibleRelationship? {
+    private func startingEntities(in project: WritingProject) -> [SemanticEntity] {
+        storyBibleEntities(in: project)
+    }
+
+    private func selectedRelationship(graph: MurderBoardGraph) -> MurderBoardRelationshipRecord? {
         graph.edges.first { $0.id == selectedRelationshipID }?.relationship
     }
 
@@ -1240,8 +1303,19 @@ struct MurderBoardView: View {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             guard loadedBoardID == boardID, selectedRelationshipID == relationshipID else { return }
-            guard let relationship = try? controller.store.storyBibleRelationships.fetch(id: relationshipID) else { return }
-            guard loadedBoardID == boardID, selectedRelationshipID == relationshipID else { return }
+            persistRelationshipDraft(id: relationshipID, kind: kind, notes: notes)
+        }
+    }
+
+    private func persistRelationshipDraftImmediately() {
+        pendingRelationshipSaveTask?.cancel()
+        pendingRelationshipSaveTask = nil
+        guard let relationshipID = selectedRelationshipID else { return }
+        persistRelationshipDraft(id: relationshipID, kind: relationshipKindDraft, notes: relationshipNotesDraft.nilIfBlank)
+    }
+
+    private func persistRelationshipDraft(id: UUID, kind: String, notes: String?) {
+        if let relationship = try? controller.store.storyBibleRelationships.fetch(id: id) {
             guard let normalizedKind = kind.nilIfBlank else {
                 relationshipKindDraft = relationship.kind
                 relationshipNotesDraft = relationship.notes ?? ""
@@ -1250,24 +1324,17 @@ struct MurderBoardView: View {
             relationship.kind = normalizedKind
             relationship.notes = notes
             controller.saveStoryBibleRelationship(relationship)
-        }
-    }
-
-    private func persistRelationshipDraftImmediately() {
-        pendingRelationshipSaveTask?.cancel()
-        pendingRelationshipSaveTask = nil
-        guard let relationshipID = selectedRelationshipID,
-              let relationship = try? controller.store.storyBibleRelationships.fetch(id: relationshipID) else {
             return
         }
-        guard let normalizedKind = relationshipKindDraft.nilIfBlank else {
+        guard let relationship = try? controller.store.characterRelationships.fetch(id: id) else { return }
+        guard let normalizedKind = kind.nilIfBlank else {
             relationshipKindDraft = relationship.kind
             relationshipNotesDraft = relationship.notes ?? ""
             return
         }
         relationship.kind = normalizedKind
-        relationship.notes = relationshipNotesDraft.nilIfBlank
-        controller.saveStoryBibleRelationship(relationship)
+        relationship.notes = notes
+        controller.saveCharacterRelationship(relationship)
     }
 }
 
