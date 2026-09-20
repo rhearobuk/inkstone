@@ -12,6 +12,12 @@ struct StoryBibleCardView: View {
     var body: some View {
         if let card = controller.selectedStoryBibleCard {
             Form {
+                Section("Label and Status") {
+                    ContentMetadataEditor(
+                        controller: controller,
+                        target: controller.contentTarget(for: card.semanticEntity)
+                    )
+                }
                 Section("Identity") {
                     TextField("Name", text: entityBinding(card, \.canonicalName))
                         .accessibilityIdentifier("storyBible.name")
@@ -80,6 +86,9 @@ struct StoryBibleCardView: View {
             }
             .formStyle(.grouped)
             .navigationTitle(card.semanticEntity.canonicalName)
+            .toolbar {
+                SemanticEntryDeleteButton(controller: controller, entity: card.semanticEntity)
+            }
             .fileImporter(
                 isPresented: $showsImageImporter,
                 allowedContentTypes: [.image],

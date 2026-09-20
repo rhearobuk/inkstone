@@ -13,6 +13,7 @@
    <TestAction buildConfiguration="Release" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.PosixSpawn" shouldUseLaunchSchemeArgsEnv="NO">
       <TestPlans>
          <TestPlanReference reference="container:Configuration/Inkstone-Walkthrough.xctestplan" default="YES"/>
+         <TestPlanReference reference="container:Configuration/Inkstone-Management.xctestplan"/>
       </TestPlans>
    </TestAction>
    <LaunchAction buildConfiguration="Release" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.PosixSpawn" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES">

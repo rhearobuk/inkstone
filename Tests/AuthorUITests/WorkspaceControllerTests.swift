@@ -826,32 +826,33 @@ final class WorkspaceControllerTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription, WorkspaceError.invalidMove.localizedDescription)
         }
 
-        func testImportedTextContainerAcceptsChildrenAsAFolder() throws {
-            let controller = try makeController()
-            let project = try controller.createProject(title: "Imported")
-            let group = controller.store.documents.create {
-                $0.sourceIdentifier = "legacy-group"
-                $0.title = "Leads"
-                $0.kind = DocumentKind.text.rawValue
-                $0.orderIndex = 2
-                $0.project = project
-            }
-            let existing = controller.store.documents.create {
-                $0.sourceIdentifier = "legacy-character"
-                $0.title = "Existing"
-                $0.kind = DocumentKind.text.rawValue
-                $0.orderIndex = 0
-                $0.project = project
-                $0.parent = group
-            }
-            let moved = try controller.addDocument(title: "Moved", kind: .text, parentID: nil)
-            try controller.store.save()
+    }
 
-            try controller.moveDocument(moved.id, onto: group.id)
-
-            XCTAssertEqual(moved.parent?.id, group.id)
-            XCTAssertEqual(group.orderedChildren.map(\.id), [existing.id, moved.id])
+    func testImportedTextContainerAcceptsChildrenAsAFolder() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported")
+        let group = controller.store.documents.create {
+            $0.sourceIdentifier = "legacy-group"
+            $0.title = "Leads"
+            $0.kind = DocumentKind.text.rawValue
+            $0.orderIndex = 2
+            $0.project = project
         }
+        let existing = controller.store.documents.create {
+            $0.sourceIdentifier = "legacy-character"
+            $0.title = "Existing"
+            $0.kind = DocumentKind.text.rawValue
+            $0.orderIndex = 0
+            $0.project = project
+            $0.parent = group
+        }
+        let moved = try controller.addDocument(title: "Moved", kind: .text, parentID: nil)
+        try controller.store.save()
+
+        try controller.moveDocument(moved.id, onto: group.id)
+
+        XCTAssertEqual(moved.parent?.id, group.id)
+        XCTAssertEqual(group.orderedChildren.map(\.id), [existing.id, moved.id])
     }
 
     func testMovesSceneOutOfFolderToItsParentLevel() throws {

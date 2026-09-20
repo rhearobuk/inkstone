@@ -21,10 +21,11 @@ public struct HelpInstructionsView: View {
 
                     HelpSection("Organize the binder", systemImage: "list.bullet.indent") {
                         HelpStep("Navigate", detail: "Select an item in the binder to open it. Expand folders and chapters to reveal their children.")
-                        HelpStep("Reorder", detail: "Drag a document or folder onto a binder row. Drop before, inside, or after the highlighted item to place it in the hierarchy.")
-                        HelpStep("Classify", detail: "Open Project Preferences from the toolbar to manage Section Types, Labels, Statuses, and Custom Metadata. Use the Status and Label controls above the binder to filter what is shown.")
+                        HelpStep("Reorder", detail: "Use Move Up or Move Down in a Mac context menu or the ellipsis menu on iPad and Vision Pro. You can also drag entries before or after another entry in the same Story Bible category, including mixed documents and native entries. Documents still support dropping inside folders. Clear search and filters, and show hidden items, before reordering. Entries cannot be dragged between projects, and semantic entries cannot be converted to another category by dragging.")
+                        HelpStep("Classify", detail: "Assign one Label and one Status in any document, folder, character dossier, or Story Bible entry. Choose None to clear an assignment, or Manage Labels and Statuses to create or edit definitions in Project Preferences. Imported character dossiers share assignments with their source documents. Use the Status and Label controls above the binder to filter documents and Story Bible entries.")
                         HelpStep("Show hidden items", detail: "Choose View Options in the toolbar, turn on Show Hidden Items, then use the hidden item's context menu and choose Show Scene.")
                         HelpStep("Recover deleted work", detail: "Use Move to Trash from a project or binder item’s context menu. Restore items from Trash to their original location, or empty Trash only when you no longer need them.")
+                        HelpStep("Delete a Story Bible entry", detail: "Use Delete Entry Permanently in an entry's detail view or binder menu; on iPad and Vision Pro, open the row's ellipsis menu. Confirm only when you no longer need the entry, or choose Cancel to keep it. Semantic entries do not go to Trash. Character deletion also removes an imported character's source entry. Document-backed Research continues to use Trash and Restore.")
                     }
 
                     HelpSection("Write and revise", systemImage: "square.and.pencil") {

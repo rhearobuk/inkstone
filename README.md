@@ -68,6 +68,22 @@ the upper or lower part of a row to place an item before or after it, or onto th
 middle of a folder to move it inside. The Mac binder retains its native list and
 context menus.
 
+Story Bible entries and documents can be reordered together within a category
+using drag and drop or **Move Up / Move Down** in the item menu. Clear binder
+search and label/status filters before moving items. Explicit ordering is saved
+with the project; dragging an entity does not change its semantic type.
+
+Document editors, character dossiers, and Story Bible cards provide **Label**
+and **Status** controls, including **None** and access to project definitions.
+Assignments appear in binder badges and participate in binder filtering.
+Deleting a definition clears its assignments without deleting any content.
+
+All semantic Story Bible entries offer confirmed permanent deletion, including
+organizations, places, artifacts, and worldbuilding entries. Related narrative
+text and project gallery images are retained. Research and other document-backed
+entries continue to use **Move to Trash** and **Restore**; character deletion
+also removes its imported source entry, as described in its confirmation.
+
 Folder and scene metadata text fields, including ISBNs, preserve spaces as you
 type; multiline metadata also preserves line breaks. Number and date fields
 continue to use typed values.

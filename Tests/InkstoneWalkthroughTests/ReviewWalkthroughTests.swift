@@ -38,6 +38,100 @@ final class ReviewWalkthroughTests: XCTestCase {
         try moveScene()
     }
 
+    #if DEBUG
+    func testStoryBibleManagementWalkthrough() throws {
+        app.launchArguments.append("--management-tests")
+        launchWorkspace()
+        try expand("Story Bible", revealing: "Organizations")
+        for category in ["Organizations", "Places", "Artifacts", "Events, Conflicts & Timelines", "Worldbuilding"] {
+            let title = "QA \(category)"
+            try expand(category, revealing: title)
+            activate(binderTitle(title))
+            activate(element("content.label"))
+            activate(menuItem("QA Label"))
+            activate(element("content.status"))
+            activate(menuItem("QA Status"))
+            activate(binderTitle("Project Definition"))
+            activate(binderTitle(title))
+            assertMetadataSelection("content.label", title: "QA Label")
+            assertMetadataSelection("content.status", title: "QA Status")
+            activate(element("content.label"))
+            activate(menuItem("None"))
+            assertMetadataSelection("content.label", title: "None")
+            activate(element("storyBible.delete"))
+            activate(element("storyBible.delete.cancel"))
+            XCTAssertTrue(binderTitle(title).exists, "Cancel must retain the entry.")
+            activate(element("storyBible.delete"))
+            activate(element("storyBible.delete.confirm"))
+            wait(for: binderTitle(title), predicate: "exists == false", timeout: 10,
+                 message: "Confirmed deletion must remove the entry.")
+        }
+        capture("Story Bible metadata and deletion")
+    }
+
+    func testStoryBibleMoveMenuWalkthrough() throws {
+        app.launchArguments.append("--management-tests")
+        launchWorkspace()
+        try expand("Story Bible", revealing: "Organizations")
+        try expand("Organizations", revealing: "QA Organizations")
+        let first = binderTitle("QA Organizations")
+        let second = binderTitle("QA Second Organization")
+        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        XCTAssertLessThan(first.frame.midY, second.frame.midY)
+        #if os(macOS)
+        second.rightClick()
+        #else
+        activate(app.buttons["Actions for QA Second Organization"].firstMatch)
+        #endif
+        activate(menuItem("Move QA Second Organization up"))
+        let reordered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in second.frame.midY < first.frame.midY },
+            object: nil
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [reordered], timeout: 10), .completed)
+        activate(binderTitle("Project Definition"))
+        activate(binderTitle("Organizations"))
+        XCTAssertLessThan(second.frame.midY, first.frame.midY)
+        capture("Story Bible menu reordering")
+    }
+
+    func testDocumentAndCharacterMetadataWalkthrough() throws {
+        app.launchArguments.append("--management-tests")
+        launchWorkspace()
+        try expand("Narrative", revealing: "Untitled Novel")
+        try expand("Untitled Novel", revealing: "Opening Scene")
+        activate(binderTitle("Opening Scene"))
+        activate(element("content.status"))
+        activate(menuItem("QA Status"))
+        assertMetadataSelection("content.status", title: "QA Status")
+        try expand("Story Bible", revealing: "People")
+        try expand("People", revealing: "QA People")
+        activate(binderTitle("QA People"))
+        activate(element("content.label"))
+        activate(menuItem("QA Label"))
+        assertMetadataSelection("content.label", title: "QA Label")
+        try expand("Research", revealing: "QA Research")
+        activate(binderTitle("QA Research"))
+        activate(element("content.status"))
+        activate(menuItem("QA Status"))
+        assertMetadataSelection("content.status", title: "QA Status")
+        capture("Document and character metadata")
+    }
+
+    private func assertMetadataSelection(_ identifier: String, title: String) {
+        let control = element(identifier)
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                (control.value as? String)?.contains(title) == true ||
+                    control.label.contains(title) || control.staticTexts[title].exists
+            },
+            object: control
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed,
+                       "Expected \(title) in \(identifier): \(control.debugDescription)")
+    }
+    #endif
+
     /// Uses the normal importer and a real on-device AI request; no seeded model responses.
     /// On iPad/visionOS select the supplied .scriv project in the file picker when prompted.
     func testImportAndAppleIntelligenceWalkthrough() throws {

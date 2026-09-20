@@ -178,3 +178,57 @@ failure handling; permissions; and relevant keyboard/touch/gaze/pinch behavior.
 Use [App Review Notes 0.2](App-Review-Notes-0.2.md) for Apple's six requested
 answers. Replace every bracketed placeholder and attach the sample and
 physical recording before pasting into App Store Connect.
+
+## Story Bible management regression walkthrough (#18, #19, #20)
+
+These are required acceptance steps for the remediation, **not completed device
+verification**. Repeat on Mac, iPad, and Vision Pro, recording build, OS, device,
+and pass/fail separately. Existing `core` and `binder` runs above do not cover
+this matrix. Use original synthetic content, including native and imported
+characters, every semantic category, document folders, mixed document/entity
+categories, linked scenes, relationships, gallery photos, and a second project.
+
+1. **Assign metadata:** open a narrative document, folder, Research document,
+   native character, imported character dossier, and each other Story Bible
+   entry. Use Label and Status to assign, change, and clear values with **None**.
+   With no definitions, follow **Manage Labels and Statuses…** to Project
+   Preferences and create them. Rename and delete definitions there; verify
+   current assignments, binder badges, and filters refresh. Confirm imported
+   dossiers and source documents share values. Reopen the app and verify saved
+   assignments. Include duplicate definition titles with different identifiers.
+2. **Reorder without dragging:** right-click a row on Mac or use its accessible
+   ellipsis menu on iPad/Vision Pro. Choose **Move Up** and **Move Down** for
+   first, middle, and last native entries, documents, and mixed categories.
+   Verify boundary actions are disabled and category overview order matches
+   the binder. Opening a character from its category must open its dossier.
+3. **Drag:** move a native entry before/after another entry in its own category,
+   interleave it with documents, and verify the insertion indicator. Preserve
+   existing document before/inside/after folder behavior and document category
+   moves. Attempt invalid nesting, semantic category conversion, a foreign
+   project's drag payload, and non-binder text: no data moves and errors are
+   reported. Reopen and confirm order, hierarchy, word totals, and selection.
+4. **Filtered movement:** apply a search, Label filter, and Status filter in
+   turn. Drag/drop and move actions must be unavailable, with an explanation
+   to clear search/filters (and show hidden items when needed). Navigation,
+   metadata editing, and deletion remain available.
+5. **Permanent entry deletion:** invoke **Delete Entry Permanently…** in a
+   semantic entry's detail toolbar and binder menu. Cancel first and verify
+   nothing changed; invoke again and confirm. Repeat for every semantic kind,
+   including native characters. Preserve the existing **Delete Character**
+   confirmation for native/imported dossiers, including imported source-entry
+   removal. Verify selection moves to a surviving category, deletion persists
+   after reopen, and related entries, scene text, and project photos survive.
+   Verify document-backed Research still uses **Move to Trash**, **Restore**,
+   and separately confirmed permanent deletion.
+6. **Accessibility and failures:** check keyboard access and context menus on
+   Mac, 44-point ellipsis targets on iPad, and discoverable gaze/pinch actions
+   on Vision Pro. Metadata controls expose `content.label`, `content.status`,
+   and `content.metadata.manage`; row actions use `binder.actions.<row-id>`,
+   `binder.moveUp.<row-id>`, and `binder.moveDown.<row-id>`. Shared deletion
+   confirmation buttons use `storyBible.delete.cancel` and
+   `storyBible.delete.confirm`; dossier confirmations use `character.delete.*`.
+   Validate save/fetch/movement failures appear as errors, not successful edits.
+7. **Sync gate:** on signed-in devices, change metadata/order on one device and
+   observe the other, then confirm semantic deletion propagates without orphaned
+   relationships. If device/account access is unavailable, record this gate as
+   pending; a shared-code build does not establish sync or interaction parity.

@@ -4,6 +4,18 @@
 
 `WritingProject` is the aggregate root. `Document` models every ordered Scrivener binder item, not only prose: draft folders, folders, text, images, PDFs, and unknown future kinds remain distinguishable through `kind`. The self-referential parent/children relationship stores hierarchy; `orderIndex` stores sibling order independently of unordered Core Data relationship storage.
 
+V11 adds `storyBibleOrderIndex: NSNumber?` to both `Document` and
+`SemanticEntity`. Each is an optional Core Data Integer 64 with
+`usesScalarValueType="NO"` and no default, so migrated and newly created
+records distinguish an unset position (`nil`) from position zero. It stores
+mixed document/entity ordering at a Story Bible category's root, independently
+of `Document.parent` and `Document.orderIndex`; those remain authoritative for
+nested documents and Narrative ordering. An unset category retains the legacy
+presentation (alphabetical entities, then sibling-ordered documents); the first
+manual reorder establishes positions for the complete category. Ordering policy,
+including UUID tie-breakers and appending new entries, belongs in the controller,
+not in the migration.
+
 `ContentResource` stores a typed source asset and its provenance attributes. Large binary values permit Core Data external storage. Keeping `data`, `textContent`, and `Document.plainText` separate preserves exact source bytes while providing queryable text.
 
 Scrivener is an import adapter, not the application domain model. Imported source
@@ -64,6 +76,14 @@ Generated interpretations should be stored as typed semantic entities, mentions,
 
 `LabelDefinition`, `StatusDefinition`, and `SectionTypeDefinition` are project-scoped vocabularies parsed from the Scrivener project XML's `<LabelSettings>`, `<StatusSettings>`, and `<SectionTypes><TypeDefinitions>` blocks (siblings of `<Binder>`). Each stores the source ID (Scrivener's numeric label/status ID or section type GUID), a display `title`, `orderIndex` for stable ordering, and — for labels — an optional RGB color parsed from Scrivener's `"R G B"` color string. `LabelDefinition.isDefault`/`StatusDefinition.isDefault` reflect Scrivener's `DefaultLabelID`/`DefaultStatusID`. `Document.labelIdentifier`, `statusIdentifier`, and `sectionTypeIdentifier` reference these definitions' `sourceIdentifier` values.
 
+V11 adds optional `SemanticEntity.labelIdentifier: String?` and
+`SemanticEntity.statusIdentifier: String?`, referencing the same project-scoped
+definition identifiers, not their titles. Both default to `nil` (None).
+Document-backed imported characters continue to use their source document's
+label/status identifiers as the source of truth; migration does not copy those
+values into the dossier's semantic entity. Definition validation and clearing
+references when definitions are deleted are controller responsibilities.
+
 `CustomMetaDataSettings/MetaDataField` entries populate `MetadataField` rows keyed as `scrivener.MetaData.Custom.<fieldID>` (matching the keys `upsertMetadata` derives per document), with `MetadataField.sourceIdentifier` set to the Scrivener field ID and `displayName`/`valueType` taken from the settings block rather than inferred from the key. Import order matters: per-document metadata is imported first (creating placeholder fields if needed), then `importProjectSettings` runs so the authoritative titles/types from the settings block win.
 
 These four definitions back `ProjectPreferencesView` (`AuthorUI`), a project-level preferences pane (opened via the binder toolbar's gear icon) for viewing and editing Section Types, Labels, Statuses, and Custom Metadata fields, including adding/renaming/deleting entries and recoloring labels. User-created entries use a synthesized `native.<uuid>` (or `custom.<uuid>` key) source identifier since they have no Scrivener origin.
@@ -72,11 +92,18 @@ These four definitions back `ProjectPreferencesView` (`AuthorUI`), a project-lev
 
 Source-owned UUIDs remain unchanged. Derived IDs are deterministic within the project namespace, making imports repeatable. Source identifier/path compound constraints provided additional conflict protection through `AuthorDataV6`; as of `AuthorDataV7` these are enforced only in the Swift API (via `upsert`), not as Core Data uniqueness constraints, since CloudKit mirroring does not support them (see "iCloud sync" below).
 
-The persistent container enables automatic model migration and inferred mappings. `AuthorDataV1` preserves the original schema, and `AuthorDataV8` is current; the compiled `AuthorData.momd` contains V1–V8 versions so existing SQLite stores migrate through an inferred lightweight mapping. Future schema changes should add a new version under `AuthorData.xcdatamodeld`, select it in `.xccurrentversion`, regenerate `AuthorData.momd`, and add a migration test opening a store created from the previous model. Use explicit mapping models when a change cannot be inferred without data loss.
+The persistent container enables automatic model migration and inferred mappings. `AuthorDataV1` preserves the original schema, and `AuthorDataV11` is current; the compiled `AuthorData.momd` contains V1–V11 versions so existing SQLite stores migrate through an inferred lightweight mapping. V11 is an additive evolution of V10: only the four optional attributes described above are added, with no changes to existing attributes, relationships, or historical models. `Persistence.swift` loads the current version selected by the compiled bundle's `VersionInfo.plist`; no hard-coded model version needs updating. Future schema changes should add a new version under `AuthorData.xcdatamodeld`, select it in `.xccurrentversion`, regenerate `AuthorData.momd` with `xcrun momc`, and add a migration test opening a store created from the previous model. Use explicit mapping models when a change cannot be inferred without data loss.
+
+`StoryBibleMigrationTests` creates a synthetic V10 SQLite store, opens it through
+`AuthorDataStore`, and checks identity, imported document metadata, definitions,
+document hierarchy, dossiers, cards, notes, aliases, mentions, and semantic links.
+The new fields must migrate as `nil`, then persist assigned values across reopen.
+A separate latest-model on-disk round trip checks assignment and clearing back
+to `nil`, including 64-bit order values.
 
 The Swift API and importer treat aggregate relationships as required and validate them before saving imported data, even though every relationship is modeled as optional (required for CloudKit compatibility, see below).
 
-## iCloud sync (V7–V8)
+## iCloud sync (V7 onward)
 
 `AuthorDataStore` uses `NSPersistentCloudKitContainer` so every project, document, and related record mirrors to the signed-in user's private iCloud database and stays in sync across their devices in near real time. `AuthorDataStore.open(storeURL:)` is the app entry point: it enables CloudKit mirroring and surfaces schema, migration, and corruption failures rather than silently disabling sync. It falls back to a local-only store only when an unsigned development process (for example, a plain `swift run`) lacks the iCloud/CloudKit entitlement. Call `AuthorDataStore.init(storeURL:inMemory:cloudKitSyncEnabled:)` directly only when you need explicit control (tests default `cloudKitSyncEnabled` to `false`).
 
@@ -86,6 +113,11 @@ The Swift API and importer treat aggregate relationships as required and validat
 - Relationships were already modeled as optional going back to `AuthorDataV1`, which CloudKit also requires.
 
 `AuthorDataV8` completes that compatibility work by assigning zero defaults to the six required scalar attributes that V7 missed: `DocumentEntityMention.location`, `DocumentEntityMention.length`, `Revision.sequence`, and the three `ImportRun` counters. `testCurrentModelMeetsCloudKitAttributeRequirements` audits every model attribute so future required attributes cannot omit a default unnoticed.
+
+All four V11 attributes are optional and introduce no uniqueness constraints or
+relationship changes, preserving the CloudKit schema requirements. Local
+migration/reopen tests do not substitute for a signed-in cross-device sync smoke
+test.
 
 The Xcode app target (`Inkstone`) declares `com.apple.developer.icloud-container-identifiers` (`iCloud.com.robertrhea.scribe`) and `com.apple.developer.icloud-services` (`CloudKit`) in `Sources/AuthorApp/AuthorApp.entitlements`, wired in via `CODE_SIGN_ENTITLEMENTS`. The container's legacy identifier is retained to preserve existing iCloud data. It must remain registered under the signing team (already done via [developer.apple.com](https://developer.apple.com) → Certificates, Identifiers & Profiles → iCloud Containers) for sync to work on a real device/build.
 
