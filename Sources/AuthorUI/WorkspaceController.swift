@@ -1788,6 +1788,23 @@ public final class WorkspaceController: ObservableObject {
         )
     }
 
+    /// Persists queued editor changes before a synchronous content-management mutation.
+    /// Automatic scene recognition is intentionally not run from this path; it remains
+    /// controlled by `sceneEntityRecognitionEnabled` and defaults to disabled.
+    func flushPendingContentChanges() throws {
+        pendingCharacterSave?.cancel()
+        pendingCharacterSave = nil
+        pendingDocumentSave?.cancel()
+        pendingDocumentSave = nil
+        pendingDocumentSaveIDs.removeAll()
+        for task in pendingSceneRecognitionTasks.values {
+            task.cancel()
+        }
+        pendingSceneRecognitionTasks.removeAll()
+        pendingSceneRecognitionTaskIDs.removeAll()
+        try store.save()
+    }
+
     public func flushPendingChanges() async {
         pendingDocumentSave?.cancel()
         pendingDocumentSave = nil
