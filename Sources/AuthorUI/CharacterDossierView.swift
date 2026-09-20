@@ -10,7 +10,19 @@ struct CharacterDossierView: View {
 
     var body: some View {
         if let profile = controller.selectedCharacterProfile {
+            let isTrashed = profile.sourceDocument.map { controller.isDocumentTrashed($0.id) } ?? false
             Form {
+                Section("Label and Status") {
+                    ContentMetadataEditor(
+                        controller: controller,
+                        target: controller.contentTarget(for: profile.semanticEntity)
+                    )
+                    if isTrashed {
+                        Text("Restore the imported source entry from Trash before changing metadata or deleting this character.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Section("Identity") {
                     TextField("First name", text: requiredBinding(profile, \.firstName))
                     TextField("Middle name", text: optionalBinding(profile, \.middleName))
@@ -289,12 +301,17 @@ struct CharacterDossierView: View {
                     Label("Delete Character", systemImage: "trash")
                 }
                 .help("Delete this character")
+                .accessibilityIdentifier("character.delete")
+                .disabled(isTrashed)
             }
             .alert("Delete Character?", isPresented: $confirmsDeletion) {
                 Button("Cancel", role: .cancel) {}
+                    .accessibilityIdentifier("character.delete.cancel")
                 Button("Delete", role: .destructive) {
                     controller.deleteCharacterProfile(profile)
                 }
+                .accessibilityIdentifier("character.delete.confirm")
+                .disabled(isTrashed)
             } message: {
                 Text("This permanently deletes this character and its profile, notes, relationships, and imported source entry.")
             }

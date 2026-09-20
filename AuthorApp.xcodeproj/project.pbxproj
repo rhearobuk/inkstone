@@ -16,7 +16,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		B20000000000000000000003 = {
+		B20000000000000000000003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A10000000000000000000010 /* Project object */;
 			proxyType = 1;
@@ -26,28 +26,29 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		B20000000000000000000002 /* ReviewWalkthroughTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWalkthroughTests.swift; sourceTree = "<group>"; };
-		B20000000000000000000004 /* InkstoneWalkthroughTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InkstoneWalkthroughTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000002 /* AuthorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000007 /* Inkstone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Inkstone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000000000000000000019 /* AuthorApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AuthorApp.entitlements; sourceTree = "<group>"; };
 		A10000000000000000000021 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B20000000000000000000002 /* ReviewWalkthroughTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWalkthroughTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000004 /* InkstoneWalkthroughTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InkstoneWalkthroughTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		B20000000000000000000005 = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = ();
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A10000000000000000000008 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000003 /* AuthorData in Frameworks */,
 				A10000000000000000000005 /* AuthorUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,7 +87,9 @@
 		};
 		B20000000000000000000006 /* Walkthrough Tests */ = {
 			isa = PBXGroup;
-			children = (B20000000000000000000002 /* ReviewWalkthroughTests.swift */,);
+			children = (
+				B20000000000000000000002 /* ReviewWalkthroughTests.swift */,
+			);
 			name = "Walkthrough Tests";
 			path = Tests/InkstoneWalkthroughTests;
 			sourceTree = "<group>";
@@ -94,21 +97,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		B20000000000000000000007 /* InkstoneWalkthroughTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B20000000000000000000008;
-			buildPhases = (
-				B20000000000000000000009,
-				B20000000000000000000005,
-				B2000000000000000000000A,
-			);
-			buildRules = ();
-			dependencies = (B2000000000000000000000B,);
-			name = InkstoneWalkthroughTests;
-			productName = InkstoneWalkthroughTests;
-			productReference = B20000000000000000000004;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 		A1000000000000000000000C /* Inkstone */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A1000000000000000000000D /* Build configuration list for PBXNativeTarget "Inkstone" */;
@@ -130,6 +118,24 @@
 			productReference = A10000000000000000000007 /* Inkstone.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B20000000000000000000007 /* InkstoneWalkthroughTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B20000000000000000000008 /* Build configuration list for PBXNativeTarget "InkstoneWalkthroughTests" */;
+			buildPhases = (
+				B20000000000000000000009 /* Sources */,
+				B20000000000000000000005 /* Frameworks */,
+				B2000000000000000000000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B2000000000000000000000B /* PBXTargetDependency */,
+			);
+			name = InkstoneWalkthroughTests;
+			productName = InkstoneWalkthroughTests;
+			productReference = B20000000000000000000004 /* InkstoneWalkthroughTests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -140,12 +146,12 @@
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					A1000000000000000000000C = {
+						CreatedOnToolsVersion = 26.6;
+					};
 					B20000000000000000000007 = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = A1000000000000000000000C;
-					};
-					A1000000000000000000000C = {
-						CreatedOnToolsVersion = 26.6;
 					};
 				};
 			};
@@ -173,12 +179,6 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		B2000000000000000000000A = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ();
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A1000000000000000000000F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -188,15 +188,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B2000000000000000000000A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		B20000000000000000000009 = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (B20000000000000000000001 /* ReviewWalkthroughTests.swift in Sources */,);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A1000000000000000000000E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -205,57 +206,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B20000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B20000000000000000000001 /* ReviewWalkthroughTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		B2000000000000000000000B = {
+		B2000000000000000000000B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A1000000000000000000000C /* Inkstone */;
-			targetProxy = B20000000000000000000003;
+			targetProxy = B20000000000000000000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		B2000000000000000000000C /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AUF5J8E9CA;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp.WalkthroughTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "macosx iphoneos iphonesimulator xros xrsimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "2,7";
-				TEST_TARGET_NAME = Inkstone;
-				XROS_DEPLOYMENT_TARGET = 1.0;
-			};
-			name = Debug;
-		};
-		B2000000000000000000000D /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AUF5J8E9CA;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp.WalkthroughTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "macosx iphoneos iphonesimulator xros xrsimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "2,7";
-				TEST_TARGET_NAME = Inkstone;
-				XROS_DEPLOYMENT_TARGET = 1.0;
-			};
-			name = Release;
-		};
 		A10000000000000000000013 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -369,7 +338,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Sources/AuthorApp/AuthorApp-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 40;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
@@ -387,7 +356,7 @@
 				INFOPLIST_FILE = "Configuration/AuthorApp-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp;
 				PRODUCT_NAME = Inkstone;
 				REGISTER_APP_GROUPS = NO;
@@ -420,7 +389,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Sources/AuthorApp/AuthorApp-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 40;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
@@ -438,7 +407,7 @@
 				INFOPLIST_FILE = "Configuration/AuthorApp-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp;
 				PRODUCT_NAME = Inkstone;
 				REGISTER_APP_GROUPS = NO;
@@ -460,18 +429,49 @@
 			};
 			name = Release;
 		};
+		B2000000000000000000000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = AUF5J8E9CA;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp.WalkthroughTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "macosx iphoneos iphonesimulator xros xrsimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "2,7";
+				TEST_TARGET_NAME = Inkstone;
+				XROS_DEPLOYMENT_TARGET = 1.0;
+			};
+			name = Debug;
+		};
+		B2000000000000000000000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = AUF5J8E9CA;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp.WalkthroughTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "macosx iphoneos iphonesimulator xros xrsimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "2,7";
+				TEST_TARGET_NAME = Inkstone;
+				XROS_DEPLOYMENT_TARGET = 1.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		B20000000000000000000008 = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				B2000000000000000000000C /* Debug */,
-				B2000000000000000000000D /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A1000000000000000000000D /* Build configuration list for PBXNativeTarget "Inkstone" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -486,6 +486,15 @@
 			buildConfigurations = (
 				A10000000000000000000013 /* Debug */,
 				A10000000000000000000014 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B20000000000000000000008 /* Build configuration list for PBXNativeTarget "InkstoneWalkthroughTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B2000000000000000000000C /* Debug */,
+				B2000000000000000000000D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

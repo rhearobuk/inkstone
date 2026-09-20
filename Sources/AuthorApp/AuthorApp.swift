@@ -88,17 +88,45 @@ private final class InkstoneStartup: ObservableObject {
         do {
             #if DEBUG
             let preview = ProcessInfo.processInfo.arguments.contains("--editor-preview")
-            let store = try preview
+            let managementTests = ProcessInfo.processInfo.arguments.contains("--management-tests")
+            let store = try (preview || managementTests)
                 ? AuthorDataStore(inMemory: true)
                 : AuthorDataStore.open(storeURL: Self.storeURL())
             #else
             let store = try AuthorDataStore.open(storeURL: Self.storeURL())
             #endif
+            #if DEBUG
+            let preferences: UserDefaults
+            if managementTests {
+                let suite = "Inkstone.ManagementTests"
+                guard let testPreferences = UserDefaults(suiteName: suite) else {
+                    throw CocoaError(.fileReadUnknown)
+                }
+                testPreferences.removePersistentDomain(forName: suite)
+                preferences = testPreferences
+            } else {
+                preferences = .standard
+            }
+            let workspace = WorkspaceController(store: store, projectListPreferences: preferences)
+            #else
             let workspace = WorkspaceController(store: store)
+            #endif
             if workspace.projects.isEmpty && !store.cloudKitSyncEnabled {
                 try workspace.createProject(title: "My Novel")
             }
             #if DEBUG
+            if managementTests {
+                _ = workspace.addLabel(title: "QA Label")
+                _ = workspace.addStatus(title: "QA Status")
+                for category in StoryBibleCategory.allCases where category != .research {
+                    _ = try workspace.addStoryBibleEntry(named: "QA \(category.rawValue)", category: category)
+                }
+                _ = try workspace.addStoryBibleEntry(named: "QA Second Organization", category: .organizations)
+                _ = try workspace.addResearchDocument(title: "QA Research")
+                if let projectID = workspace.selectedProjectID {
+                    workspace.selection = .projectDefinition(projectID)
+                }
+            }
             if preview, let project = workspace.selectedProject,
                let scene = project.documents.first(where: { $0.kind == DocumentKind.text.rawValue }) {
                 scene.title = "The Arrival"

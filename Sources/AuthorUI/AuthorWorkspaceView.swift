@@ -339,6 +339,25 @@ public struct AuthorWorkspaceView: View {
                 Text("This permanently deletes '\(controller.documentTitle(for: id))'. This action cannot be undone.")
             }
         }
+        .alert("Delete Story Bible Entry Permanently?", isPresented: Binding(
+            get: { controller.semanticEntityToDelete != nil },
+            set: { if !$0 { controller.semanticEntityToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { controller.semanticEntityToDelete = nil }
+                .accessibilityIdentifier("storyBible.delete.cancel")
+            Button("Delete Permanently", role: .destructive) {
+                guard let id = controller.semanticEntityToDelete else { return }
+                controller.semanticEntityToDelete = nil
+                do {
+                    try controller.deleteSemanticEntity(id)
+                } catch {
+                    controller.report(error)
+                }
+            }
+            .accessibilityIdentifier("storyBible.delete.confirm")
+        } message: {
+            Text("This permanently deletes this entry and its owned profile, notes, and relationships, including an imported character's source entry. It cannot be restored from Trash. Related entries, manuscript text, and project gallery images are preserved.")
+        }
         .alert("Empty Trash?", isPresented: $controller.showsEmptyTrashAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Empty Trash", role: .destructive) {
@@ -757,9 +776,9 @@ private struct BinderRow: View {
     @State private var rowHeight: CGFloat = 28
 
     private var dropPosition: DropPosition? {
-        guard let documentID = item.documentID,
+        guard let target = item.contentTarget,
               let activeTarget = controller.activeDropTarget,
-              activeTarget.documentID == documentID else {
+              activeTarget.contentTarget == target else {
             return nil
         }
         return activeTarget.position
@@ -827,18 +846,45 @@ private struct BinderRow: View {
         .modifier(BinderTouchActionsModifier(item: item, controller: controller))
         #if os(macOS)
         .contextMenu {
-            contextMenuContent
+            BinderRowActions(item: item, controller: controller)
         }
         #endif
         .onPreferenceChange(RowHeightPreferenceKey.self) { height in
             if height > 0 { rowHeight = height }
         }
-        .modifier(BinderDragModifier(item: item))
+        .modifier(BinderDragModifier(item: item, controller: controller))
         .modifier(BinderDropModifier(item: item, controller: controller, rowHeight: rowHeight))
     }
 
-    @ViewBuilder
-    private var contextMenuContent: some View {
+}
+
+private struct BinderRowActions: View {
+    let item: BinderItem
+    @ObservedObject var controller: WorkspaceController
+
+    var body: some View {
+        if let target = item.contentTarget, !item.isTrashed {
+            Button {
+                move(target, offset: -1)
+            } label: {
+                Label("Move Up", systemImage: "arrow.up")
+            }
+            .disabled(!controller.canReorderBinder || !controller.canMoveContent(target, offset: -1))
+            .accessibilityIdentifier("binder.moveUp.\(item.id)")
+            .accessibilityLabel("Move \(item.title) up")
+            Button {
+                move(target, offset: 1)
+            } label: {
+                Label("Move Down", systemImage: "arrow.down")
+            }
+            .disabled(!controller.canReorderBinder || !controller.canMoveContent(target, offset: 1))
+            .accessibilityIdentifier("binder.moveDown.\(item.id)")
+            .accessibilityLabel("Move \(item.title) down")
+            if !controller.canReorderBinder {
+                Text("Clear search and filters to reorder; show hidden items if needed.")
+            }
+            Divider()
+        }
         if item.kind == .trash {
             let hasTrashed = controller.selectedProject.map { !controller.trashedDocuments(in: $0).isEmpty } ?? false
             Button(role: .destructive) {
@@ -878,6 +924,22 @@ private struct BinderRow: View {
             } label: {
                 Label("Move to Trash", systemImage: "trash")
             }
+        } else if let entityID = item.semanticEntityID {
+            Button(role: .destructive) {
+                controller.semanticEntityToDelete = entityID
+            } label: {
+                Label("Delete Entry Permanently…", systemImage: "trash.slash")
+            }
+            .accessibilityIdentifier("binder.delete.\(item.id)")
+            .accessibilityLabel("Delete \(item.title) permanently")
+        }
+    }
+
+    private func move(_ target: BinderContentTarget, offset: Int) {
+        do {
+            try controller.moveContent(target, offset: offset)
+        } catch {
+            controller.report(error)
         }
     }
 }
@@ -950,66 +1012,24 @@ private struct TouchBinderActionsMenu: View {
     @ObservedObject var controller: WorkspaceController
 
     private var hasActions: Bool {
-        item.kind == .trash || item.documentID != nil
+        item.kind == .trash || item.contentTarget != nil
     }
 
     var body: some View {
         if hasActions {
             Menu {
-                TouchBinderActions(item: item, controller: controller)
+                BinderRowActions(item: item, controller: controller)
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .menuIndicator(.hidden)
+            .accessibilityIdentifier("binder.actions.\(item.id)")
+            .accessibilityLabel("Actions for \(item.title)")
         } else {
-            Color.clear.frame(width: 28, height: 28)
-        }
-    }
-}
-
-private struct TouchBinderActions: View {
-    let item: BinderItem
-    @ObservedObject var controller: WorkspaceController
-
-    var body: some View {
-        if item.kind == .trash {
-            let hasTrashed = controller.selectedProject.map { !controller.trashedDocuments(in: $0).isEmpty } ?? false
-            Button(role: .destructive) {
-                controller.showsEmptyTrashAlert = true
-            } label: {
-                Label("Empty Trash...", systemImage: "trash")
-            }
-            .disabled(!hasTrashed)
-        } else if item.isTrashed, let documentID = item.documentID {
-            Button {
-                controller.restoreDocument(documentID)
-            } label: {
-                Label("Restore to Original Location", systemImage: "arrow.uturn.backward")
-            }
-            Divider()
-            Button(role: .destructive) {
-                controller.documentToDeletePermanently = documentID
-            } label: {
-                Label("Delete Permanently", systemImage: "trash.slash")
-            }
-        } else if let documentID = item.documentID {
-            Button {
-                controller.setDocumentHidden(documentID, hidden: !item.isHidden)
-            } label: {
-                Label(
-                    item.isHidden ? "Show Scene" : "Hide Scene",
-                    systemImage: item.isHidden ? "eye" : "eye.slash"
-                )
-            }
-            Divider()
-            Button(role: .destructive) {
-                controller.documentToTrash = documentID
-            } label: {
-                Label("Move to Trash", systemImage: "trash")
-            }
+            Color.clear.frame(width: 44, height: 44)
         }
     }
 }
@@ -1058,6 +1078,14 @@ private struct BinderTouchActionsModifier: ViewModifier {
                 } label: {
                     Label("Move to Trash", systemImage: "trash")
                 }
+            } else if let entityID = item.semanticEntityID {
+                Button(role: .destructive) {
+                    controller.semanticEntityToDelete = entityID
+                } label: {
+                    Label("Delete Entry Permanently", systemImage: "trash.slash")
+                }
+                .accessibilityIdentifier("binder.swipeDelete.\(item.id)")
+                .accessibilityLabel("Delete \(item.title) permanently")
             }
         }
         #else
@@ -1068,10 +1096,12 @@ private struct BinderTouchActionsModifier: ViewModifier {
 
 private struct BinderDragModifier: ViewModifier {
     let item: BinderItem
+    @ObservedObject var controller: WorkspaceController
 
     func body(content: Content) -> some View {
-        if !item.isTrashed, let documentID = item.documentID {
-            content.draggable(documentID.uuidString) {
+        if controller.canReorderBinder, !item.isTrashed,
+           let target = item.contentTarget, let projectID = controller.selectedProjectID {
+            content.draggable(BinderDragPayload(projectID: projectID, target: target).encoded) {
                 HStack(spacing: 6) {
                     if let color = item.labelColor {
                         Circle()
@@ -1097,18 +1127,20 @@ private struct BinderDropModifier: ViewModifier {
     let rowHeight: CGFloat
 
     func body(content: Content) -> some View {
-        if let category = item.storyBibleCategory, item.documentID == nil {
+        if !controller.canReorderBinder {
+            content
+        } else if case .storyBibleCategory(let category) = item.kind {
             content.onDrop(
                 of: [.plainText, .text],
                 delegate: StoryBibleCategoryDropDelegate(category: category, controller: controller)
             )
-        } else if !item.isTrashed, let targetID = item.documentID {
+        } else if !item.isTrashed, let target = item.contentTarget {
             content
                 .onDrop(
                     of: [.plainText, .text],
                     delegate: BinderRowDropDelegate(
                         item: item,
-                        targetID: targetID,
+                        target: target,
                         controller: controller,
                         rowHeight: rowHeight
                     )
@@ -1125,30 +1157,19 @@ private struct StoryBibleCategoryDropDelegate: DropDelegate {
     let controller: WorkspaceController
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        DropProposal(operation: controller.canReorderBinder ? .move : .forbidden)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        let providers = info.itemProviders(for: [.plainText, .text])
-        guard let provider = providers.first else { return false }
-
-        _ = provider.loadObject(ofClass: String.self) { string, _ in
-            guard let string, let documentID = UUID(uuidString: string) else { return }
-            Task { @MainActor in
-                do {
-                    try controller.moveDocument(documentID, toStoryBibleCategory: category)
-                } catch {
-                    controller.report(error)
-                }
-            }
+        performBinderDrop(info: info, controller: controller) { target in
+            try controller.moveContent(target, toStoryBibleCategory: category)
         }
-        return true
     }
 }
 
 private struct BinderRowDropDelegate: DropDelegate {
     let item: BinderItem
-    let targetID: UUID
+    let target: BinderContentTarget
     let controller: WorkspaceController
     let rowHeight: CGFloat
 
@@ -1158,12 +1179,12 @@ private struct BinderRowDropDelegate: DropDelegate {
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         updatePosition(info: info)
-        return DropProposal(operation: .move)
+        return DropProposal(operation: controller.canReorderBinder ? .move : .forbidden)
     }
 
     func dropExited(info: DropInfo) {
         DispatchQueue.main.async {
-            if controller.activeDropTarget?.documentID == targetID {
+            if controller.activeDropTarget?.contentTarget == target {
                 controller.activeDropTarget = nil
             }
         }
@@ -1175,25 +1196,15 @@ private struct BinderRowDropDelegate: DropDelegate {
             controller.activeDropTarget = nil
         }
 
-        let providers = info.itemProviders(for: [.plainText, .text])
-        guard let provider = providers.first else { return false }
-
-        _ = provider.loadObject(ofClass: String.self) { string, _ in
-            guard let string, let draggedID = UUID(uuidString: string) else { return }
-            Task { @MainActor in
-                do {
-                    try controller.moveDocument(draggedID, relativeTo: targetID, position: pos)
-                } catch {
-                    controller.report(error)
-                }
-            }
+        return performBinderDrop(info: info, controller: controller) { draggedTarget in
+            try controller.moveContent(draggedTarget, relativeTo: target, position: pos)
         }
-        return true
     }
 
     private func updatePosition(info: DropInfo) {
+        guard controller.canReorderBinder else { return }
         let pos = position(at: info.location)
-        let newTarget = ActiveDropTarget(documentID: targetID, position: pos)
+        let newTarget = ActiveDropTarget(contentTarget: target, position: pos)
         DispatchQueue.main.async {
             if controller.activeDropTarget != newTarget {
                 controller.activeDropTarget = newTarget
@@ -1203,7 +1214,7 @@ private struct BinderRowDropDelegate: DropDelegate {
 
     private func position(at location: CGPoint) -> DropPosition {
         let height = rowHeight > 0 ? rowHeight : 28
-        if item.isContainer {
+        if item.isContainer && item.documentID != nil {
             if location.y < height * 0.25 {
                 return .before
             } else if location.y > height * 0.75 {
@@ -1219,6 +1230,58 @@ private struct BinderRowDropDelegate: DropDelegate {
             }
         }
     }
+}
+
+private enum BinderDropError: LocalizedError {
+    case invalidPayload
+    case wrongProject
+    case filtered
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPayload:
+            "This is not a valid binder item. Drag an item from this project's binder."
+        case .wrongProject:
+            "Binder items can only be moved within the same project."
+        case .filtered:
+            "Clear search and filters, and show hidden items, before reordering the binder."
+        }
+    }
+}
+
+@MainActor
+private func performBinderDrop(
+    info: DropInfo,
+    controller: WorkspaceController,
+    move: @escaping @MainActor (BinderContentTarget) throws -> Void
+) -> Bool {
+    guard controller.canReorderBinder else {
+        controller.report(BinderDropError.filtered)
+        return false
+    }
+    guard let provider = info.itemProviders(for: [.plainText, .text]).first else {
+        controller.report(BinderDropError.invalidPayload)
+        return false
+    }
+    let projectID = controller.selectedProjectID
+    _ = provider.loadObject(ofClass: String.self) { string, error in
+        Task { @MainActor in
+            do {
+                if let error { throw error }
+                guard let string else { throw BinderDropError.invalidPayload }
+                let payload = try BinderDragPayload.decode(string)
+                guard payload.projectID == projectID,
+                      payload.projectID == controller.selectedProjectID else {
+                    throw BinderDropError.wrongProject
+                }
+                guard controller.canReorderBinder else { throw BinderDropError.filtered }
+                try move(payload.target)
+            } catch {
+                controller.report(error)
+            }
+        }
+    }
+    return true
 }
 
 private struct WorkspaceDetailView: View {
@@ -1463,37 +1526,17 @@ private struct StoryBibleCategoryView: View {
 
     var body: some View {
         List {
-            ForEach(entities, id: \.id) { entity in
-                Button(entity.canonicalName) {
-                    controller.selection = entity.storyBibleCard
-                        .map { .storyBibleCard($0.id) }
-                        ?? .semanticEntity(entity.id)
-                }
-                .buttonStyle(.plain)
-            }
-            ForEach(controller.storyBibleDocuments(in: category), id: \.id) { document in
+            ForEach(controller.storyBibleItems(in: category)) { item in
                 Button {
-                    controller.selection = .document(document.id)
+                    controller.selection = item.selection
                 } label: {
-                    Label(document.title, systemImage: "folder")
+                    Label(item.title, systemImage: item.systemImage)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("storyBible.categoryItem.\(item.id)")
             }
         }
         .navigationTitle(category.rawValue)
-    }
-
-    private var entities: [SemanticEntity] {
-        guard let project = controller.selectedProject else { return [] }
-        return project.semanticEntities
-            .filter {
-                category.contains(kind: $0.kind) &&
-                    $0.characterProfile?.sourceDocument == nil &&
-                    controller.importedPlaceSource(for: $0) == nil
-            }
-            .sorted {
-                $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending
-            }
     }
 
 }
@@ -1505,6 +1548,12 @@ private struct SemanticEntityEditor: View {
     var body: some View {
         if let entity = controller.selectedSemanticEntity {
             Form {
+                Section("Label and Status") {
+                    ContentMetadataEditor(
+                        controller: controller,
+                        target: controller.contentTarget(for: entity)
+                    )
+                }
                 TextField(
                     "Name",
                     text: Binding(
@@ -1544,6 +1593,9 @@ private struct SemanticEntityEditor: View {
             }
             .formStyle(.grouped)
             .navigationTitle(entity.canonicalName)
+            .toolbar {
+                SemanticEntryDeleteButton(controller: controller, entity: entity)
+            }
             .onAppear {
                 controller.openStoryBibleCard(for: entity)
             }
@@ -1601,6 +1653,12 @@ private struct DocumentEditor: View {
                     NarrativeMetadataPanel(controller: controller, document: document)
                     Divider()
                 }
+
+                ContentMetadataEditor(controller: controller, target: .document(document.id))
+                    .disabled(isTrashed)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                Divider()
 
                 TextField(
                     "Title",

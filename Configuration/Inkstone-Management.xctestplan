@@ -1,0 +1,38 @@
+{
+  "configurations": [
+    {
+      "id": "6416CF81-9814-4AAA-B909-D39E6814E55C",
+      "name": "Story Bible management",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "uiTestingScreenshotsLifetime": "deleteOnSuccess",
+    "systemAttachmentLifetime": "deleteOnSuccess",
+    "userAttachmentLifetime": "keepAlways",
+    "testTimeoutsEnabled": true,
+    "defaultTestExecutionTimeAllowance": 240,
+    "maximumTestExecutionTimeAllowance": 300,
+    "targetForVariableExpansion": {
+      "containerPath": "container:AuthorApp.xcodeproj",
+      "identifier": "A1000000000000000000000C",
+      "name": "Inkstone"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "selectedTests": [
+        "ReviewWalkthroughTests/testStoryBibleManagementWalkthrough()",
+        "ReviewWalkthroughTests/testStoryBibleMoveMenuWalkthrough()",
+        "ReviewWalkthroughTests/testDocumentAndCharacterMetadataWalkthrough()"
+      ],
+      "target": {
+        "containerPath": "container:AuthorApp.xcodeproj",
+        "identifier": "B20000000000000000000007",
+        "name": "InkstoneWalkthroughTests"
+      }
+    }
+  ],
+  "version": 1
+}

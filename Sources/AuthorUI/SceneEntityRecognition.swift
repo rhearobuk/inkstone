@@ -2,13 +2,13 @@ import AuthorAI
 import AuthorData
 import Foundation
 
-struct SceneEntityLinkSummary: Identifiable, Equatable {
-    let documentID: UUID
-    let documentTitle: String
-    let mentionCount: Int
-    let matchedTexts: [String]
+public struct SceneEntityLinkSummary: Identifiable, Equatable {
+    public let documentID: UUID
+    public let documentTitle: String
+    public let mentionCount: Int
+    public let matchedTexts: [String]
 
-    var id: UUID { documentID }
+    public var id: UUID { documentID }
 }
 
 enum SceneEntityRecognitionError: LocalizedError {

@@ -36,7 +36,10 @@ struct StoryBibleRelationshipsSection: View {
     }
 
     private var outgoing: [StoryBibleRelationship] {
-        entity.outgoingStoryBibleRelationships.sorted {
+        guard entity.managedObjectContext != nil, !entity.isDeleted else { return [] }
+        return entity.outgoingStoryBibleRelationships.filter {
+            !$0.isDeleted && $0.managedObjectContext != nil
+        }.sorted {
             $0.targetEntity.canonicalName.localizedCaseInsensitiveCompare(
                 $1.targetEntity.canonicalName
             ) == .orderedAscending
@@ -44,7 +47,10 @@ struct StoryBibleRelationshipsSection: View {
     }
 
     private var incoming: [StoryBibleRelationship] {
-        entity.incomingStoryBibleRelationships.sorted {
+        guard entity.managedObjectContext != nil, !entity.isDeleted else { return [] }
+        return entity.incomingStoryBibleRelationships.filter {
+            !$0.isDeleted && $0.managedObjectContext != nil
+        }.sorted {
             $0.sourceEntity.canonicalName.localizedCaseInsensitiveCompare(
                 $1.sourceEntity.canonicalName
             ) == .orderedAscending

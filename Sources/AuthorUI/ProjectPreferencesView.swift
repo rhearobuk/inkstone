@@ -13,23 +13,27 @@ import UIKit
 public struct ProjectPreferencesView: View {
     @ObservedObject private var controller: WorkspaceController
     @Environment(\.dismiss) private var dismiss
+    @State private var selection = PreferencesPane.sectionTypes
 
     public init(controller: WorkspaceController) {
         self.controller = controller
     }
+
     public var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            TabView {
-                SectionTypesPane(controller: controller)
-                    .tabItem { Label("Section Types", systemImage: "doc.text") }
-                LabelsPane(controller: controller)
-                    .tabItem { Label("Labels", systemImage: "tag") }
-                StatusesPane(controller: controller)
-                    .tabItem { Label("Statuses", systemImage: "checkmark.circle") }
-                CustomMetadataPane(controller: controller)
-                    .tabItem { Label("Custom Metadata", systemImage: "list.bullet.rectangle") }
+            VStack(spacing: 12) {
+                Picker("Preference category", selection: $selection) {
+                    ForEach(PreferencesPane.allCases) { pane in
+                        Text(pane.title).tag(pane)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityIdentifier("project.preferences.category")
+
+                ProjectPreferencesContent(selection: selection, controller: controller)
             }
             .padding()
         }
@@ -50,6 +54,43 @@ public struct ProjectPreferencesView: View {
                 .keyboardShortcut(.defaultAction)
         }
         .padding()
+    }
+}
+
+private enum PreferencesPane: String, CaseIterable, Identifiable {
+    case sectionTypes
+    case labels
+    case statuses
+    case customMetadata
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .sectionTypes: "Section Types"
+        case .labels: "Labels"
+        case .statuses: "Statuses"
+        case .customMetadata: "Custom Metadata"
+        }
+    }
+}
+
+private struct ProjectPreferencesContent: View {
+    let selection: PreferencesPane
+    @ObservedObject var controller: WorkspaceController
+
+    @ViewBuilder
+    var body: some View {
+        switch selection {
+        case .sectionTypes:
+            SectionTypesPane(controller: controller)
+        case .labels:
+            LabelsPane(controller: controller)
+        case .statuses:
+            StatusesPane(controller: controller)
+        case .customMetadata:
+            CustomMetadataPane(controller: controller)
+        }
     }
 }
 
