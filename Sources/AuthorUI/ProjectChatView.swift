@@ -15,7 +15,7 @@ enum ProjectChatContextDetail {
 
 @MainActor
 enum ProjectChatContextBuilder {
-    private static let compactMaximumBytes = 6_000
+    private static let compactMaximumBytes = 48_000
     private static let fullMaximumBytes = 100_000
 
     static func make(for project: WritingProject, selectedDocument: Document?,
@@ -100,6 +100,7 @@ struct ProjectChatView: View {
     @State private var draft = ""
     @State private var provider = AIProvider.appleIntelligence
     @State private var isRunning = false
+    @State private var progressMessage = "Thinking…"
     @State private var errorMessage: String?
     @State private var task: Task<Void, Never>?
     @AppStorage("AIEditor.openAIModel") private var openAIModelID = "gpt-4.1-mini"
@@ -160,7 +161,7 @@ struct ProjectChatView: View {
             EditorAvatar(size: 38)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Project chat").font(.system(size: 21, weight: .semibold, design: .serif))
-                Text(isRunning ? "Thinking…" : "Explore your project together")
+                Text(isRunning ? progressMessage : "Explore your project together")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Spacer()
@@ -193,7 +194,7 @@ struct ProjectChatView: View {
             Text(message.role == .user ? "You" : "Assistant")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(message.role == .user ? EditorStyle.accent : .secondary)
-            Text(message.content)
+            messageText(message)
                 .font(.system(size: 14))
                 .textSelection(.enabled)
         }
@@ -203,12 +204,28 @@ struct ProjectChatView: View {
                     in: RoundedRectangle(cornerRadius: 14))
     }
 
+    private func messageText(_ message: ProjectChatMessage) -> Text {
+        guard message.role == .assistant else {
+            return Text(message.content)
+        }
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        guard let attributedString = try? AttributedString(
+            markdown: message.content,
+            options: options
+        ) else {
+            return Text(message.content)
+        }
+        return Text(attributedString)
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
             if isRunning {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Thinking…").font(.system(size: 12))
+                    Text(progressMessage).font(.system(size: 12))
                     Spacer()
                     Button("Stop") { task?.cancel() }.buttonStyle(.plain).foregroundStyle(.secondary)
                 }
@@ -262,7 +279,7 @@ struct ProjectChatView: View {
             )
             let userMessage = ProjectChatMessage(role: .user, content: question)
             let requestMessages = messages + [userMessage]
-            let conversationLimit = provider == .appleIntelligence ? 6_000 : 60_000
+            let conversationLimit = 60_000
             guard requestMessages.reduce(0, { $0 + $1.content.utf8.count }) <= conversationLimit else {
                 errorMessage = "This conversation is too long to send safely. Start a new project chat."
                 return
@@ -272,11 +289,20 @@ struct ProjectChatView: View {
             errorMessage = nil
             messages = requestMessages
             isRunning = true
+            progressMessage = provider == .ollama ? "Preparing project context for \(settings.ollamaSeniorReviewerModel)…" : "Preparing project context…"
             task = Task {
                 do {
                     let response = try await client.respond(
-                        to: .init(projectContext: context, messages: requestMessages),
-                        timeout: provider == .ollama ? 180 : 60
+                        to: .init(
+                            projectContext: context,
+                            messages: requestMessages,
+                            progress: { status in
+                                Task { @MainActor in
+                                    progressMessage = status
+                                }
+                            }
+                        ),
+                        timeout: provider == .ollama ? 180 : 120
                     )
                     try Task.checkCancellation()
                     messages.append(.init(role: .assistant, content: response))
@@ -302,12 +328,7 @@ struct ProjectChatView: View {
         case .xai: return ExternalReviewClient(provider: .xai, apiKey: settings.apiKey(for: .xai), modelID: xAIModelID)
         case .cohere: return ExternalReviewClient(provider: .cohere, apiKey: settings.apiKey(for: .cohere), modelID: cohereModelID)
         case .ollama:
-            return ExternalReviewClient(
-                provider: .ollama,
-                apiKey: "",
-                modelID: settings.ollamaSeniorReviewerModel,
-                requestTimeout: 180
-            )
+            return OllamaProjectChatClient(modelID: settings.ollamaSeniorReviewerModel)
         }
     }
 }
