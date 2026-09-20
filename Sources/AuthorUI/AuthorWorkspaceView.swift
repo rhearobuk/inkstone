@@ -60,14 +60,7 @@ public struct AuthorWorkspaceView: View {
                             set: { if !$0 { showsEditor = false } }
                         )
                     ) {
-                        VStack {
-                            HStack {
-                                Spacer()
-                                Button("Done") { showsEditor = false }
-                            }
-                            .padding()
-                            assistantPanel
-                        }
+                        assistantPanel
                         .frame(minWidth: 340, minHeight: 480)
                     }
                 }
@@ -426,14 +419,27 @@ public struct AuthorWorkspaceView: View {
         showsNewStoryBibleEntry = false
     }
 
-    @ViewBuilder
     private var assistantPanel: some View {
         VStack(spacing: 0) {
-            Picker("Assistant mode", selection: $assistantMode) {
-                ForEach(AssistantMode.allCases) { Text($0.title).tag($0) }
+            HStack(spacing: 12) {
+                Picker("Assistant mode", selection: $assistantMode) {
+                    ForEach(AssistantMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                Button {
+                    showsEditor = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close AI Assistant")
+                .accessibilityIdentifier("workspace.assistant.close")
+                .help("Close AI Assistant")
             }
-            .pickerStyle(.segmented)
             .padding(12)
+
             if assistantMode == .editor {
                 EditorPanelView(
                     workspace: controller,
