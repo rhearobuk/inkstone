@@ -50,6 +50,7 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     @NSManaged public var title: String
     @NSManaged public var kind: String
     @NSManaged public var orderIndex: Int64
+    @NSManaged public var storyBibleOrderIndex: NSNumber?
     @NSManaged public var createdAt: Date?
     @NSManaged public var modifiedAt: Date?
     @NSManaged public var includeInCompile: NSNumber?
@@ -216,6 +217,9 @@ public final class SemanticEntity: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
     @NSManaged public var canonicalName: String
     @NSManaged public var kind: String
+    @NSManaged public var storyBibleOrderIndex: NSNumber?
+    @NSManaged public var labelIdentifier: String?
+    @NSManaged public var statusIdentifier: String?
     @NSManaged public var summary: String?
     @NSManaged public var source: String
     @NSManaged public var confidence: NSNumber?
