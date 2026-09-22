@@ -1,4 +1,5 @@
 import Foundation
+import CoreData
 
 public enum SharingRole: String, Codable, CaseIterable, Sendable {
     case viewer, reviewer, editor, collaborator, owner
@@ -157,5 +158,73 @@ public struct StoryContextGroupValidator: Sendable {
         for (entityID, groups) in assignments where Set(groups).count > 1 {
             throw SharingAuthorizationError.unsupportedOverlappingContext(entityID)
         }
+    }
+}
+
+public struct SharingMutationGuard {
+    public init() {}
+
+    public func validate(inserted: Set<NSManagedObject>, updated: Set<NSManagedObject>,
+                         deleted: Set<NSManagedObject>, authorization: SharingAuthorization) throws {
+        let authorizer = SharingCommandAuthorizer()
+        for object in inserted { try authorize(object, change: .insert, authorization: authorization, authorizer: authorizer) }
+        for object in updated { try authorize(object, change: .update, authorization: authorization, authorizer: authorizer) }
+        for object in deleted { try authorize(object, change: .delete, authorization: authorization, authorizer: authorizer) }
+    }
+
+    private enum Change { case insert, update, delete }
+
+    private func authorize(_ object: NSManagedObject, change: Change, authorization: SharingAuthorization,
+                           authorizer: SharingCommandAuthorizer) throws {
+        let command: SharingCommand
+        let targetID: UUID
+        switch object {
+        case let document as Document:
+            let changed = Set(document.changedValues().keys)
+            let structuralKeys: Set<String> = ["parent", "parentID", "orderIndex", "kind", "narrativeType"]
+            let proseKeys: Set<String> = ["plainText"]
+            let metadataKeys: Set<String> = [
+                "title", "synopsis", "includeInCompile", "labelIdentifier", "statusIdentifier",
+                "sectionTypeIdentifier", "keywords", "notes", "sharingGroupID"
+            ]
+            if change != .update || !changed.isDisjoint(with: structuralKeys) {
+                command = .editStructure
+            } else if !changed.isDisjoint(with: proseKeys) {
+                command = .editProse
+            } else if !changed.isDisjoint(with: metadataKeys) {
+                command = .editMetadata
+            } else {
+                // Inverse relationships and derived counters are side effects of an already
+                // authorized operation (for example inserting reviewer feedback). They do not
+                // independently elevate that operation into a manuscript edit.
+                return
+            }
+            targetID = authorization.authorizedRecordIDs.contains(document.id)
+                ? document.id : (document.parent?.id ?? document.project.id)
+        case let annotation as Annotation:
+            command = change == .insert ? .createFeedback : .editFeedback
+            targetID = annotation.document.id
+        case let review as EditorialReview:
+            command = .createFeedback
+            targetID = review.target?.id ?? review.project?.id ?? review.targetID
+        case let entity as SemanticEntity:
+            command = .editStoryContext; targetID = entity.id
+        case let card as StoryBibleCard:
+            command = .editStoryContext; targetID = card.semanticEntity.id
+        case is CharacterProfile, is CharacterNote, is CharacterRelationship, is CharacterConflict,
+             is StoryBibleNote, is StoryBibleRelationship, is GalleryItem:
+            command = .editStoryContext
+            targetID = (object as? AuthorManagedObject)?.id ?? UUID()
+        case let group as SharingGroup:
+            command = .administerSharing; targetID = group.scopeRootID ?? group.id
+        case let participant as ShareParticipant:
+            command = .administerSharing; targetID = participant.sharingGroupID ?? participant.id
+        case let revision as Revision:
+            command = .readPrivateHistory; targetID = revision.document.id
+        default:
+            command = .editMetadata
+            targetID = (object as? AuthorManagedObject)?.id ?? UUID()
+        }
+        try authorizer.authorize(command, recordID: targetID, using: authorization)
     }
 }

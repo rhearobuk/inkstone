@@ -39,6 +39,34 @@ struct SharingCommandAuthorizationTests {
         }
     }
 
+    @Test("Repository mutations cannot bypass the participant authorization boundary")
+    @MainActor
+    func persistenceBoundary() throws {
+        let store = try AuthorDataStore(inMemory: true)
+        let project = store.projects.create {
+            $0.title = "Project"; $0.sourceIdentifier = "project"; $0.sourceFormat = "native"
+            $0.createdAt = Date(); $0.modifiedAt = Date()
+        }
+        let document = store.documents.create {
+            $0.project = project; $0.sourceIdentifier = "scene"; $0.title = "Scene"
+            $0.kind = DocumentKind.text.rawValue; $0.orderIndex = 0
+        }
+        try store.save()
+
+        store.sharingAuthorization = SharingAuthorization(
+            role: .reviewer,
+            authorizedRecordIDs: [document.id],
+            policyVersion: 1
+        )
+        document.plainText = "A prohibited edit"
+
+        #expect(throws: SharingAuthorizationError.unauthorizedCommand(.editProse)) {
+            try store.save()
+        }
+        store.context.rollback()
+        #expect(document.plainText != "A prohibited edit")
+    }
+
     @Test("Every independent Story Bible grant is enforced", arguments: [
         (StoryBibleGrant.none, false, false),
         (.selected([]), false, false),
