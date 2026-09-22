@@ -1,3 +1,4 @@
+import CloudKit
 import CoreData
 import Foundation
 
@@ -5,6 +6,7 @@ public enum PersistenceError: LocalizedError {
     case modelNotFound
     case modelInvalid(String)
     case storeLoadFailed(Error)
+    case storeNotFound(AuthorStoreScope)
     case objectNotFound(entity: String, id: UUID)
 
     public var errorDescription: String? {
@@ -16,6 +18,8 @@ public enum PersistenceError: LocalizedError {
         case .storeLoadFailed(let error):
             let nsError = error as NSError
             return "The persistent store failed to load: \(nsError.localizedDescription) (\(nsError.domain) \(nsError.code)) \(nsError.userInfo)"
+        case .storeNotFound(let scope):
+            return "No \(scope.rawValue) persistent store is loaded."
         case .objectNotFound(let entity, let id):
             return "\(entity) \(id) was not found."
         }
@@ -30,6 +34,8 @@ public final class AuthorDataStore {
 
     public let container: NSPersistentCloudKitContainer
     public let cloudKitSyncEnabled: Bool
+    public let privatePersistentStore: NSPersistentStore
+    public let sharedPersistentStore: NSPersistentStore
     public var context: NSManagedObjectContext { container.viewContext }
 
     public let editorPersonas: EntityRepository<EditorPersona>
@@ -64,6 +70,8 @@ public final class AuthorDataStore {
     public let storyBibleCards: EntityRepository<StoryBibleCard>
     public let storyBibleNotes: EntityRepository<StoryBibleNote>
     public let storyBibleRelationships: EntityRepository<StoryBibleRelationship>
+    public let sharingGroups: EntityRepository<SharingGroup>
+    public let shareParticipants: EntityRepository<ShareParticipant>
 
     /// Opens the on-disk store, mirroring it to iCloud via CloudKit. Plain `swift run` builds
     /// aren't code-signed with the iCloud entitlement, so only that specific development-only
@@ -119,71 +127,156 @@ public final class AuthorDataStore {
             throw PersistenceError.modelInvalid("one or more entities have no managed object class")
         }
 
+        model.setEntities(model.entities, forConfigurationName: AuthorStoreScope.ownerPrivate.configurationName)
+        model.setEntities(model.entities, forConfigurationName: AuthorStoreScope.participantShared.configurationName)
+
         let syncsToCloudKit = cloudKitSyncEnabled && !inMemory
         self.cloudKitSyncEnabled = syncsToCloudKit
         container = NSPersistentCloudKitContainer(name: "AuthorData", managedObjectModel: model)
-        let description = NSPersistentStoreDescription()
+
+        let privateDescription = NSPersistentStoreDescription()
+        privateDescription.configuration = AuthorStoreScope.ownerPrivate.configurationName
+        let sharedDescription = NSPersistentStoreDescription()
+        sharedDescription.configuration = AuthorStoreScope.participantShared.configurationName
         if inMemory {
-            description.type = NSInMemoryStoreType
-            description.url = URL(fileURLWithPath: "/dev/null")
+            privateDescription.type = NSInMemoryStoreType
+            privateDescription.url = URL(fileURLWithPath: "/dev/null/author-private-\(UUID().uuidString)")
+            sharedDescription.type = NSInMemoryStoreType
+            sharedDescription.url = URL(fileURLWithPath: "/dev/null/author-shared-\(UUID().uuidString)")
         } else {
-            description.type = NSSQLiteStoreType
-            description.url = storeURL
-            description.shouldMigrateStoreAutomatically = true
-            description.shouldInferMappingModelAutomatically = true
+            let privateURL = storeURL ?? NSPersistentContainer.defaultDirectoryURL()
+                .appendingPathComponent("AuthorData.sqlite")
+            let sharedURL = Self.sharedStoreURL(for: privateURL)
+            for (description, url) in [(privateDescription, privateURL), (sharedDescription, sharedURL)] {
+                description.type = NSSQLiteStoreType
+                description.url = url
+                description.shouldMigrateStoreAutomatically = true
+                description.shouldInferMappingModelAutomatically = true
+            }
         }
-        // CloudKit mirroring requires persistent history tracking and remote change
-        // notifications so every device can replay and merge one another's changes.
-        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-        description.cloudKitContainerOptions = syncsToCloudKit
-            ? NSPersistentCloudKitContainerOptions(containerIdentifier: Self.cloudKitContainerIdentifier)
-            : nil
-        container.persistentStoreDescriptions = [description]
+        for description in [privateDescription, sharedDescription] {
+            description.shouldAddStoreAsynchronously = false
+            description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+            description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        }
+        if syncsToCloudKit {
+            let privateOptions = NSPersistentCloudKitContainerOptions(
+                containerIdentifier: Self.cloudKitContainerIdentifier
+            )
+            privateOptions.databaseScope = .private
+            privateDescription.cloudKitContainerOptions = privateOptions
+            let sharedOptions = NSPersistentCloudKitContainerOptions(
+                containerIdentifier: Self.cloudKitContainerIdentifier
+            )
+            sharedOptions.databaseScope = .shared
+            sharedDescription.cloudKitContainerOptions = sharedOptions
+        }
+        container.persistentStoreDescriptions = [privateDescription, sharedDescription]
 
         var loadError: Error?
         container.loadPersistentStores { _, error in loadError = error }
         if let loadError { throw PersistenceError.storeLoadFailed(loadError) }
+        guard let loadedPrivateStore = container.persistentStoreCoordinator.persistentStores.first(where: {
+            $0.configurationName == AuthorStoreScope.ownerPrivate.configurationName
+        }) else {
+            throw PersistenceError.storeNotFound(.ownerPrivate)
+        }
+        guard let loadedSharedStore = container.persistentStoreCoordinator.persistentStores.first(where: {
+            $0.configurationName == AuthorStoreScope.participantShared.configurationName
+        }) else {
+            throw PersistenceError.storeNotFound(.participantShared)
+        }
+        privatePersistentStore = loadedPrivateStore
+        sharedPersistentStore = loadedSharedStore
 
         container.viewContext.mergePolicy = NSMergePolicy(merge: .mergeByPropertyObjectTrumpMergePolicyType)
         container.viewContext.automaticallyMergesChangesFromParent = true
+        try Self.backfillLegacyRoutingIDs(
+            context: container.viewContext,
+            privateStore: loadedPrivateStore
+        )
 
-        editorPersonas = EntityRepository(context: container.viewContext)
-        editorialReviews = EntityRepository(context: container.viewContext)
-        editorialInputs = EntityRepository(context: container.viewContext)
-        editorialFindings = EntityRepository(context: container.viewContext)
-        editorialAnchors = EntityRepository(context: container.viewContext)
-        editorialChunks = EntityRepository(context: container.viewContext)
-        projects = EntityRepository(context: container.viewContext)
-        documents = EntityRepository(context: container.viewContext)
-        resources = EntityRepository(context: container.viewContext)
-        metadataFields = EntityRepository(context: container.viewContext)
-        labelDefinitions = EntityRepository(context: container.viewContext)
-        statusDefinitions = EntityRepository(context: container.viewContext)
-        sectionTypeDefinitions = EntityRepository(context: container.viewContext)
-        metadataValues = EntityRepository(context: container.viewContext)
-        semanticEntities = EntityRepository(context: container.viewContext)
-        entityAliases = EntityRepository(context: container.viewContext)
-        mentions = EntityRepository(context: container.viewContext)
-        annotations = EntityRepository(context: container.viewContext)
-        revisions = EntityRepository(context: container.viewContext)
-        links = EntityRepository(context: container.viewContext)
-        styles = EntityRepository(context: container.viewContext)
-        importRuns = EntityRepository(context: container.viewContext)
-        provenanceEvents = EntityRepository(context: container.viewContext)
-        characterProfiles = EntityRepository(context: container.viewContext)
-        characterMeasurements = EntityRepository(context: container.viewContext)
-        characterNotes = EntityRepository(context: container.viewContext)
-        characterRelationships = EntityRepository(context: container.viewContext)
-        characterConflicts = EntityRepository(context: container.viewContext)
-        galleryItems = EntityRepository(context: container.viewContext)
-        storyBibleCards = EntityRepository(context: container.viewContext)
-        storyBibleNotes = EntityRepository(context: container.viewContext)
-        storyBibleRelationships = EntityRepository(context: container.viewContext)
+        editorPersonas = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        editorialReviews = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        editorialInputs = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        editorialFindings = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        editorialAnchors = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        editorialChunks = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        projects = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        documents = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        resources = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        metadataFields = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        labelDefinitions = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        statusDefinitions = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        sectionTypeDefinitions = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        metadataValues = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        semanticEntities = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        entityAliases = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        mentions = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        annotations = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        revisions = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        links = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        styles = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        importRuns = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        provenanceEvents = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        characterProfiles = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        characterMeasurements = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        characterNotes = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        characterRelationships = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        characterConflicts = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        galleryItems = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        storyBibleCards = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        storyBibleNotes = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        storyBibleRelationships = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        sharingGroups = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        shareParticipants = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+    }
+
+    public static func sharedStoreURL(for privateStoreURL: URL) -> URL {
+        privateStoreURL
+            .deletingPathExtension()
+            .appendingPathExtension("shared")
+            .appendingPathExtension("sqlite")
+    }
+
+    private static func backfillLegacyRoutingIDs(
+        context: NSManagedObjectContext,
+        privateStore: NSPersistentStore
+    ) throws {
+        let documentRequest = NSFetchRequest<Document>(entityName: Document.entityName)
+        documentRequest.affectedStores = [privateStore]
+        documentRequest.predicate = NSPredicate(format: "projectID == nil OR parentID == nil")
+
+        let semanticEntityRequest = NSFetchRequest<SemanticEntity>(entityName: SemanticEntity.entityName)
+        semanticEntityRequest.affectedStores = [privateStore]
+        semanticEntityRequest.predicate = NSPredicate(format: "projectID == nil")
+
+        let objects = Set<NSManagedObject>(try context.fetch(documentRequest))
+            .union(try context.fetch(semanticEntityRequest))
+        synchronizeRoutingIDs(in: objects)
+        if context.hasChanges {
+            try context.save()
+            context.processPendingChanges()
+        }
+    }
+
+    private static func synchronizeRoutingIDs(in objects: Set<NSManagedObject>) {
+        for object in objects {
+            if let document = object as? Document {
+                let project = document.value(forKey: "project") as? WritingProject
+                let parent = document.value(forKey: "parent") as? Document
+                document.projectID = project?.id
+                document.parentID = parent?.id
+            } else if let semanticEntity = object as? SemanticEntity {
+                let project = semanticEntity.value(forKey: "project") as? WritingProject
+                semanticEntity.projectID = project?.id
+            }
+        }
     }
 
     public func save() throws {
         if context.hasChanges {
+            Self.synchronizeRoutingIDs(in: context.insertedObjects.union(context.updatedObjects))
             try context.save()
             context.processPendingChanges()
         }
@@ -192,14 +285,32 @@ public final class AuthorDataStore {
     public func rollback() {
         context.rollback()
     }
+
+    /// Returns a repository constrained to one physical persistent store.
+    ///
+    /// The single unconfigured V12 store is treated as the owner's private
+    /// database during the additive migration. Participant-shared routing is
+    /// unavailable until a store using the Shared configuration is loaded.
+    public func repository<Model: AuthorManagedObject>(
+        for model: Model.Type,
+        scope: AuthorStoreScope
+    ) throws -> EntityRepository<Model> {
+        let stores = container.persistentStoreCoordinator.persistentStores
+        let store = stores.first { $0.configurationName == scope.configurationName }
+            ?? (scope == .ownerPrivate && stores.count == 1 ? stores[0] : nil)
+        guard let store else { throw PersistenceError.storeNotFound(scope) }
+        return EntityRepository(context: context, persistentStore: store)
+    }
 }
 
 @MainActor
 public final class EntityRepository<Model: AuthorManagedObject> {
     private let context: NSManagedObjectContext
+    private let persistentStore: NSPersistentStore?
 
-    init(context: NSManagedObjectContext) {
+    init(context: NSManagedObjectContext, persistentStore: NSPersistentStore? = nil) {
         self.context = context
+        self.persistentStore = persistentStore
     }
 
     @discardableResult
@@ -208,13 +319,16 @@ public final class EntityRepository<Model: AuthorManagedObject> {
             forEntityName: Model.entityName,
             into: context
         ) as! Model
+        if let persistentStore {
+            context.assign(object, to: persistentStore)
+        }
         object.id = id
         try configure(object)
         return object
     }
 
     public func fetch(id: UUID) throws -> Model? {
-        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        let request = makeRequest()
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
         request.fetchLimit = 1
         return try context.fetch(request).first
@@ -231,14 +345,14 @@ public final class EntityRepository<Model: AuthorManagedObject> {
         predicate: NSPredicate? = nil,
         sortedBy sortDescriptors: [NSSortDescriptor] = []
     ) throws -> [Model] {
-        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        let request = makeRequest()
         request.predicate = predicate
         request.sortDescriptors = sortDescriptors
         return try context.fetch(request)
     }
 
     public func count(predicate: NSPredicate? = nil) throws -> Int {
-        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        let request = makeRequest()
         request.predicate = predicate
         return try context.count(for: request)
     }
@@ -260,8 +374,19 @@ public final class EntityRepository<Model: AuthorManagedObject> {
             forEntityName: Model.entityName,
             into: context
         ) as! Model
+        if let persistentStore {
+            context.assign(object, to: persistentStore)
+        }
         object.id = id
         try configure(object, true)
         return object
+    }
+
+    private func makeRequest() -> NSFetchRequest<Model> {
+        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        if let persistentStore {
+            request.affectedStores = [persistentStore]
+        }
+        return request
     }
 }

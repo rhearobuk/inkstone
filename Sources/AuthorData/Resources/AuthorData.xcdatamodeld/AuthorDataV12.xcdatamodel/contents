@@ -1,0 +1,494 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23000" sourceLanguage="Swift" userDefinedModelVersionIdentifier="12">
+  <entity name="WritingProject" representedClassName="WritingProject" syncable="YES">
+    <relationship name="editorialReviews" optional="YES" deletionRule="Cascade" destinationEntity="EditorialReview" inverseName="project" inverseEntity="EditorialReview" toMany="YES" />
+    <attribute name="id" attributeType="UUID" usesScalarValueType="NO" optional="YES" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="sourceFormat" attributeType="String" optional="NO" defaultValueString="scrivener" />
+    <attribute name="sourceVersion" attributeType="String" optional="YES" />
+    <attribute name="creator" attributeType="String" optional="YES" />
+    <attribute name="author" attributeType="String" optional="YES" />
+    <attribute name="device" attributeType="String" optional="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <attribute name="sourceModifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="documents" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Document" inverseName="project" inverseEntity="Document" />
+    <relationship name="resources" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ContentResource" inverseName="project" inverseEntity="ContentResource" />
+    <relationship name="semanticEntities" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="SemanticEntity" inverseName="project" inverseEntity="SemanticEntity" />
+    <relationship name="metadataFields" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="MetadataField" inverseName="project" inverseEntity="MetadataField" />
+    <relationship name="labelDefinitions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="LabelDefinition" inverseName="project" inverseEntity="LabelDefinition" />
+    <relationship name="statusDefinitions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="StatusDefinition" inverseName="project" inverseEntity="StatusDefinition" />
+    <relationship name="sectionTypeDefinitions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="SectionTypeDefinition" inverseName="project" inverseEntity="SectionTypeDefinition" />
+    <relationship name="styles" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="StyleDefinition" inverseName="project" inverseEntity="StyleDefinition" />
+    <relationship name="importRuns" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ImportRun" inverseName="project" inverseEntity="ImportRun" />
+    <relationship name="provenanceEvents" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ProvenanceEvent" inverseName="project" inverseEntity="ProvenanceEvent" />
+    <relationship name="characterProfiles" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CharacterProfile" inverseName="project" inverseEntity="CharacterProfile" />
+    <relationship name="galleryItems" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="GalleryItem" inverseName="project" inverseEntity="GalleryItem" />
+    <relationship name="storyBibleCards" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="StoryBibleCard" inverseName="project" inverseEntity="StoryBibleCard" />
+  </entity>
+  <entity name="Document" representedClassName="Document" syncable="YES">
+    <relationship name="editorialInputs" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReviewInput" inverseName="document" inverseEntity="EditorialReviewInput" toMany="YES" />
+    <relationship name="editorialReviews" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReview" inverseName="target" inverseEntity="EditorialReview" toMany="YES" />
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="projectID" attributeType="UUID" optional="YES" />
+    <attribute name="parentID" attributeType="UUID" optional="YES" />
+    <attribute name="sharingGroupID" attributeType="UUID" optional="YES" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="text" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <attribute name="storyBibleOrderIndex" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <attribute name="includeInCompile" attributeType="Boolean" optional="YES" usesScalarValueType="NO" />
+    <attribute name="labelIdentifier" attributeType="String" optional="YES" />
+    <attribute name="statusIdentifier" attributeType="String" optional="YES" />
+    <attribute name="sectionTypeIdentifier" attributeType="String" optional="YES" />
+    <attribute name="selectionLocation" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="selectionLength" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="selectedChildIdentifier" attributeType="String" optional="YES" />
+    <attribute name="plainText" attributeType="String" optional="YES" />
+    <attribute name="synopsis" attributeType="String" optional="YES" />
+    <attribute name="narrativeType" attributeType="String" optional="YES" />
+    <attribute name="ownWordCount" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <attribute name="actualWordCount" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="documents" inverseEntity="WritingProject" />
+    <relationship name="parent" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="children" inverseEntity="Document" />
+    <relationship name="children" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Document" inverseName="parent" inverseEntity="Document" />
+    <relationship name="resources" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ContentResource" inverseName="document" inverseEntity="ContentResource" />
+    <relationship name="metadataValues" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="MetadataValue" inverseName="document" inverseEntity="MetadataValue" />
+    <relationship name="annotations" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Annotation" inverseName="document" inverseEntity="Annotation" />
+    <relationship name="revisions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Revision" inverseName="document" inverseEntity="Revision" />
+    <relationship name="outgoingLinks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="DocumentLink" inverseName="sourceDocument" inverseEntity="DocumentLink" />
+    <relationship name="incomingLinks" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="DocumentLink" inverseName="targetDocument" inverseEntity="DocumentLink" />
+    <relationship name="mentions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="DocumentEntityMention" inverseName="document" inverseEntity="DocumentEntityMention" />
+    <relationship name="sourceCharacterProfiles" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="sourceDocument" inverseEntity="CharacterProfile" />
+    <relationship name="sourceGalleryItems" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="GalleryItem" inverseName="sourceDocument" inverseEntity="GalleryItem" />
+  </entity>
+  <entity name="ContentResource" representedClassName="ContentResource" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sourcePath" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="role" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="mediaType" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="byteCount" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <attribute name="sha256" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="data" attributeType="Binary" optional="YES" allowsExternalBinaryDataStorage="YES" />
+    <attribute name="textContent" attributeType="String" optional="YES" />
+    <attribute name="isSourcePreserved" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="resources" inverseEntity="WritingProject" />
+    <relationship name="document" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="resources" inverseEntity="Document" />
+    <relationship name="galleryItem" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="GalleryItem" inverseName="resource" inverseEntity="GalleryItem" />
+  </entity>
+  <entity name="MetadataField" representedClassName="MetadataField" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="key" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="displayName" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="valueType" attributeType="String" optional="NO" defaultValueString="string" />
+    <attribute name="semanticPurpose" attributeType="String" optional="YES" />
+    <attribute name="isSourceDefined" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="YES" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="metadataFields" inverseEntity="WritingProject" />
+    <relationship name="values" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="MetadataValue" inverseName="field" inverseEntity="MetadataValue" />
+  </entity>
+  <entity name="LabelDefinition" representedClassName="LabelDefinition" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="colorRed" attributeType="Double" optional="YES" usesScalarValueType="YES" />
+    <attribute name="colorGreen" attributeType="Double" optional="YES" usesScalarValueType="YES" />
+    <attribute name="colorBlue" attributeType="Double" optional="YES" usesScalarValueType="YES" />
+    <attribute name="isDefault" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="labelDefinitions" inverseEntity="WritingProject" />
+  </entity>
+  <entity name="StatusDefinition" representedClassName="StatusDefinition" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="isDefault" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="statusDefinitions" inverseEntity="WritingProject" />
+  </entity>
+  <entity name="SectionTypeDefinition" representedClassName="SectionTypeDefinition" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="levelRole" attributeType="String" optional="YES" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="sectionTypeDefinitions" inverseEntity="WritingProject" />
+  </entity>
+  <entity name="MetadataValue" representedClassName="MetadataValue" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="stringValue" attributeType="String" optional="YES" />
+    <attribute name="integerValue" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="doubleValue" attributeType="Double" optional="YES" usesScalarValueType="NO" />
+    <attribute name="booleanValue" attributeType="Boolean" optional="YES" usesScalarValueType="NO" />
+    <attribute name="dateValue" attributeType="Date" optional="YES" />
+    <attribute name="sourcePath" attributeType="String" optional="YES" />
+    <relationship name="field" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="MetadataField" inverseName="values" inverseEntity="MetadataField" />
+    <relationship name="document" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="metadataValues" inverseEntity="Document" />
+  </entity>
+  <entity name="SemanticEntity" representedClassName="SemanticEntity" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="projectID" attributeType="UUID" optional="YES" />
+    <attribute name="sharingGroupID" attributeType="UUID" optional="YES" />
+    <attribute name="canonicalName" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="storyBibleOrderIndex" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="labelIdentifier" attributeType="String" optional="YES" />
+    <attribute name="statusIdentifier" attributeType="String" optional="YES" />
+    <attribute name="summary" attributeType="String" optional="YES" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="human" />
+    <attribute name="confidence" attributeType="Double" optional="YES" usesScalarValueType="NO" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="semanticEntities" inverseEntity="WritingProject" />
+    <relationship name="aliases" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="EntityAlias" inverseName="semanticEntity" inverseEntity="EntityAlias" />
+    <relationship name="mentions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="DocumentEntityMention" inverseName="semanticEntity" inverseEntity="DocumentEntityMention" />
+    <relationship name="characterProfile" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="semanticEntity" inverseEntity="CharacterProfile" />
+    <relationship name="galleryItems" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="GalleryItem" inverseName="semanticEntity" inverseEntity="GalleryItem" />
+    <relationship name="storyBibleCard" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="StoryBibleCard" inverseName="semanticEntity" inverseEntity="StoryBibleCard" />
+    <relationship name="outgoingStoryBibleRelationships" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="StoryBibleRelationship" inverseName="sourceEntity" inverseEntity="StoryBibleRelationship" />
+    <relationship name="incomingStoryBibleRelationships" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="StoryBibleRelationship" inverseName="targetEntity" inverseEntity="StoryBibleRelationship" />
+  </entity>
+  <entity name="EntityAlias" representedClassName="EntityAlias" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="name" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="normalizedName" attributeType="String" optional="NO" defaultValueString="" />
+    <relationship name="semanticEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SemanticEntity" inverseName="aliases" inverseEntity="SemanticEntity" />
+  </entity>
+  <entity name="DocumentEntityMention" representedClassName="DocumentEntityMention" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="location" attributeType="Integer 64" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="length" attributeType="Integer 64" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="surfaceText" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="context" attributeType="String" optional="YES" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="confidence" attributeType="Double" optional="YES" usesScalarValueType="NO" />
+    <relationship name="document" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="mentions" inverseEntity="Document" />
+    <relationship name="semanticEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SemanticEntity" inverseName="mentions" inverseEntity="SemanticEntity" />
+  </entity>
+  <entity name="Annotation" representedClassName="Annotation" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sharingGroupID" attributeType="UUID" optional="YES" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="body" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="location" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="length" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="author" attributeType="String" optional="YES" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="status" attributeType="String" optional="NO" defaultValueString="open" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="document" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="annotations" inverseEntity="Document" />
+  </entity>
+  <entity name="Revision" representedClassName="Revision" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sequence" attributeType="Integer 64" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="author" attributeType="String" optional="YES" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="plainText" attributeType="String" optional="YES" />
+    <attribute name="contentHash" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="summary" attributeType="String" optional="YES" />
+    <relationship name="document" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="revisions" inverseEntity="Document" />
+  </entity>
+  <entity name="DocumentLink" representedClassName="DocumentLink" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="sourceLocation" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="sourceLength" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="label" attributeType="String" optional="YES" />
+    <attribute name="unresolvedTargetIdentifier" attributeType="String" optional="YES" />
+    <relationship name="sourceDocument" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="outgoingLinks" inverseEntity="Document" />
+    <relationship name="targetDocument" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="incomingLinks" inverseEntity="Document" />
+  </entity>
+  <entity name="StyleDefinition" representedClassName="StyleDefinition" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="name" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="fontChange" attributeType="String" optional="YES" />
+    <attribute name="shortcut" attributeType="String" optional="YES" />
+    <attribute name="formatRTF" attributeType="String" optional="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="styles" inverseEntity="WritingProject" />
+  </entity>
+  <entity name="ImportRun" representedClassName="ImportRun" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sourceURL" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="sourceFingerprint" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="startedAt" attributeType="Date" optional="YES" />
+    <attribute name="finishedAt" attributeType="Date" optional="YES" />
+    <attribute name="status" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="insertedCount" attributeType="Integer 64" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="updatedCount" attributeType="Integer 64" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="warningCount" attributeType="Integer 64" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="errorMessage" attributeType="String" optional="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="importRuns" inverseEntity="WritingProject" />
+  </entity>
+  <entity name="ProvenanceEvent" representedClassName="ProvenanceEvent" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="eventType" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="agent" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="agentVersion" attributeType="String" optional="YES" />
+    <attribute name="timestamp" attributeType="Date" optional="YES" />
+    <attribute name="sourceURI" attributeType="String" optional="YES" />
+    <attribute name="sourceIdentifier" attributeType="String" optional="YES" />
+    <attribute name="contentHash" attributeType="String" optional="YES" />
+    <attribute name="details" attributeType="String" optional="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="provenanceEvents" inverseEntity="WritingProject" />
+  </entity>
+  <entity name="CharacterProfile" representedClassName="CharacterProfile" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="firstName" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="middleName" attributeType="String" optional="YES" />
+    <attribute name="lastName" attributeType="String" optional="YES" />
+    <attribute name="age" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="ageText" attributeType="String" optional="YES" />
+    <attribute name="location" attributeType="String" optional="YES" />
+    <attribute name="height" attributeType="String" optional="YES" />
+    <attribute name="weight" attributeType="String" optional="YES" />
+    <attribute name="physicalDescription" attributeType="String" optional="YES" />
+    <attribute name="biography" attributeType="String" optional="YES" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="human" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="characterProfiles" inverseEntity="WritingProject" />
+    <relationship name="semanticEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SemanticEntity" inverseName="characterProfile" inverseEntity="SemanticEntity" />
+    <relationship name="sourceDocument" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="sourceCharacterProfiles" inverseEntity="Document" />
+    <relationship name="measurements" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CharacterMeasurement" inverseName="characterProfile" inverseEntity="CharacterMeasurement" />
+    <relationship name="notes" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CharacterNote" inverseName="characterProfile" inverseEntity="CharacterNote" />
+    <relationship name="outgoingRelationships" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CharacterRelationship" inverseName="sourceCharacter" inverseEntity="CharacterRelationship" />
+    <relationship name="incomingRelationships" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CharacterRelationship" inverseName="targetCharacter" inverseEntity="CharacterRelationship" />
+    <relationship name="conflicts" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CharacterConflict" inverseName="characterProfile" inverseEntity="CharacterConflict" />
+    <relationship name="conflictsInvolving" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CharacterConflict" inverseName="relatedCharacters" inverseEntity="CharacterConflict" />
+    <relationship name="placeCards" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="StoryBibleCard" inverseName="relatedCharacters" inverseEntity="StoryBibleCard" />
+    <relationship name="artifactCards" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="StoryBibleCard" inverseName="owners" inverseEntity="StoryBibleCard" />
+    <relationship name="organizationCards" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="StoryBibleCard" inverseName="linkedCharacters" inverseEntity="StoryBibleCard" />
+  </entity>
+  <entity name="CharacterMeasurement" representedClassName="CharacterMeasurement" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="name" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="value" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="unit" attributeType="String" optional="YES" />
+    <attribute name="notes" attributeType="String" optional="YES" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <relationship name="characterProfile" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="measurements" inverseEntity="CharacterProfile" />
+  </entity>
+  <entity name="CharacterNote" representedClassName="CharacterNote" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="title" attributeType="String" optional="YES" />
+    <attribute name="body" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="human" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="characterProfile" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="notes" inverseEntity="CharacterProfile" />
+  </entity>
+  <entity name="CharacterRelationship" representedClassName="CharacterRelationship" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="label" attributeType="String" optional="YES" />
+    <attribute name="notes" attributeType="String" optional="YES" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="human" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="sourceCharacter" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="outgoingRelationships" inverseEntity="CharacterProfile" />
+    <relationship name="targetCharacter" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="incomingRelationships" inverseEntity="CharacterProfile" />
+  </entity>
+  <entity name="CharacterConflict" representedClassName="CharacterConflict" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="summary" attributeType="String" optional="YES" />
+    <attribute name="notes" attributeType="String" optional="YES" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="other" />
+    <attribute name="status" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="human" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="characterProfile" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="conflicts" inverseEntity="CharacterProfile" />
+    <relationship name="relatedCharacters" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="conflictsInvolving" inverseEntity="CharacterProfile" />
+  </entity>
+  <entity name="GalleryItem" representedClassName="GalleryItem" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="caption" attributeType="String" optional="YES" />
+    <attribute name="source" attributeType="String" optional="NO" defaultValueString="human" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="galleryItems" inverseEntity="WritingProject" />
+    <relationship name="resource" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ContentResource" inverseName="galleryItem" inverseEntity="ContentResource" />
+    <relationship name="sourceDocument" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Document" inverseName="sourceGalleryItems" inverseEntity="Document" />
+    <relationship name="semanticEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SemanticEntity" inverseName="galleryItems" inverseEntity="SemanticEntity" />
+  </entity>
+  <entity name="StoryBibleCard" representedClassName="StoryBibleCard" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="details" attributeType="String" optional="YES" />
+    <attribute name="uniqueFeatures" attributeType="String" optional="YES" />
+    <attribute name="locationDescription" attributeType="String" optional="YES" />
+    <attribute name="streetAddress" attributeType="String" optional="YES" />
+    <attribute name="gpsCoordinates" attributeType="String" optional="YES" />
+    <attribute name="sights" attributeType="String" optional="YES" />
+    <attribute name="sounds" attributeType="String" optional="YES" />
+    <attribute name="smells" attributeType="String" optional="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="storyBibleCards" inverseEntity="WritingProject" />
+    <relationship name="semanticEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SemanticEntity" inverseName="storyBibleCard" inverseEntity="SemanticEntity" />
+    <relationship name="notes" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="StoryBibleNote" inverseName="card" inverseEntity="StoryBibleNote" />
+    <relationship name="relatedCharacters" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="placeCards" inverseEntity="CharacterProfile" />
+    <relationship name="owners" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="artifactCards" inverseEntity="CharacterProfile" />
+    <relationship name="linkedCharacters" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CharacterProfile" inverseName="organizationCards" inverseEntity="CharacterProfile" />
+  </entity>
+  <entity name="StoryBibleNote" representedClassName="StoryBibleNote" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="title" attributeType="String" optional="YES" />
+    <attribute name="body" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="orderIndex" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="card" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="StoryBibleCard" inverseName="notes" inverseEntity="StoryBibleCard" />
+  </entity>
+  <entity name="StoryBibleRelationship" representedClassName="StoryBibleRelationship" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="kind" attributeType="String" optional="NO" defaultValueString="related to" />
+    <attribute name="notes" attributeType="String" optional="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+    <relationship name="sourceEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SemanticEntity" inverseName="outgoingStoryBibleRelationships" inverseEntity="SemanticEntity" />
+    <relationship name="targetEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SemanticEntity" inverseName="incomingStoryBibleRelationships" inverseEntity="SemanticEntity" />
+  </entity>
+  <elements>
+    <element name="WritingProject" positionX="-720" positionY="-120" width="128" height="255" />
+    <element name="Document" positionX="-450" positionY="-120" width="128" height="300" />
+    <element name="ContentResource" positionX="-180" positionY="-120" width="128" height="210" />
+    <element name="MetadataField" positionX="90" positionY="-120" width="128" height="150" />
+    <element name="MetadataValue" positionX="360" positionY="-120" width="128" height="210" />
+    <element name="SemanticEntity" positionX="-720" positionY="300" width="128" height="195" />
+    <element name="EntityAlias" positionX="-450" positionY="300" width="128" height="105" />
+    <element name="DocumentEntityMention" positionX="-180" positionY="300" width="128" height="180" />
+    <element name="Annotation" positionX="90" positionY="300" width="128" height="210" />
+    <element name="Revision" positionX="360" positionY="300" width="128" height="180" />
+    <element name="DocumentLink" positionX="-720" positionY="660" width="128" height="150" />
+    <element name="StyleDefinition" positionX="-450" positionY="660" width="128" height="165" />
+    <element name="ImportRun" positionX="-180" positionY="660" width="128" height="210" />
+    <element name="ProvenanceEvent" positionX="90" positionY="660" width="128" height="195" />
+    <element name="GalleryItem" positionX="360" positionY="660" width="128" height="180" />
+  </elements>
+  <entity name="EditorPersona" representedClassName="EditorPersona" syncable="YES">
+    <relationship name="reviews" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReview" inverseName="persona" inverseEntity="EditorialReview" toMany="YES" />
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="name" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="presetKey" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="instructions" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="version" attributeType="Integer 64" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="isBuiltIn" attributeType="Boolean" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+  </entity>
+  <entity name="EditorialReview" representedClassName="EditorialReview" syncable="YES">
+    <relationship name="chunks" optional="YES" deletionRule="Cascade" destinationEntity="EditorialReviewChunk" inverseName="review" inverseEntity="EditorialReviewChunk" toMany="YES" />
+    <relationship name="findings" optional="YES" deletionRule="Cascade" destinationEntity="EditorialFinding" inverseName="review" inverseEntity="EditorialFinding" toMany="YES" />
+    <relationship name="inputs" optional="YES" deletionRule="Cascade" destinationEntity="EditorialReviewInput" inverseName="review" inverseEntity="EditorialReviewInput" toMany="YES" />
+    <relationship name="persona" optional="YES" deletionRule="Nullify" destinationEntity="EditorPersona" inverseName="reviews" inverseEntity="EditorPersona" maxCount="1" />
+    <relationship name="target" optional="YES" deletionRule="Nullify" destinationEntity="Document" inverseName="editorialReviews" inverseEntity="Document" maxCount="1" />
+    <relationship name="project" optional="YES" deletionRule="Nullify" destinationEntity="WritingProject" inverseName="editorialReviews" inverseEntity="WritingProject" maxCount="1" />
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="targetID" attributeType="UUID" optional="YES" />
+    <attribute name="targetTitle" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="scope" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="personaName" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="personaInstructions" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="personaVersion" attributeType="Integer 64" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="providerID" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="modelID" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="promptVersion" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="schemaVersion" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="parameters" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="environment" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="summary" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="status" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="finishedAt" attributeType="Date" optional="YES" />
+    <attribute name="errorMessage" attributeType="String" optional="YES" />
+    <attribute name="previousReviewID" attributeType="UUID" optional="YES" />
+    <attribute name="inputTokens" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="outputTokens" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+  </entity>
+  <entity name="EditorialReviewInput" representedClassName="EditorialReviewInput" syncable="YES">
+    <relationship name="chunks" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReviewChunk" inverseName="input" inverseEntity="EditorialReviewChunk" toMany="YES" />
+    <relationship name="anchors" optional="YES" deletionRule="Cascade" destinationEntity="EditorialFindingAnchor" inverseName="input" inverseEntity="EditorialFindingAnchor" toMany="YES" />
+    <relationship name="review" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReview" inverseName="inputs" inverseEntity="EditorialReview" maxCount="1" />
+    <relationship name="document" optional="YES" deletionRule="Nullify" destinationEntity="Document" inverseName="editorialInputs" inverseEntity="Document" maxCount="1" />
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="documentID" attributeType="UUID" optional="YES" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="path" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="orderIndex" attributeType="Integer 64" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="plainText" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="contentHash" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="role" attributeType="String" optional="NO" defaultValueString="" />
+  </entity>
+  <entity name="EditorialFinding" representedClassName="EditorialFinding" syncable="YES">
+    <relationship name="anchors" optional="YES" deletionRule="Cascade" destinationEntity="EditorialFindingAnchor" inverseName="finding" inverseEntity="EditorialFindingAnchor" toMany="YES" />
+    <relationship name="review" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReview" inverseName="findings" inverseEntity="EditorialReview" maxCount="1" />
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="category" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="severity" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="title" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="explanation" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="recommendation" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="status" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="userNote" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+  </entity>
+  <entity name="EditorialFindingAnchor" representedClassName="EditorialFindingAnchor" syncable="YES">
+    <relationship name="input" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReviewInput" inverseName="anchors" inverseEntity="EditorialReviewInput" maxCount="1" />
+    <relationship name="finding" optional="YES" deletionRule="Nullify" destinationEntity="EditorialFinding" inverseName="anchors" inverseEntity="EditorialFinding" maxCount="1" />
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="excerpt" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="location" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+    <attribute name="length" attributeType="Integer 64" optional="YES" usesScalarValueType="NO" />
+  </entity>
+  <entity name="EditorialReviewChunk" representedClassName="EditorialReviewChunk" syncable="YES">
+    <relationship name="input" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReviewInput" inverseName="chunks" inverseEntity="EditorialReviewInput" maxCount="1" />
+    <relationship name="review" optional="YES" deletionRule="Nullify" destinationEntity="EditorialReview" inverseName="chunks" inverseEntity="EditorialReview" maxCount="1" />
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="stage" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="orderIndex" attributeType="Integer 64" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="location" attributeType="Integer 64" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="length" attributeType="Integer 64" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="status" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="attempts" attributeType="Integer 64" optional="NO" usesScalarValueType="YES" defaultValueString="0" />
+    <attribute name="summary" attributeType="String" optional="NO" defaultValueString="" />
+    <attribute name="errorMessage" attributeType="String" optional="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="finishedAt" attributeType="Date" optional="YES" />
+  </entity>
+  <entity name="SharingGroup" representedClassName="SharingGroup" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="projectID" attributeType="UUID" optional="YES" />
+    <attribute name="scopeRootID" attributeType="UUID" optional="YES" />
+    <attribute name="domain" attributeType="String" optional="NO" defaultValueString="manuscript" />
+    <attribute name="state" attributeType="String" optional="NO" defaultValueString="private" />
+    <attribute name="cloudKitShareID" attributeType="String" optional="YES" />
+    <attribute name="ownerIdentity" attributeType="String" optional="YES" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+  </entity>
+  <entity name="ShareParticipant" representedClassName="ShareParticipant" syncable="YES">
+    <attribute name="id" attributeType="UUID" optional="YES" />
+    <attribute name="sharingGroupID" attributeType="UUID" optional="YES" />
+    <attribute name="cloudKitIdentity" attributeType="String" optional="YES" />
+    <attribute name="inkstoneRole" attributeType="String" optional="NO" defaultValueString="viewer" />
+    <attribute name="cloudKitPermission" attributeType="String" optional="NO" defaultValueString="readOnly" />
+    <attribute name="invitationState" attributeType="String" optional="NO" defaultValueString="pending" />
+    <attribute name="createdAt" attributeType="Date" optional="YES" />
+    <attribute name="modifiedAt" attributeType="Date" optional="YES" />
+  </entity>
+</model>

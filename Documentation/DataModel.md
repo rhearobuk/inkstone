@@ -1,5 +1,55 @@
 # Data model
 
+## Sharing ownership topology
+
+Issue #11 introduces an explicit ownership contract before changing the
+versioned Core Data schema. The contract prevents a future migration from
+turning sharing into a private/shared manuscript synchronization system.
+
+Every canonical record has exactly one authoritative route:
+
+- The owner's canonical records remain in the private-database store whether
+  their group currently has participants or not.
+- Records accepted from another owner live in the participant shared-database
+  store and identify exactly one SharingGroup.
+- A SharingGroup is one disconnected authorization graph and one prospective
+  CKShare boundary.
+- Manuscript, feedback, and Story Bible context use different groups when their
+  CloudKit permissions differ.
+- References across groups are stable UUID values, never Core Data
+  relationships.
+- Users may belong to multiple groups. A record is not copied into multiple
+  groups to provide broader access.
+
+SharingTopologyValidator rejects duplicate canonical routes, participant-shared
+records without a group, unknown groups, and cross-project group assignments.
+An owner record may acquire a group without moving stores: CloudKit shares
+records from the owner's private database and exposes them in each participant's
+shared database. These checks are owner-authoritative storage rules; they are
+not participant-editable roles or UI visibility flags.
+
+V12 begins the additive physical migration:
+
+- SharingGroup and ShareParticipant persist owner-authoritative group metadata
+  and invitation state without Core Data relationships.
+- Document adds optional projectID, parentID, and sharingGroupID scalar UUIDs.
+- SemanticEntity adds optional projectID and sharingGroupID scalar UUIDs.
+- Annotation adds an optional sharingGroupID scalar UUID.
+
+V11 libraries migrate with no groups or participants, so every existing library
+remains private. On first open, project and parent UUIDs are backfilled from the
+legacy relationships; subsequent saves keep those scalar IDs aligned. The
+legacy connected relationships remain temporarily available to the existing
+application and are not safe to share until application reads and writes have
+moved fully to the scalar topology.
+
+AuthorDataStore loads named Private and Shared physical stores. The Private
+store mirrors the owner's private CloudKit database; the Shared store mirrors
+records accepted from other owners. EntityRepository inserts are assigned to
+the selected store and fetches use affectedStores to avoid ambiguous
+cross-store lookup. Existing convenience repositories remain pinned to Private
+until their features adopt explicit group-aware routing.
+
 ## Ownership and document hierarchy
 
 `WritingProject` is the aggregate root. `Document` models every ordered Scrivener binder item, not only prose: draft folders, folders, text, images, PDFs, and unknown future kinds remain distinguishable through `kind`. The self-referential parent/children relationship stores hierarchy; `orderIndex` stores sibling order independently of unordered Core Data relationship storage.
