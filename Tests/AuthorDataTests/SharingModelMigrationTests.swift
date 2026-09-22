@@ -6,7 +6,7 @@ import Testing
 @Suite("Sharing model migration", .serialized)
 @MainActor
 struct SharingModelMigrationTests {
-    @Test("V11 libraries migrate privately to V12 without changing canonical content")
+    @Test("V11 libraries migrate privately to V13 without changing canonical content")
     func v11MigratesPrivately() throws {
         let directory = try makeStoreDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -25,29 +25,29 @@ struct SharingModelMigrationTests {
         let project = NSEntityDescription.insertNewObject(
             forEntityName: WritingProject.entityName,
             into: oldContainer.viewContext
-        ) as! WritingProject
-        project.id = projectID
-        project.title = "Private existing project"
-        project.sourceIdentifier = "migration.project"
-        project.sourceFormat = "native"
-        project.createdAt = Date(timeIntervalSince1970: 1_700_000_000)
-        project.modifiedAt = project.createdAt
+        )
+        project.setValue(projectID, forKey: "id")
+        project.setValue("Private existing project", forKey: "title")
+        project.setValue("migration.project", forKey: "sourceIdentifier")
+        project.setValue("native", forKey: "sourceFormat")
+        project.setValue(Date(timeIntervalSince1970: 1_700_000_000), forKey: "createdAt")
+        project.setValue(Date(timeIntervalSince1970: 1_700_000_000), forKey: "modifiedAt")
         let document = NSEntityDescription.insertNewObject(
             forEntityName: Document.entityName,
             into: oldContainer.viewContext
-        ) as! Document
-        document.id = documentID
-        document.sourceIdentifier = "migration.scene"
-        document.title = "Existing private scene"
-        document.kind = DocumentKind.text.rawValue
-        document.orderIndex = 0
-        document.plainText = "Preserve this canonical text."
-        document.project = project
+        )
+        document.setValue(documentID, forKey: "id")
+        document.setValue("migration.scene", forKey: "sourceIdentifier")
+        document.setValue("Existing private scene", forKey: "title")
+        document.setValue(DocumentKind.text.rawValue, forKey: "kind")
+        document.setValue(Int32(0), forKey: "orderIndex")
+        document.setValue("Preserve this canonical text.", forKey: "plainText")
+        document.setPrimitiveValue(project, forKey: "project")
         try oldContainer.viewContext.save()
         try close(oldContainer)
 
         let migrated = try AuthorDataStore(storeURL: storeURL)
-        #expect(migrated.container.managedObjectModel.versionIdentifiers == ["12"])
+        #expect(migrated.container.managedObjectModel.versionIdentifiers == ["13"])
         let migratedDocument = try #require(try migrated.documents.fetch(id: documentID))
         #expect(migratedDocument.id == documentID)
         #expect(migratedDocument.plainText == "Preserve this canonical text.")
@@ -60,7 +60,52 @@ struct SharingModelMigrationTests {
         try close(migrated.container)
     }
 
-    @Test("V12 persists group metadata without Core Data relationships")
+    @Test("V12 libraries migrate to the canonical V13 sharing boundary")
+    func v12MigratesToCanonicalSharingBoundary() throws {
+        let directory = try makeStoreDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("v12.sqlite")
+        let oldModel = try #require(NSManagedObjectModel(contentsOf: modelURL(version: 12)))
+        let oldContainer = NSPersistentContainer(name: "AuthorData", managedObjectModel: oldModel)
+        let oldDescription = NSPersistentStoreDescription(url: storeURL)
+        oldDescription.shouldAddStoreAsynchronously = false
+        oldContainer.persistentStoreDescriptions = [oldDescription]
+        var loadError: Error?
+        oldContainer.loadPersistentStores { _, error in loadError = error }
+        if let loadError { throw loadError }
+
+        let projectID = UUID()
+        let documentID = UUID()
+        let project = NSEntityDescription.insertNewObject(forEntityName: "WritingProject", into: oldContainer.viewContext)
+        project.setValue(projectID, forKey: "id")
+        project.setValue("V12 project", forKey: "title")
+        project.setValue("migration.v12.project", forKey: "sourceIdentifier")
+        project.setValue("native", forKey: "sourceFormat")
+        project.setValue(Date(timeIntervalSince1970: 1_700_000_000), forKey: "createdAt")
+        project.setValue(Date(timeIntervalSince1970: 1_700_000_000), forKey: "modifiedAt")
+        let document = NSEntityDescription.insertNewObject(forEntityName: "Document", into: oldContainer.viewContext)
+        document.setValue(documentID, forKey: "id")
+        document.setValue("migration.v12.document", forKey: "sourceIdentifier")
+        document.setValue("V12 document", forKey: "title")
+        document.setValue(DocumentKind.text.rawValue, forKey: "kind")
+        document.setValue(Int32(0), forKey: "orderIndex")
+        document.setValue("Canonical V12 text", forKey: "plainText")
+        document.setValue(projectID, forKey: "projectID")
+        document.setPrimitiveValue(project, forKey: "project")
+        try oldContainer.viewContext.save()
+        try close(oldContainer)
+
+        let migrated = try AuthorDataStore(storeURL: storeURL)
+        let migratedDocument = try migrated.documents.require(id: documentID)
+        #expect(migrated.container.managedObjectModel.versionIdentifiers == ["13"])
+        #expect(migratedDocument.projectID == projectID)
+        #expect(migratedDocument.plainText == "Canonical V12 text")
+        #expect(migratedDocument.sharingGroup == nil)
+        #expect(migratedDocument.resources.isEmpty)
+        try close(migrated.container)
+    }
+
+    @Test("V13 persists group metadata and canonical relationships")
     func groupMetadataRoundTrips() throws {
         let directory = try makeStoreDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

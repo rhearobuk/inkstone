@@ -179,3 +179,16 @@ The Xcode app target (`Inkstone`) declares `com.apple.developer.icloud-container
 Deleting a target document or persona nullifies the live reference without erasing review snapshots. Deleting a project or review cascades through its review records. Persona presets are idempotently seeded; customized personas and each run's effective rubric are independent. History keeps selected provider/model, prompt/schema versions, timestamps, parameters, OS/app version, reported token usage when available, and rerun links. `ProvenanceEvent` records terminal review outcomes.
 
 States distinguish completed, partial, failed, refused, cancelled and interrupted runs. Startup marks abandoned active runs interrupted without resending text. Chunk records preserve coverage and intermediate summaries; synthesis is hierarchical and no manuscript input is silently truncated. This is an editorial subsystem: review execution never writes manuscript prose or rich-text resources.
+# Canonical sharing boundary (V13)
+
+Model V13 turns the group design proven by Issue #10 into the production persistence boundary. A manuscript `Document` remains the one canonical current manuscript record. Before its first share, legacy relationships that cross authorization boundaries are converted to stable UUID references and cleared from the document's persistent relationship graph. The document is then related only to its `SharingGroup`, so Core Data's deep CloudKit traversal cannot pull in the private project, revisions, metadata, resources, editorial inputs, or Story Bible records.
+
+The application resolves project/document navigation through `projectID` and `parentID`; sidecars use their corresponding UUID fields. This is an ID join, not a copied manuscript or synchronization layer. Existing libraries migrate additively and remain private until an author explicitly creates a share.
+
+Separate groups enforce separate CloudKit permissions:
+
+- `manuscript`: canonical eligible documents; read-only for viewers/reviewers and read-write for editors/collaborators.
+- `feedback`: participant-writable annotations joined to manuscript records by `documentID`; no relationship to manuscript text.
+- `storyContext`: explicitly granted Story Bible entities, independent of manuscript permission.
+
+`SharingGroup` is the only share root. Its relationships contain only records authorized for that group. A canonical record with an existing different `sharingGroupID` is rejected instead of copied into another share.

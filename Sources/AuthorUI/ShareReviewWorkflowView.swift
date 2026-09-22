@@ -1,4 +1,5 @@
 import AuthorData
+import CloudKit
 import SwiftUI
 
 @MainActor
@@ -13,6 +14,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     @Published public private(set) var preview: ReviewAccessPolicyResult?
     @Published public private(set) var groupStates: [GroupKind: GroupState] = [:]
     @Published public private(set) var errorMessage: String?
+    @Published public private(set) var participants: [ShareParticipant] = []
 
     public let project: WritingProject
     public let scopeRoot: Document
@@ -76,13 +78,133 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             errorMessage = CloudSharingError.localOnlyBuild.localizedDescription
             return
         }
-        for kind in GroupKind.allCases where groupStates[kind] == .ready { groupStates[kind] = .pending }
-        // System share presentation supplies recipients and may complete each CKShare independently.
-        // Keep each group pending until its system callback reports success or failure.
+        let required = GroupKind.allCases.filter { groupStates[$0] == .ready || isFailed(groupStates[$0]) }
+        for kind in required { groupStates[kind] = .pending }
+        for kind in required {
+            do {
+                let group = try prepareGroup(for: kind)
+                let permission = cloudKitPermission(for: kind)
+                _ = try await service.publishInvitation(
+                    for: group,
+                    recipientEmail: recipient.trimmingCharacters(in: .whitespacesAndNewlines),
+                    permission: permission
+                )
+                if let participant = try service.participants(for: group).last {
+                    participant.inkstoneRole = role.rawValue
+                    try service.dataStore.save()
+                }
+                groupStates[kind] = .succeeded
+            } catch {
+                groupStates[kind] = .failed(error.localizedDescription)
+            }
+        }
+        refreshParticipants()
+        if groupStates.values.contains(where: { if case .failed = $0 { true } else { false } }) {
+            errorMessage = "Some invitation groups failed. Successful groups remain active; retry only the failed groups."
+        }
     }
 
     public func record(_ result: SharingGroupOperationResult, for kind: GroupKind) {
         groupStates[kind] = result.succeeded ? .succeeded : .failed(result.message ?? "Sharing failed")
+    }
+
+    public func refreshParticipants() {
+        participants = (try? service.dataStore.shareParticipants.fetchAll()) ?? []
+    }
+
+    public func revoke(_ participant: ShareParticipant) async {
+        guard let groupID = participant.sharingGroupID,
+              let group = try? service.dataStore.sharingGroups.require(id: groupID),
+              let identity = participant.cloudKitIdentity else { return }
+        do {
+            try await service.revokeParticipant(identity: identity, from: group)
+            refreshParticipants()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    public func changeRole(for participant: ShareParticipant, to newRole: SharingRole) async {
+        guard let identity = participant.cloudKitIdentity else { return }
+        do {
+            let matching = try service.dataStore.shareParticipants.fetchAll(
+                predicate: NSPredicate(format: "cloudKitIdentity == %@", identity)
+            )
+            for record in matching {
+                guard let groupID = record.sharingGroupID,
+                      let group = try service.dataStore.sharingGroups.fetch(id: groupID) else { continue }
+                if group.domain == SharingGroupDomain.feedback.rawValue, newRole == .viewer {
+                    try await service.revokeParticipant(identity: identity, from: group)
+                    continue
+                }
+                let permission: CKShare.ParticipantPermission
+                if group.domain == SharingGroupDomain.manuscript.rawValue {
+                    permission = newRole == .viewer || newRole == .reviewer ? .readOnly : .readWrite
+                } else {
+                    permission = record.cloudKitPermission == "readOnly" ? .readOnly : .readWrite
+                }
+                try await service.updatePermission(for: identity, in: group, to: permission)
+                record.inkstoneRole = newRole.rawValue
+            }
+            try service.dataStore.save()
+            refreshParticipants()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func prepareGroup(for kind: GroupKind) throws -> SharingGroup {
+        let domain = domain(for: kind)
+        let predicate = NSPredicate(
+            format: "projectID == %@ AND scopeRootID == %@ AND domain == %@",
+            project.id as CVarArg, scopeRoot.id as CVarArg, domain.rawValue
+        )
+        let group = try service.dataStore.sharingGroups.fetchAll(predicate: predicate).first
+            ?? service.dataStore.sharingGroups.create { group in
+                group.projectID = project.id
+                group.scopeRootID = scopeRoot.id
+                group.domain = domain.rawValue
+                group.state = "preparing"
+                group.createdAt = Date()
+                group.modifiedAt = Date()
+            }
+        let preparer = CanonicalSharingGraphPreparer()
+        switch kind {
+        case .manuscript:
+            let includedIDs = Set(preview?.included.map(\.recordID) ?? [])
+            try preparer.prepareManuscript(project.documents.filter { includedIDs.contains($0.id) }, for: group)
+        case .feedback:
+            break
+        case .context:
+            let entities: [SemanticEntity]
+            switch storyBibleGrant {
+            case .none: entities = []
+            case .selected(let ids): entities = project.semanticEntities.filter { ids.contains($0.id) }
+            case .fullRead, .edit: entities = Array(project.semanticEntities)
+            }
+            try preparer.prepareStoryContext(entities, for: group)
+        }
+        group.state = "ready"
+        group.modifiedAt = Date()
+        try service.dataStore.save()
+        return group
+    }
+
+    private func domain(for kind: GroupKind) -> SharingGroupDomain {
+        switch kind { case .manuscript: .manuscript; case .feedback: .feedback; case .context: .storyContext }
+    }
+
+    private func cloudKitPermission(for kind: GroupKind) -> CKShare.ParticipantPermission {
+        switch kind {
+        case .feedback: .readWrite
+        case .context: storyBibleGrant == .edit ? .readWrite : .readOnly
+        case .manuscript: role == .viewer || role == .reviewer ? .readOnly : .readWrite
+        }
+    }
+
+    private func isFailed(_ state: GroupState?) -> Bool {
+        if case .failed = state { return true }
+        return false
     }
 }
 
@@ -101,6 +223,7 @@ public struct ShareReviewWorkflowView: View {
                 contextSection
                 previewSection
                 progressSection
+                participantSection
             }
             .navigationTitle("Share for Review")
             .toolbar {
@@ -184,6 +307,37 @@ public struct ShareReviewWorkflowView: View {
             }
             Text("Invitations are independent. Partial completion remains retryable and is never shown as fully shared.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var participantSection: some View {
+        Section("Participants") {
+            if model.participants.isEmpty {
+                Text("No current participants")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.participants, id: \.id) { participant in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(participant.cloudKitIdentity ?? "Pending identity")
+                            Text("\(participant.inkstoneRole.capitalized) · \(participant.cloudKitPermission)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Menu("Role") {
+                            Button("Viewer") { Task { await model.changeRole(for: participant, to: .viewer) } }
+                            Button("Reviewer") { Task { await model.changeRole(for: participant, to: .reviewer) } }
+                            Button("Editor") { Task { await model.changeRole(for: participant, to: .editor) } }
+                            Button("Collaborator") { Task { await model.changeRole(for: participant, to: .collaborator) } }
+                        }
+                        Button("Revoke", role: .destructive) { Task { await model.revoke(participant) } }
+                    }
+                }
+            }
+            Text("Revocation prevents future access after CloudKit propagates it; it cannot recall content already downloaded.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }

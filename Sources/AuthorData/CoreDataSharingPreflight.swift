@@ -60,7 +60,10 @@ public enum CoreDataSharingPreflight {
             }
 
             for relationship in object.entity.relationshipsByName.values.sorted(by: { $0.name < $1.name }) {
-                guard let value = object.value(forKey: relationship.name) else { continue }
+                // CloudKit traverses the persisted Core Data relationship graph. Custom
+                // ID-backed accessors deliberately resolve UUID joins for the application,
+                // but they are not persisted relationships and must not be treated as such.
+                guard let value = object.primitiveValue(forKey: relationship.name) else { continue }
                 let relatedObjects: [NSManagedObject]
                 if relationship.isToMany {
                     if let set = value as? Set<NSManagedObject> {

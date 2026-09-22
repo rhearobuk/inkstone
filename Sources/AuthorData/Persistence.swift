@@ -265,13 +265,13 @@ public final class AuthorDataStore {
     private static func synchronizeRoutingIDs(in objects: Set<NSManagedObject>) {
         for object in objects {
             if let document = object as? Document {
-                let project = document.value(forKey: "project") as? WritingProject
-                let parent = document.value(forKey: "parent") as? Document
-                document.projectID = project?.id
-                document.parentID = parent?.id
+                let project = document.primitiveValue(forKey: "project") as? WritingProject
+                let parent = document.primitiveValue(forKey: "parent") as? Document
+                if let project { document.projectID = project.id }
+                if let parent { document.parentID = parent.id }
             } else if let semanticEntity = object as? SemanticEntity {
-                let project = semanticEntity.value(forKey: "project") as? WritingProject
-                semanticEntity.projectID = project?.id
+                let project = semanticEntity.primitiveValue(forKey: "project") as? WritingProject
+                if let project { semanticEntity.projectID = project.id }
             }
         }
     }
@@ -298,7 +298,7 @@ public final class AuthorDataStore {
 
     /// Returns a repository constrained to one physical persistent store.
     ///
-    /// The single unconfigured V12 store is treated as the owner's private
+    /// A single unconfigured store is treated as the owner's private
     /// database during the additive migration. Participant-shared routing is
     /// unavailable until a store using the Shared configuration is loaded.
     public func repository<Model: AuthorManagedObject>(

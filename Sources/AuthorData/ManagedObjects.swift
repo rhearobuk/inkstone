@@ -8,6 +8,21 @@ public protocol AuthorManagedObject: NSManagedObject {
 
 public extension AuthorManagedObject {
     static var entityName: String { String(describing: Self.self) }
+
+    func relatedObject<Model: AuthorManagedObject>(_ type: Model.Type, id: UUID?) -> Model? {
+        guard let id, let context = managedObjectContext else { return nil }
+        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+        return try? context.fetch(request).first
+    }
+
+    func relatedObjects<Model: AuthorManagedObject>(_ type: Model.Type, key: String, id: UUID) -> Set<Model> {
+        guard let context = managedObjectContext else { return [] }
+        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        request.predicate = NSPredicate(format: "%K == %@", key, id as CVarArg)
+        return Set((try? context.fetch(request)) ?? [])
+    }
 }
 
 @objc(WritingProject)
@@ -25,7 +40,7 @@ public final class WritingProject: NSManagedObject, AuthorManagedObject {
     @NSManaged public var createdAt: Date
     @NSManaged public var modifiedAt: Date
     @NSManaged public var sourceModifiedAt: Date?
-    @NSManaged public var documents: Set<Document>
+    @objc public var documents: Set<Document> { relatedObjects(Document.self, key: "projectID", id: id) }
     @NSManaged public var resources: Set<ContentResource>
     @NSManaged public var semanticEntities: Set<SemanticEntity>
     @NSManaged public var metadataFields: Set<MetadataField>
@@ -49,6 +64,7 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     @NSManaged public var projectID: UUID?
     @NSManaged public var parentID: UUID?
     @NSManaged public var sharingGroupID: UUID?
+    @NSManaged public var sharingGroup: SharingGroup?
     @NSManaged public var sourceIdentifier: String
     @NSManaged public var title: String
     @NSManaged public var kind: String
@@ -74,16 +90,32 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     /// to date incrementally by `WordCountService` whenever text changes or the tree is
     /// restructured, so it never needs a full-tree recalculation.
     @NSManaged public var actualWordCount: Int64
-    @NSManaged public var project: WritingProject
-    @NSManaged public var parent: Document?
-    @NSManaged public var children: Set<Document>
-    @NSManaged public var resources: Set<ContentResource>
-    @NSManaged public var metadataValues: Set<MetadataValue>
-    @NSManaged public var annotations: Set<Annotation>
-    @NSManaged public var revisions: Set<Revision>
-    @NSManaged public var outgoingLinks: Set<DocumentLink>
-    @NSManaged public var incomingLinks: Set<DocumentLink>
-    @NSManaged public var mentions: Set<DocumentEntityMention>
+    @objc public var project: WritingProject {
+        get {
+            if let project = relatedObject(WritingProject.self, id: projectID) { return project }
+            if let project = primitiveValue(forKey: "project") as? WritingProject { return project }
+            preconditionFailure("Document \(id) has no project")
+        }
+        set {
+            projectID = newValue.id
+            setPrimitiveValue(newValue, forKey: "project")
+        }
+    }
+    @objc public var parent: Document? {
+        get { relatedObject(Document.self, id: parentID) ?? primitiveValue(forKey: "parent") as? Document }
+        set {
+            parentID = newValue?.id
+            setPrimitiveValue(newValue, forKey: "parent")
+        }
+    }
+    @objc public var children: Set<Document> { relatedObjects(Document.self, key: "parentID", id: id) }
+    @objc public var resources: Set<ContentResource> { relatedObjects(ContentResource.self, key: "documentID", id: id) }
+    @objc public var metadataValues: Set<MetadataValue> { relatedObjects(MetadataValue.self, key: "documentID", id: id) }
+    @objc public var annotations: Set<Annotation> { relatedObjects(Annotation.self, key: "documentID", id: id) }
+    @objc public var revisions: Set<Revision> { relatedObjects(Revision.self, key: "documentID", id: id) }
+    @objc public var outgoingLinks: Set<DocumentLink> { relatedObjects(DocumentLink.self, key: "sourceDocumentID", id: id) }
+    @objc public var incomingLinks: Set<DocumentLink> { relatedObjects(DocumentLink.self, key: "targetDocumentID", id: id) }
+    @objc public var mentions: Set<DocumentEntityMention> { relatedObjects(DocumentEntityMention.self, key: "documentID", id: id) }
     @NSManaged public var sourceCharacterProfiles: Set<CharacterProfile>
     @NSManaged public var sourceGalleryItems: Set<GalleryItem>
 
@@ -121,6 +153,8 @@ public final class Document: NSManagedObject, AuthorManagedObject {
 @objc(ContentResource)
 public final class ContentResource: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var projectID: UUID?
+    @NSManaged public var documentID: UUID?
     @NSManaged public var sourcePath: String
     @NSManaged public var role: String
     @NSManaged public var mediaType: String
@@ -205,6 +239,8 @@ public final class SectionTypeDefinition: NSManagedObject, AuthorManagedObject {
 @objc(MetadataValue)
 public final class MetadataValue: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var fieldID: UUID?
+    @NSManaged public var documentID: UUID?
     @NSManaged public var stringValue: String?
     @NSManaged public var integerValue: NSNumber?
     @NSManaged public var doubleValue: NSNumber?
@@ -220,6 +256,7 @@ public final class SemanticEntity: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
     @NSManaged public var projectID: UUID?
     @NSManaged public var sharingGroupID: UUID?
+    @NSManaged public var contextGroup: SharingGroup?
     @NSManaged public var canonicalName: String
     @NSManaged public var kind: String
     @NSManaged public var storyBibleOrderIndex: NSNumber?
@@ -251,6 +288,8 @@ public final class EntityAlias: NSManagedObject, AuthorManagedObject {
 @objc(DocumentEntityMention)
 public final class DocumentEntityMention: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var documentID: UUID?
+    @NSManaged public var semanticEntityID: UUID?
     @NSManaged public var location: Int64
     @NSManaged public var length: Int64
     @NSManaged public var surfaceText: String
@@ -264,7 +303,9 @@ public final class DocumentEntityMention: NSManagedObject, AuthorManagedObject {
 @objc(Annotation)
 public final class Annotation: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var documentID: UUID?
     @NSManaged public var sharingGroupID: UUID?
+    @NSManaged public var feedbackGroup: SharingGroup?
     @NSManaged public var kind: String
     @NSManaged public var body: String
     @NSManaged public var location: NSNumber?
@@ -288,6 +329,9 @@ public final class SharingGroup: NSManagedObject, AuthorManagedObject {
     @NSManaged public var ownerIdentity: String?
     @NSManaged public var createdAt: Date?
     @NSManaged public var modifiedAt: Date?
+    @NSManaged public var documents: Set<Document>
+    @NSManaged public var feedback: Set<Annotation>
+    @NSManaged public var storyEntities: Set<SemanticEntity>
 }
 
 @objc(ShareParticipant)
@@ -305,6 +349,7 @@ public final class ShareParticipant: NSManagedObject, AuthorManagedObject {
 @objc(Revision)
 public final class Revision: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var documentID: UUID?
     @NSManaged public var sequence: Int64
     @NSManaged public var createdAt: Date
     @NSManaged public var author: String?
@@ -318,6 +363,8 @@ public final class Revision: NSManagedObject, AuthorManagedObject {
 @objc(DocumentLink)
 public final class DocumentLink: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var sourceDocumentID: UUID?
+    @NSManaged public var targetDocumentID: UUID?
     @NSManaged public var kind: String
     @NSManaged public var sourceLocation: NSNumber?
     @NSManaged public var sourceLength: NSNumber?
