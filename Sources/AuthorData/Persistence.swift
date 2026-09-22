@@ -36,6 +36,8 @@ public final class AuthorDataStore {
     public let cloudKitSyncEnabled: Bool
     public let privatePersistentStore: NSPersistentStore
     public let sharedPersistentStore: NSPersistentStore
+    /// Set only while operating in a participant shared session. Owner-private sessions leave this nil.
+    public var sharingAuthorization: SharingAuthorization?
     public var context: NSManagedObjectContext { container.viewContext }
 
     public let editorPersonas: EntityRepository<EditorPersona>
@@ -276,6 +278,14 @@ public final class AuthorDataStore {
 
     public func save() throws {
         if context.hasChanges {
+            if let sharingAuthorization {
+                try SharingMutationGuard().validate(
+                    inserted: context.insertedObjects,
+                    updated: context.updatedObjects,
+                    deleted: context.deletedObjects,
+                    authorization: sharingAuthorization
+                )
+            }
             Self.synchronizeRoutingIDs(in: context.insertedObjects.union(context.updatedObjects))
             try context.save()
             context.processPendingChanges()
