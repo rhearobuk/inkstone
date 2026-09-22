@@ -1,10 +1,18 @@
 import AuthorData
 import AuthorUI
+import CloudKit
 import SwiftUI
+
+#if os(macOS)
+import AppKit
+#endif
 
 @main
 @MainActor
 struct InkstoneApp: App {
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(CloudShareAppDelegate.self) private var cloudShareDelegate
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var startup: InkstoneStartup
     @StateObject private var aiSettings = AISettingsStore()
@@ -95,6 +103,9 @@ private final class InkstoneStartup: ObservableObject {
             #else
             let store = try AuthorDataStore.open(storeURL: Self.storeURL())
             #endif
+            #if os(macOS)
+            CloudShareAppDelegate.configure(store: store)
+            #endif
             #if DEBUG
             let preferences: UserDefaults
             if managementTests {
@@ -161,6 +172,26 @@ private final class InkstoneStartup: ObservableObject {
         return directory.appendingPathComponent("AuthorData.sqlite")
     }
 }
+
+#if os(macOS)
+@MainActor
+private final class CloudShareAppDelegate: NSObject, NSApplicationDelegate {
+    private static let inbox = CloudKitInvitationInbox()
+    private static var service: CloudKitSharingService?
+
+    static func configure(store: AuthorDataStore) {
+        let service = CloudKitSharingService(dataStore: store)
+        self.service = service
+        Task { _ = await inbox.drain(using: service) }
+    }
+
+    func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        Self.inbox.enqueue(metadata)
+        guard let service = Self.service else { return }
+        Task { _ = await Self.inbox.drain(using: service) }
+    }
+}
+#endif
 
 private struct StoreStartupErrorView: View {
     let message: String
