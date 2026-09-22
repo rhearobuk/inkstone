@@ -707,7 +707,7 @@ final class ContentManagementTests: XCTestCase {
         XCTAssertEqual(targets(in: .places, controller), expected)
     }
 
-    func testMetadataMixedOrderAndDeletionPersistAfterClosingAndReopeningDiskStore() throws {
+    func testMetadataMixedOrderAndDeletionPersistAfterClosingAndReopeningDiskStore() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent(".build/content-management-tests/\(UUID().uuidString)", isDirectory: true)
@@ -747,7 +747,7 @@ final class ContentManagementTests: XCTestCase {
         try controller.moveContent(.document(documentID), relativeTo: .semanticEntity(entityID), position: .before)
         try controller.deleteSemanticEntity(deletedID)
         try controller.deleteSemanticEntity(deletedImportedEntityID)
-        controller.flushPendingChanges()
+        await controller.flushPendingChanges()
         try close(originalStore)
 
         let reopenedStore = try AuthorDataStore(storeURL: url)
