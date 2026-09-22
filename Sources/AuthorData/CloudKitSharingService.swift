@@ -20,6 +20,7 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
     case ownerAuthorityRequired
     case participantCannotRevokeOwnerData
     case invitationAlreadyProcessed
+    case unsafeObjectGraph
 
     public var errorDescription: String? {
         switch self {
@@ -29,6 +30,7 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
         case .ownerAuthorityRequired: "Only the CloudKit share owner can change participant permissions."
         case .participantCannotRevokeOwnerData: "Participant cleanup cannot delete the owner's canonical records."
         case .invitationAlreadyProcessed: "This invitation has already been processed."
+        case .unsafeObjectGraph: "Sharing stopped because the selected group still reaches private records."
         }
     }
 }
@@ -81,6 +83,139 @@ public final class CloudKitSharingService {
         result.0.publicPermission = .none
         _ = try await persist(result.0, in: dataStore.privatePersistentStore)
         return result
+    }
+
+    public func publishInvitation(
+        for group: SharingGroup,
+        recipientEmail: String,
+        permission: CKShare.ParticipantPermission
+    ) async throws -> CKShare {
+        try requireCloudKit()
+        guard permission == .readOnly || permission == .readWrite else {
+            throw CloudSharingError.publicSharingDisabled
+        }
+        try dataStore.save()
+
+        let allowedObjectIDs = Set([group.objectID])
+            .union(group.documents.map(\.objectID))
+            .union(group.feedback.map(\.objectID))
+            .union(group.storyEntities.map(\.objectID))
+        let report = CoreDataSharingPreflight.audit(root: group, allowedObjectIDs: allowedObjectIDs)
+        let storyEntityNames = Set([
+            SemanticEntity.entityName, EntityAlias.entityName, CharacterProfile.entityName,
+            CharacterMeasurement.entityName, CharacterNote.entityName, CharacterRelationship.entityName,
+            CharacterConflict.entityName, StoryBibleCard.entityName, StoryBibleNote.entityName,
+            StoryBibleRelationship.entityName
+        ])
+        let safeStoryExpansion = group.domain == SharingGroupDomain.storyContext.rawValue
+            && report.exposures.allSatisfy { storyEntityNames.contains($0.entityName) }
+        guard report.isObjectGraphSafe || safeStoryExpansion else {
+            throw CloudSharingError.unsafeObjectGraph
+        }
+
+        let existing = try dataStore.container.fetchShares(matching: [group.objectID])[group.objectID]
+        let share: CKShare
+        let cloudContainer: CKContainer
+        if let existing {
+            share = existing
+            cloudContainer = CKContainer(identifier: Self.containerIdentifier)
+        } else {
+            (share, cloudContainer) = try await createPrivateShare(for: [group])
+        }
+
+        let participant = try await cloudContainer.shareParticipant(forEmailAddress: recipientEmail)
+        participant.permission = permission
+        share.publicPermission = .none
+        share.addParticipant(participant)
+        _ = try await persist(share, in: dataStore.privatePersistentStore)
+
+        group.cloudKitShareID = share.recordID.recordName
+        group.state = "awaitingAcceptance"
+        group.modifiedAt = Date()
+        let identity = recipientEmail.lowercased()
+        let existingParticipant = try dataStore.shareParticipants.fetchAll(
+            predicate: NSPredicate(format: "sharingGroupID == %@ AND cloudKitIdentity == %@", group.id as CVarArg, identity)
+        ).first
+        let participantRecord = existingParticipant ?? dataStore.shareParticipants.create { record in
+            record.sharingGroupID = group.id
+            record.cloudKitIdentity = identity
+            record.createdAt = Date()
+        }
+        participantRecord.inkstoneRole = "participant"
+        participantRecord.cloudKitPermission = permission == .readOnly ? "readOnly" : "readWrite"
+        participantRecord.invitationState = "pending"
+        participantRecord.modifiedAt = Date()
+        try dataStore.save()
+        return share
+    }
+
+    public func participants(for group: SharingGroup) throws -> [ShareParticipant] {
+        try dataStore.shareParticipants.fetchAll(
+            predicate: NSPredicate(format: "sharingGroupID == %@", group.id as CVarArg)
+        )
+    }
+
+    @discardableResult
+    public func createFeedback(
+        body: String,
+        documentID: UUID,
+        in group: SharingGroup,
+        author: String? = nil
+    ) throws -> Annotation {
+        guard group.domain == SharingGroupDomain.feedback.rawValue else {
+            throw SharingAuthorizationError.unauthorizedCommand(.createFeedback)
+        }
+        let repository = try dataStore.repository(for: Annotation.self, scope: .participantShared)
+        let annotation = repository.create { annotation in
+            annotation.documentID = documentID
+            annotation.sharingGroupID = group.id
+            annotation.feedbackGroup = group
+            annotation.kind = "comment"
+            annotation.body = body
+            annotation.author = author
+            annotation.source = "participant"
+            annotation.status = "open"
+            annotation.createdAt = Date()
+            annotation.modifiedAt = Date()
+        }
+        try dataStore.save()
+        return annotation
+    }
+
+    public func revokeParticipant(identity: String, from group: SharingGroup) async throws {
+        guard let share = try dataStore.container.fetchShares(matching: [group.objectID])[group.objectID] else {
+            throw CloudSharingError.ownerAuthorityRequired
+        }
+        guard let participant = share.participants.first(where: {
+            $0.userIdentity.userRecordID?.recordName == identity
+                || $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == identity.lowercased()
+        }) else { return }
+        try await revoke(participant, from: share)
+        for record in try participants(for: group) where record.cloudKitIdentity == identity {
+            record.invitationState = "revoked"
+            record.modifiedAt = Date()
+        }
+        try dataStore.save()
+    }
+
+    public func updatePermission(
+        for identity: String,
+        in group: SharingGroup,
+        to permission: CKShare.ParticipantPermission
+    ) async throws {
+        guard let share = try dataStore.container.fetchShares(matching: [group.objectID])[group.objectID] else {
+            throw CloudSharingError.ownerAuthorityRequired
+        }
+        guard let participant = share.participants.first(where: {
+            $0.userIdentity.userRecordID?.recordName == identity
+                || $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == identity.lowercased()
+        }) else { return }
+        try await setPermission(permission, for: participant, in: share)
+        for record in try participants(for: group) where record.cloudKitIdentity == identity {
+            record.cloudKitPermission = permission == .readOnly ? "readOnly" : "readWrite"
+            record.modifiedAt = Date()
+        }
+        try dataStore.save()
     }
 
     public func accept(_ metadata: CKShare.Metadata) async throws {
@@ -164,6 +299,8 @@ public final class CloudKitSharingService {
     private func requireCloudKit() throws {
         guard dataStore.cloudKitSyncEnabled else { throw CloudSharingError.localOnlyBuild }
     }
+
+    private static var containerIdentifier: String { AuthorDataStore.cloudKitContainerIdentifier }
 
     private func requireOwner(of share: CKShare) throws {
         try requireCloudKit()
