@@ -43,7 +43,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                 ReviewPolicyRecord(
                     id: document.id,
                     projectID: project.id,
-                    parentID: document.parent?.id,
+                    parentID: document.parentID,
                     kind: document.kind == DocumentKind.text.rawValue ? .manuscriptText : .structure,
                     statusIdentifier: document.statusIdentifier,
                     includeInCompile: document.includeInCompile?.boolValue
@@ -216,14 +216,32 @@ public struct ShareReviewWorkflowView: View {
 
     public var body: some View {
         NavigationStack {
-            Form {
-                recipientSection
-                scopeSection
-                eligibilitySection
-                contextSection
-                previewSection
-                progressSection
-                participantSection
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Invite a reader", systemImage: "person.crop.circle.badge.plus")
+                        .font(.title2.weight(.semibold))
+                    Text("Choose exactly what this person can read and edit. Review the summary before creating the invitation.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 28)
+                .padding(.top, 20)
+                .padding(.bottom, 14)
+
+                Divider()
+
+                Form {
+                    recipientSection
+                    scopeSection
+                    eligibilitySection
+                    contextSection
+                    previewSection
+                    progressSection
+                    participantSection
+                }
+                .formStyle(.grouped)
+                .padding(.horizontal, 20)
             }
             .navigationTitle("Share for Review")
             .toolbar {
@@ -234,10 +252,11 @@ public struct ShareReviewWorkflowView: View {
                         .accessibilityIdentifier("shareReview.createInvitations")
                 }
             }
+            .onAppear { model.rebuildPreview() }
             .onChange(of: model.role) { _, _ in model.rebuildPreview() }
             .onChange(of: model.selectedStatusIdentifiers) { _, _ in model.rebuildPreview() }
         }
-        .frame(minWidth: 540, minHeight: 620)
+        .frame(minWidth: 700, idealWidth: 760, minHeight: 700, idealHeight: 780)
     }
 
     private var recipientSection: some View {
@@ -289,6 +308,15 @@ public struct ShareReviewWorkflowView: View {
     private var previewSection: some View {
         Section("Exact Sharing Preview") {
             if let preview = model.preview {
+                if preview.includedCount == 0 {
+                    Label {
+                        Text("Nothing can be shared yet. Review the exclusion counts below, then adjust the selected scope, publication settings, or statuses.")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
                 LabeledContent("Included", value: preview.includedCount.formatted())
                 LabeledContent("Excluded", value: preview.excludedCount.formatted())
                 ForEach(ReviewExclusionReason.allCases, id: \.self) { reason in

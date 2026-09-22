@@ -40,7 +40,7 @@ public final class WritingProject: NSManagedObject, AuthorManagedObject {
     @NSManaged public var createdAt: Date
     @NSManaged public var modifiedAt: Date
     @NSManaged public var sourceModifiedAt: Date?
-    @objc public var documents: Set<Document> { relatedObjects(Document.self, key: "projectID", id: id) }
+    @NSManaged public var documents: Set<Document>
     @NSManaged public var resources: Set<ContentResource>
     @NSManaged public var semanticEntities: Set<SemanticEntity>
     @NSManaged public var metadataFields: Set<MetadataField>
@@ -108,14 +108,14 @@ public final class Document: NSManagedObject, AuthorManagedObject {
             setPrimitiveValue(newValue, forKey: "parent")
         }
     }
-    @objc public var children: Set<Document> { relatedObjects(Document.self, key: "parentID", id: id) }
-    @objc public var resources: Set<ContentResource> { relatedObjects(ContentResource.self, key: "documentID", id: id) }
-    @objc public var metadataValues: Set<MetadataValue> { relatedObjects(MetadataValue.self, key: "documentID", id: id) }
-    @objc public var annotations: Set<Annotation> { relatedObjects(Annotation.self, key: "documentID", id: id) }
-    @objc public var revisions: Set<Revision> { relatedObjects(Revision.self, key: "documentID", id: id) }
-    @objc public var outgoingLinks: Set<DocumentLink> { relatedObjects(DocumentLink.self, key: "sourceDocumentID", id: id) }
-    @objc public var incomingLinks: Set<DocumentLink> { relatedObjects(DocumentLink.self, key: "targetDocumentID", id: id) }
-    @objc public var mentions: Set<DocumentEntityMention> { relatedObjects(DocumentEntityMention.self, key: "documentID", id: id) }
+    @NSManaged public var children: Set<Document>
+    @NSManaged public var resources: Set<ContentResource>
+    @NSManaged public var metadataValues: Set<MetadataValue>
+    @NSManaged public var annotations: Set<Annotation>
+    @NSManaged public var revisions: Set<Revision>
+    @NSManaged public var outgoingLinks: Set<DocumentLink>
+    @NSManaged public var incomingLinks: Set<DocumentLink>
+    @NSManaged public var mentions: Set<DocumentEntityMention>
     @NSManaged public var sourceCharacterProfiles: Set<CharacterProfile>
     @NSManaged public var sourceGalleryItems: Set<GalleryItem>
 
