@@ -25,11 +25,21 @@ records without a group, private records assigned to a group, unknown groups,
 and cross-project group assignments. These checks are owner-authoritative
 storage rules; they are not participant-editable roles or UI visibility flags.
 
-The current V11 physical model remains private and connected. This first
-implementation slice defines and tests the routing contract only. A subsequent
-versioned migration must introduce the actual private/collaboration model
-configurations, store-aware repositories, and non-destructive migration while
-preserving existing IDs and content.
+V12 begins the additive physical migration:
+
+- SharingGroup and ShareParticipant persist owner-authoritative group metadata
+  and invitation state without Core Data relationships.
+- Document adds optional projectID, parentID, and sharingGroupID scalar UUIDs.
+- SemanticEntity adds optional projectID and sharingGroupID scalar UUIDs.
+- Annotation adds an optional sharingGroupID scalar UUID.
+
+V11 libraries migrate with all new routing IDs unset and no groups or
+participants, so every existing library remains private. The legacy connected
+relationships remain temporarily available to the existing application and are
+not safe to share. A later migration slice must backfill scalar IDs, introduce
+the actual private/collaboration store configurations and store-aware
+repositories, and remove sharing traversal paths only after application reads
+and writes have moved to the scalar topology.
 
 ## Ownership and document hierarchy
 

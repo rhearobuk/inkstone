@@ -46,6 +46,9 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     @NSManaged public var editorialInputs: Set<EditorialReviewInput>
 
     @NSManaged public var id: UUID
+    @NSManaged public var projectID: UUID?
+    @NSManaged public var parentID: UUID?
+    @NSManaged public var sharingGroupID: UUID?
     @NSManaged public var sourceIdentifier: String
     @NSManaged public var title: String
     @NSManaged public var kind: String
@@ -215,6 +218,8 @@ public final class MetadataValue: NSManagedObject, AuthorManagedObject {
 @objc(SemanticEntity)
 public final class SemanticEntity: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var projectID: UUID?
+    @NSManaged public var sharingGroupID: UUID?
     @NSManaged public var canonicalName: String
     @NSManaged public var kind: String
     @NSManaged public var storyBibleOrderIndex: NSNumber?
@@ -259,6 +264,7 @@ public final class DocumentEntityMention: NSManagedObject, AuthorManagedObject {
 @objc(Annotation)
 public final class Annotation: NSManagedObject, AuthorManagedObject {
     @NSManaged public var id: UUID
+    @NSManaged public var sharingGroupID: UUID?
     @NSManaged public var kind: String
     @NSManaged public var body: String
     @NSManaged public var location: NSNumber?
@@ -269,6 +275,31 @@ public final class Annotation: NSManagedObject, AuthorManagedObject {
     @NSManaged public var createdAt: Date
     @NSManaged public var modifiedAt: Date
     @NSManaged public var document: Document
+}
+
+@objc(SharingGroup)
+public final class SharingGroup: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var id: UUID
+    @NSManaged public var projectID: UUID?
+    @NSManaged public var scopeRootID: UUID?
+    @NSManaged public var domain: String
+    @NSManaged public var state: String
+    @NSManaged public var cloudKitShareID: String?
+    @NSManaged public var ownerIdentity: String?
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var modifiedAt: Date?
+}
+
+@objc(ShareParticipant)
+public final class ShareParticipant: NSManagedObject, AuthorManagedObject {
+    @NSManaged public var id: UUID
+    @NSManaged public var sharingGroupID: UUID?
+    @NSManaged public var cloudKitIdentity: String?
+    @NSManaged public var inkstoneRole: String
+    @NSManaged public var cloudKitPermission: String
+    @NSManaged public var invitationState: String
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var modifiedAt: Date?
 }
 
 @objc(Revision)

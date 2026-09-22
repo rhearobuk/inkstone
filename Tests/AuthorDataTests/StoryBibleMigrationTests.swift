@@ -53,7 +53,7 @@ final class StoryBibleMigrationTests: XCTestCase {
 
         let migrated = try AuthorDataStore(storeURL: url)
         defer { try? close(migrated.container) }
-        XCTAssertEqual(migrated.container.managedObjectModel.versionIdentifiers, ["11"])
+        XCTAssertEqual(migrated.container.managedObjectModel.versionIdentifiers, ["12"])
         try assertGraph(fixture, in: migrated)
         try assertNewFieldsAreNil(in: migrated)
         let document = try migrated.documents.require(id: fixture.document)
@@ -124,8 +124,10 @@ final class StoryBibleMigrationTests: XCTestCase {
     }
 
     func testV11AddsOnlyOptionalStoryBibleAttributes() throws {
-        let store = try AuthorDataStore(inMemory: true)
-        let model = store.container.managedObjectModel
+        let modelURL = Self.projectRoot.appendingPathComponent(
+            "Sources/AuthorData/Resources/AuthorData.momd/AuthorDataV11.mom"
+        )
+        let model = try XCTUnwrap(NSManagedObjectModel(contentsOf: modelURL))
         let oldURL = Self.projectRoot.appendingPathComponent(
             "Sources/AuthorData/Resources/AuthorData.momd/AuthorDataV10.mom"
         )

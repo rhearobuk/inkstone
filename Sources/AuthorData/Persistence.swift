@@ -64,6 +64,8 @@ public final class AuthorDataStore {
     public let storyBibleCards: EntityRepository<StoryBibleCard>
     public let storyBibleNotes: EntityRepository<StoryBibleNote>
     public let storyBibleRelationships: EntityRepository<StoryBibleRelationship>
+    public let sharingGroups: EntityRepository<SharingGroup>
+    public let shareParticipants: EntityRepository<ShareParticipant>
 
     /// Opens the on-disk store, mirroring it to iCloud via CloudKit. Plain `swift run` builds
     /// aren't code-signed with the iCloud entitlement, so only that specific development-only
@@ -180,6 +182,8 @@ public final class AuthorDataStore {
         storyBibleCards = EntityRepository(context: container.viewContext)
         storyBibleNotes = EntityRepository(context: container.viewContext)
         storyBibleRelationships = EntityRepository(context: container.viewContext)
+        sharingGroups = EntityRepository(context: container.viewContext)
+        shareParticipants = EntityRepository(context: container.viewContext)
     }
 
     public func save() throws {
