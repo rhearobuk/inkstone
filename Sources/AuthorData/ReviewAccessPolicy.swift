@@ -23,7 +23,7 @@ public enum ReviewCapability: String, Codable, CaseIterable, Hashable, Sendable 
     case editStoryContext
 }
 
-public enum StoryBibleGrant: Codable, Equatable, Sendable {
+public enum StoryBibleGrant: Codable, Equatable, Hashable, Sendable {
     case none
     case selected(Set<UUID>)
     case fullRead

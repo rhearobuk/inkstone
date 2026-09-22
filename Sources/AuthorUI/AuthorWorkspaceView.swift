@@ -18,6 +18,7 @@ public struct AuthorWorkspaceView: View {
     @State private var showsBinderFind = false
     @State private var expandedBinderItemIDs: Set<String> = []
     @State private var showsFindReplace = false
+    @State private var shareReviewScopeID: UUID?
     @State private var projectFindText = ""
     @State private var newProjectTitle = ""
     @State private var showsNewStoryBibleEntry = false
@@ -169,6 +170,15 @@ public struct AuthorWorkspaceView: View {
                     .disabled(controller.exportStudioCandidates.isEmpty)
                     #endif
 
+                    Button {
+                        shareReviewScopeID = defaultShareReviewScope()?.id
+                    } label: {
+                        Label("Share for Review", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .help("Preview eligible content and invite a reviewer")
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(defaultShareReviewScope() == nil)
+
                     Menu {
                         Button {
                             assistantMode = .editor
@@ -202,6 +212,23 @@ public struct AuthorWorkspaceView: View {
         }
         .sheet(isPresented: $showsFindReplace) {
             ProjectFindReplaceView(controller: controller, findText: $projectFindText)
+        }
+        .sheet(isPresented: Binding(
+            get: { shareReviewScopeID != nil },
+            set: { if !$0 { shareReviewScopeID = nil } }
+        )) {
+            if let project = controller.selectedProject,
+               let scopeID = shareReviewScopeID,
+               let root = project.documents.first(where: { $0.id == scopeID }) {
+                ShareReviewWorkflowView(model: .init(
+                    project: project,
+                    scopeRoot: root,
+                    service: CloudKitSharingService(dataStore: controller.store)
+                ))
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shareBookForReview)) { notification in
+            shareReviewScopeID = notification.object as? UUID
         }
         .alert("New Project", isPresented: $showsNewProject) {
             TextField("Project title", text: $newProjectTitle)
@@ -766,6 +793,17 @@ public struct AuthorWorkspaceView: View {
         }
         return label.swiftUIColor ?? .secondary
     }
+
+    private func defaultShareReviewScope() -> Document? {
+        guard let project = controller.selectedProject else { return nil }
+        return project.documents.first { !$0.isDeleted && $0.narrativeType == NarrativeType.book.rawValue }
+            ?? project.documents.filter { !$0.isDeleted && $0.parent == nil }
+                .sorted { ($0.orderIndex, $0.id.uuidString) < ($1.orderIndex, $1.id.uuidString) }.first
+    }
+}
+
+private extension Notification.Name {
+    static let shareBookForReview = Notification.Name("Inkstone.ShareBookForReview")
 }
 
 private struct RowHeightPreferenceKey: PreferenceKey {
@@ -869,6 +907,14 @@ private struct BinderRowActions: View {
     @ObservedObject var controller: WorkspaceController
 
     var body: some View {
+        if isBook, let documentID = item.documentID {
+            Button {
+                NotificationCenter.default.post(name: .shareBookForReview, object: documentID)
+            } label: {
+                Label("Share for Review", systemImage: "person.crop.circle.badge.plus")
+            }
+            Divider()
+        }
         if let target = item.contentTarget, !item.isTrashed {
             Button {
                 move(target, offset: -1)
@@ -939,6 +985,12 @@ private struct BinderRowActions: View {
             .accessibilityIdentifier("binder.delete.\(item.id)")
             .accessibilityLabel("Delete \(item.title) permanently")
         }
+    }
+
+    private var isBook: Bool {
+        guard let documentID = item.documentID else { return false }
+        return controller.selectedProject?.documents.first(where: { $0.id == documentID })?.narrativeType
+            == NarrativeType.book.rawValue
     }
 
     private func move(_ target: BinderContentTarget, offset: Int) {
