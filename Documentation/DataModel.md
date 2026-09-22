@@ -1,5 +1,36 @@
 # Data model
 
+## Sharing ownership topology
+
+Issue #11 introduces an explicit ownership contract before changing the
+versioned Core Data schema. The contract prevents a future migration from
+turning sharing into a private/shared manuscript synchronization system.
+
+Every canonical record has exactly one authoritative route:
+
+- Private records belong to the private store and have no sharing group.
+- Collaboration records belong to the collaboration store and exactly one
+  SharingGroup.
+- A SharingGroup is one disconnected authorization graph and one prospective
+  CKShare boundary.
+- Manuscript, feedback, and Story Bible context use different groups when their
+  CloudKit permissions differ.
+- References across stores or groups are stable UUID values, never Core Data
+  relationships.
+- Users may belong to multiple groups. A record is not copied into multiple
+  groups to provide broader access.
+
+SharingTopologyValidator rejects duplicate canonical routes, collaboration
+records without a group, private records assigned to a group, unknown groups,
+and cross-project group assignments. These checks are owner-authoritative
+storage rules; they are not participant-editable roles or UI visibility flags.
+
+The current V11 physical model remains private and connected. This first
+implementation slice defines and tests the routing contract only. A subsequent
+versioned migration must introduce the actual private/collaboration model
+configurations, store-aware repositories, and non-destructive migration while
+preserving existing IDs and content.
+
 ## Ownership and document hierarchy
 
 `WritingProject` is the aggregate root. `Document` models every ordered Scrivener binder item, not only prose: draft folders, folders, text, images, PDFs, and unknown future kinds remain distinguishable through `kind`. The self-referential parent/children relationship stores hierarchy; `orderIndex` stores sibling order independently of unordered Core Data relationship storage.
