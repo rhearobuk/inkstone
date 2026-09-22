@@ -5,6 +5,7 @@ public enum PersistenceError: LocalizedError {
     case modelNotFound
     case modelInvalid(String)
     case storeLoadFailed(Error)
+    case storeNotFound(AuthorStoreScope)
     case objectNotFound(entity: String, id: UUID)
 
     public var errorDescription: String? {
@@ -16,6 +17,8 @@ public enum PersistenceError: LocalizedError {
         case .storeLoadFailed(let error):
             let nsError = error as NSError
             return "The persistent store failed to load: \(nsError.localizedDescription) (\(nsError.domain) \(nsError.code)) \(nsError.userInfo)"
+        case .storeNotFound(let scope):
+            return "No \(scope.rawValue) persistent store is loaded."
         case .objectNotFound(let entity, let id):
             return "\(entity) \(id) was not found."
         }
@@ -196,14 +199,32 @@ public final class AuthorDataStore {
     public func rollback() {
         context.rollback()
     }
+
+    /// Returns a repository constrained to one physical persistent store.
+    ///
+    /// The single unconfigured V12 store is treated as private during the
+    /// additive migration. Collaboration routing is unavailable until a store
+    /// using the Collaboration model configuration is loaded.
+    public func repository<Model: AuthorManagedObject>(
+        for model: Model.Type,
+        scope: AuthorStoreScope
+    ) throws -> EntityRepository<Model> {
+        let stores = container.persistentStoreCoordinator.persistentStores
+        let store = stores.first { $0.configurationName == scope.configurationName }
+            ?? (scope == .privateData && stores.count == 1 ? stores[0] : nil)
+        guard let store else { throw PersistenceError.storeNotFound(scope) }
+        return EntityRepository(context: context, persistentStore: store)
+    }
 }
 
 @MainActor
 public final class EntityRepository<Model: AuthorManagedObject> {
     private let context: NSManagedObjectContext
+    private let persistentStore: NSPersistentStore?
 
-    init(context: NSManagedObjectContext) {
+    init(context: NSManagedObjectContext, persistentStore: NSPersistentStore? = nil) {
         self.context = context
+        self.persistentStore = persistentStore
     }
 
     @discardableResult
@@ -212,13 +233,16 @@ public final class EntityRepository<Model: AuthorManagedObject> {
             forEntityName: Model.entityName,
             into: context
         ) as! Model
+        if let persistentStore {
+            context.assign(object, to: persistentStore)
+        }
         object.id = id
         try configure(object)
         return object
     }
 
     public func fetch(id: UUID) throws -> Model? {
-        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        let request = makeRequest()
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
         request.fetchLimit = 1
         return try context.fetch(request).first
@@ -235,14 +259,14 @@ public final class EntityRepository<Model: AuthorManagedObject> {
         predicate: NSPredicate? = nil,
         sortedBy sortDescriptors: [NSSortDescriptor] = []
     ) throws -> [Model] {
-        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        let request = makeRequest()
         request.predicate = predicate
         request.sortDescriptors = sortDescriptors
         return try context.fetch(request)
     }
 
     public func count(predicate: NSPredicate? = nil) throws -> Int {
-        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        let request = makeRequest()
         request.predicate = predicate
         return try context.count(for: request)
     }
@@ -264,8 +288,19 @@ public final class EntityRepository<Model: AuthorManagedObject> {
             forEntityName: Model.entityName,
             into: context
         ) as! Model
+        if let persistentStore {
+            context.assign(object, to: persistentStore)
+        }
         object.id = id
         try configure(object, true)
         return object
+    }
+
+    private func makeRequest() -> NSFetchRequest<Model> {
+        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        if let persistentStore {
+            request.affectedStores = [persistentStore]
+        }
+        return request
     }
 }

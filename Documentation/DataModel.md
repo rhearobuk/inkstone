@@ -41,6 +41,12 @@ the actual private/collaboration store configurations and store-aware
 repositories, and remove sharing traversal paths only after application reads
 and writes have moved to the scalar topology.
 
+EntityRepository can now be constrained to a physical store. During the V12
+transition, the one legacy store resolves only as private; requesting a
+collaboration repository fails closed. Once named Private and Collaboration
+configurations are loaded, repository inserts are assigned to the selected
+store and fetches use affectedStores to avoid ambiguous cross-store lookup.
+
 ## Ownership and document hierarchy
 
 `WritingProject` is the aggregate root. `Document` models every ordered Scrivener binder item, not only prose: draft folders, folders, text, images, PDFs, and unknown future kinds remain distinguishable through `kind`. The self-referential parent/children relationship stores hierarchy; `orderIndex` stores sibling order independently of unordered Core Data relationship storage.

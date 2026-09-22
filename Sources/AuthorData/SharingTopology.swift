@@ -7,6 +7,15 @@ import Foundation
 public enum AuthorStoreScope: String, Codable, CaseIterable, Sendable {
     case privateData
     case collaboration
+
+    public var configurationName: String {
+        switch self {
+        case .privateData:
+            return "Private"
+        case .collaboration:
+            return "Collaboration"
+        }
+    }
 }
 
 /// A CloudKit permission boundary. Domains with different permissions use
