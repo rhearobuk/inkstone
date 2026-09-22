@@ -108,3 +108,59 @@ Approve one of these architecture changes before implementation:
 
 Neither option may introduce a silently maintained reviewer manuscript or claim
 that app-only Editor/Collaborator guards are enforced by CloudKit.
+
+## Group-scoped, two-store follow-up prototype
+
+The follow-up prototype tests an ownership-partitioned architecture. It does not
+maintain a private manuscript and a reviewer manuscript:
+
+    Private persistent store             Collaboration persistent store
+    ------------------------             ------------------------------
+    PrivateDocumentContext               SharingGroup
+      documentID ----------------------> SharedDocument.id
+      private status                       canonical current text
+      historical draft                  GroupMember
+                                         FeedbackGroup
+                                         Feedback.documentID
+
+The arrow is a scalar UUID lookup, not a Core Data relationship. Each field has
+exactly one owner. Canonical current text exists only on SharedDocument; the
+private store deliberately has no currentText attribute.
+
+Every collaboration group is a disconnected object graph suitable for one
+CKShare. Users may be members of multiple groups, but a collaboration record
+belongs to exactly one group. Broader access is implemented by membership in
+each applicable subgroup, not by placing one record in multiple shares.
+
+Read-only manuscript and writable feedback use separate groups. Feedback points
+to the manuscript with a scalar documentID, so its graph cannot traverse into
+manuscript text.
+
+### Automated results
+
+GroupScopedSharingPrototypeTests uses two in-memory Core Data persistent stores
+with separate model configurations.
+
+| Test | Result |
+| --- | --- |
+| A manuscript group cannot traverse into the private store | **Pass** |
+| A manuscript group cannot traverse into another group | **Pass** |
+| Canonical current text exists in exactly one SharedDocument | **Pass** |
+| Private context and shared text compose through a UUID-only UI projection | **Pass** |
+| Writable feedback cannot traverse into the manuscript graph | **Pass** |
+| Removing and restoring membership preserves the canonical object ID without copying text | **Pass** |
+
+Run: swift test --filter GroupScopedSharingPrototypeTests
+
+### Revised decision
+
+**Go for a signed development-CloudKit prototype of group-scoped sharing,
+conditional on preserving these invariants.**
+
+Sharing the connected V11 Document graph directly remains a no-go. This
+follow-up test proves the local persistence and traversal boundaries, but it
+does not claim to prove CloudKit invitation acceptance, participant-removal
+propagation, or offline behavior. Those lifecycle checks require a signed
+two-account development build. They must remove participants from the share,
+never purge the zone, and verify that the owner's canonical SharedDocument
+remains unchanged.
