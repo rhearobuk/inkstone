@@ -5,15 +5,15 @@ import Foundation
 /// A value belongs to one scope only. Moving data between scopes is an explicit
 /// migration; it is never implemented by maintaining synchronized copies.
 public enum AuthorStoreScope: String, Codable, CaseIterable, Sendable {
-    case privateData
-    case collaboration
+    case ownerPrivate
+    case participantShared
 
     public var configurationName: String {
         switch self {
-        case .privateData:
+        case .ownerPrivate:
             return "Private"
-        case .collaboration:
-            return "Collaboration"
+        case .participantShared:
+            return "Shared"
         }
     }
 }
@@ -63,12 +63,10 @@ public struct CanonicalRecordRoute: Codable, Equatable, Hashable, Sendable {
         sharingGroupID: UUID? = nil
     ) throws {
         switch (storeScope, sharingGroupID) {
-        case (.privateData, nil), (.collaboration, .some):
+        case (.ownerPrivate, _), (.participantShared, .some):
             break
-        case (.privateData, .some):
-            throw SharingTopologyError.privateRecordHasSharingGroup(recordID)
-        case (.collaboration, nil):
-            throw SharingTopologyError.collaborationRecordHasNoGroup(recordID)
+        case (.participantShared, nil):
+            throw SharingTopologyError.participantRecordHasNoGroup(recordID)
         }
 
         self.recordID = recordID
@@ -79,18 +77,15 @@ public struct CanonicalRecordRoute: Codable, Equatable, Hashable, Sendable {
 }
 
 public enum SharingTopologyError: Error, Equatable, LocalizedError, Sendable {
-    case privateRecordHasSharingGroup(UUID)
-    case collaborationRecordHasNoGroup(UUID)
+    case participantRecordHasNoGroup(UUID)
     case duplicateCanonicalRecord(UUID)
     case unknownSharingGroup(UUID)
     case crossProjectGroup(recordID: UUID, recordProjectID: UUID, groupProjectID: UUID)
 
     public var errorDescription: String? {
         switch self {
-        case .privateRecordHasSharingGroup(let id):
-            return "Private record \(id) cannot belong to a sharing group."
-        case .collaborationRecordHasNoGroup(let id):
-            return "Collaboration record \(id) must belong to exactly one sharing group."
+        case .participantRecordHasNoGroup(let id):
+            return "Record \(id) in the participant shared store must identify its sharing group."
         case .duplicateCanonicalRecord(let id):
             return "Canonical record \(id) has more than one authoritative route."
         case .unknownSharingGroup(let id):

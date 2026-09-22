@@ -52,7 +52,7 @@ struct SharingModelMigrationTests {
         #expect(migratedDocument.id == documentID)
         #expect(migratedDocument.plainText == "Preserve this canonical text.")
         #expect(migratedDocument.project.id == projectID)
-        #expect(migratedDocument.projectID == nil)
+        #expect(migratedDocument.projectID == projectID)
         #expect(migratedDocument.parentID == nil)
         #expect(migratedDocument.sharingGroupID == nil)
         #expect(try migrated.sharingGroups.count() == 0)

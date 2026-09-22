@@ -23,18 +23,18 @@ struct SharingTopologyTests {
             try CanonicalRecordRoute(
                 recordID: UUID(),
                 projectID: projectID,
-                storeScope: .privateData
+                storeScope: .ownerPrivate
             ),
             try CanonicalRecordRoute(
                 recordID: manuscriptGroup.scopeRootID,
                 projectID: projectID,
-                storeScope: .collaboration,
+                storeScope: .ownerPrivate,
                 sharingGroupID: manuscriptGroup.id
             ),
             try CanonicalRecordRoute(
                 recordID: UUID(),
                 projectID: projectID,
-                storeScope: .collaboration,
+                storeScope: .ownerPrivate,
                 sharingGroupID: feedbackGroup.id
             )
         ]
@@ -45,29 +45,28 @@ struct SharingTopologyTests {
         )
     }
 
-    @Test("Private records cannot be assigned to a sharing group")
-    func privateGroupAssignmentIsRejected() {
+    @Test("Owner records may join a group without moving stores")
+    func ownerGroupAssignmentIsValid() throws {
         let recordID = UUID()
-
-        #expect(throws: SharingTopologyError.privateRecordHasSharingGroup(recordID)) {
-            try CanonicalRecordRoute(
-                recordID: recordID,
-                projectID: UUID(),
-                storeScope: .privateData,
-                sharingGroupID: UUID()
-            )
-        }
+        let groupID = UUID()
+        let route = try CanonicalRecordRoute(
+            recordID: recordID,
+            projectID: UUID(),
+            storeScope: .ownerPrivate,
+            sharingGroupID: groupID
+        )
+        #expect(route.sharingGroupID == groupID)
     }
 
-    @Test("Collaboration records require exactly one sharing group")
-    func collaborationWithoutGroupIsRejected() {
+    @Test("Participant shared records require exactly one sharing group")
+    func participantRecordWithoutGroupIsRejected() {
         let recordID = UUID()
 
-        #expect(throws: SharingTopologyError.collaborationRecordHasNoGroup(recordID)) {
+        #expect(throws: SharingTopologyError.participantRecordHasNoGroup(recordID)) {
             try CanonicalRecordRoute(
                 recordID: recordID,
                 projectID: UUID(),
-                storeScope: .collaboration
+                storeScope: .participantShared
             )
         }
     }
@@ -85,13 +84,13 @@ struct SharingTopologyTests {
         let first = try CanonicalRecordRoute(
             recordID: recordID,
             projectID: projectID,
-            storeScope: .collaboration,
+            storeScope: .ownerPrivate,
             sharingGroupID: group.id
         )
         let second = try CanonicalRecordRoute(
             recordID: recordID,
             projectID: projectID,
-            storeScope: .collaboration,
+            storeScope: .participantShared,
             sharingGroupID: group.id
         )
 
@@ -114,7 +113,7 @@ struct SharingTopologyTests {
         let route = try CanonicalRecordRoute(
             recordID: recordID,
             projectID: recordProjectID,
-            storeScope: .collaboration,
+            storeScope: .ownerPrivate,
             sharingGroupID: group.id
         )
 
@@ -133,7 +132,7 @@ struct SharingTopologyTests {
         let route = try CanonicalRecordRoute(
             recordID: UUID(),
             projectID: UUID(),
-            storeScope: .collaboration,
+            storeScope: .participantShared,
             sharingGroupID: groupID
         )
 
