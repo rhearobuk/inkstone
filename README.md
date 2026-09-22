@@ -151,6 +151,11 @@ Use `AuthorDataStore(inMemory: true)` for previews and tests. All mutations occu
 
 Run the data and UI behavior suites with `swift test`.
 
+CloudKit manuscript sharing is intentionally not exposed. The current connected
+Core Data model fails the confidentiality preflight required by issue #10; see
+[Core Data sharing feasibility](Documentation/Core-Data-Sharing-Feasibility.md)
+for the executable evidence and no-go decision.
+
 ## Community and support
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance,
