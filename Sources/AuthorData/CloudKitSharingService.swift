@@ -122,16 +122,27 @@ public final class CloudKitSharingService {
             (share, cloudContainer) = try await createPrivateShare(for: [project])
         }
 
-        let participant = try await cloudContainer.shareParticipant(forEmailAddress: recipientEmail)
+        let normalizedEmail = recipientEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let participant: CKShare.Participant
+        if let existingParticipant = share.participants.first(where: {
+            $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == normalizedEmail
+        }) {
+            participant = existingParticipant
+        } else {
+            participant = try await cloudContainer.shareParticipant(forEmailAddress: normalizedEmail)
+        }
         participant.permission = permission
         share.publicPermission = .none
-        share.addParticipant(participant)
-        _ = try await persist(share, in: dataStore.privatePersistentStore)
+        if !share.participants.contains(where: { $0 === participant }) {
+            share.addParticipant(participant)
+        }
+        share[CKShare.SystemFieldKey.title] = project.title as CKRecordValue
+        let updatedShare = try await persist(share, in: dataStore.privatePersistentStore)
 
         group.cloudKitShareID = share.recordID.recordName
         group.state = "awaitingAcceptance"
         group.modifiedAt = Date()
-        let identity = recipientEmail.lowercased()
+        let identity = normalizedEmail
         let existingParticipant = try dataStore.shareParticipants.fetchAll(
             predicate: NSPredicate(format: "sharingGroupID == %@ AND cloudKitIdentity == %@", group.id as CVarArg, identity)
         ).first
@@ -142,10 +153,46 @@ public final class CloudKitSharingService {
         }
         participantRecord.inkstoneRole = "participant"
         participantRecord.cloudKitPermission = permission == .readOnly ? "readOnly" : "readWrite"
-        participantRecord.invitationState = "pending"
+        participantRecord.invitationState = Self.invitationState(for: participant.acceptanceStatus)
         participantRecord.modifiedAt = Date()
         try dataStore.save()
-        return share
+        return updatedShare
+    }
+
+    /// Fetches the latest server copy of a project's share and reconciles the
+    /// locally displayed invitation states with CloudKit's acceptance states.
+    @discardableResult
+    public func refreshInvitationStatuses(for project: WritingProject) async throws -> CKShare? {
+        try requireCloudKit()
+        guard let localShare = try dataStore.container.fetchShares(matching: [project.objectID])[project.objectID] else {
+            return nil
+        }
+
+        let cloudContainer = CKContainer(identifier: Self.containerIdentifier)
+        let serverRecord = try await cloudContainer.privateCloudDatabase.record(for: localShare.recordID)
+        guard let serverShare = serverRecord as? CKShare else { return localShare }
+
+        let groupIDs = Set(try dataStore.sharingGroups.fetchAll(
+            predicate: NSPredicate(format: "projectID == %@", project.id as CVarArg)
+        ).map(\.id))
+        let localParticipants = try dataStore.shareParticipants.fetchAll().filter {
+            $0.sharingGroupID.map(groupIDs.contains) == true && $0.invitationState != "revoked"
+        }
+
+        for participant in serverShare.participants where participant.role != .owner {
+            let identities = Self.identities(for: participant)
+            for record in localParticipants where identities.contains(record.cloudKitIdentity?.lowercased() ?? "") {
+                record.invitationState = Self.invitationState(for: participant.acceptanceStatus)
+                record.cloudKitPermission = participant.permission == .readOnly ? "readOnly" : "readWrite"
+                record.modifiedAt = Date()
+            }
+        }
+        try dataStore.save()
+        return serverShare
+    }
+
+    public func invitationURL(for project: WritingProject) async throws -> URL? {
+        try await refreshInvitationStatuses(for: project)?.url
     }
 
     public func participants(for group: SharingGroup) throws -> [ShareParticipant] {
@@ -334,6 +381,27 @@ public final class CloudKitSharingService {
             return isZoneNotFound(underlying)
         }
         return false
+    }
+
+    public static func invitationState(for status: CKShare.ParticipantAcceptanceStatus) -> String {
+        switch status {
+        case .accepted: "accepted"
+        case .removed: "removed"
+        case .pending: "pending"
+        case .unknown: "unknown"
+        @unknown default: "unknown"
+        }
+    }
+
+    private static func identities(for participant: CKShare.Participant) -> Set<String> {
+        var result = Set<String>()
+        if let email = participant.userIdentity.lookupInfo?.emailAddress?.lowercased() {
+            result.insert(email)
+        }
+        if let recordName = participant.userIdentity.userRecordID?.recordName.lowercased() {
+            result.insert(recordName)
+        }
+        return result
     }
 
     private func requireOwner(of share: CKShare) throws {

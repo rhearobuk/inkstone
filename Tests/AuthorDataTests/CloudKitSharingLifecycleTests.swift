@@ -1,3 +1,4 @@
+import CloudKit
 import CoreData
 import Foundation
 import Testing
@@ -38,5 +39,13 @@ struct CloudKitSharingLifecycleTests {
         ])
         #expect(result.isPartial)
         #expect(result.canRetry)
+    }
+
+    @Test("CloudKit acceptance states have stable display values")
+    func invitationStates() {
+        #expect(CloudKitSharingService.invitationState(for: .pending) == "pending")
+        #expect(CloudKitSharingService.invitationState(for: .accepted) == "accepted")
+        #expect(CloudKitSharingService.invitationState(for: .removed) == "removed")
+        #expect(CloudKitSharingService.invitationState(for: .unknown) == "unknown")
     }
 }

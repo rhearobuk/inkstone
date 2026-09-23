@@ -15,6 +15,8 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     @Published public private(set) var groupStates: [GroupKind: GroupState] = [:]
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var participants: [ShareParticipant] = []
+    @Published public private(set) var invitationURL: URL?
+    @Published public private(set) var isCreatingInvitation = false
 
     public let project: WritingProject
     @Published public var scopeRoot: Document
@@ -49,7 +51,24 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     }
 
     public var canShare: Bool {
-        !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && preview?.includedCount ?? 0 > 0
+        !isCreatingInvitation
+            && !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && preview?.includedCount ?? 0 > 0
+    }
+
+    public var emailInvitationURL: URL? {
+        guard let invitationURL else { return nil }
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
+        components.queryItems = [
+            URLQueryItem(name: "subject", value: "Invitation to review \(project.title)"),
+            URLQueryItem(
+                name: "body",
+                value: "You have been invited to review \(project.title) in Inkstone. Open this invitation while signed in to iCloud:\n\n\(invitationURL.absoluteString)"
+            )
+        ]
+        return components.url
     }
 
     public func rebuildPreview() {
@@ -93,17 +112,21 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             errorMessage = CloudSharingError.localOnlyBuild.localizedDescription
             return
         }
+        isCreatingInvitation = true
+        defer { isCreatingInvitation = false }
+        invitationURL = nil
         let required = GroupKind.allCases.filter { groupStates[$0] == .ready || isFailed(groupStates[$0]) }
         for kind in required { groupStates[kind] = .pending }
         for kind in required {
             do {
                 let group = try prepareGroup(for: kind)
                 let permission = cloudKitPermission(for: kind)
-                _ = try await service.publishInvitation(
+                let share = try await service.publishInvitation(
                     for: group,
                     recipientEmail: recipient.trimmingCharacters(in: .whitespacesAndNewlines),
                     permission: permission
                 )
+                invitationURL = share.url ?? invitationURL
                 if let participant = try service.participants(for: group).last {
                     participant.inkstoneRole = role.rawValue
                     try service.dataStore.save()
@@ -117,6 +140,8 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         refreshParticipants()
         if groupStates.values.contains(where: { if case .failed = $0 { true } else { false } }) {
             errorMessage = "Some invitation groups failed. Successful groups remain active; retry only the failed groups."
+        } else if invitationURL == nil {
+            errorMessage = "The share was created, but iCloud did not return an invitation link. Refresh Manage Sharing and try again."
         }
     }
 
@@ -274,6 +299,7 @@ public struct ShareReviewWorkflowView: View {
                     contextSection
                     previewSection
                     progressSection
+                    sendInvitationSection
                     participantSection
                 }
                 .formStyle(.grouped)
@@ -283,7 +309,7 @@ public struct ShareReviewWorkflowView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create Invitations") { Task { await model.beginSharing() } }
+                    Button("Create Invitation Link") { Task { await model.beginSharing() } }
                         .disabled(!model.canShare)
                         .accessibilityIdentifier("shareReview.createInvitations")
                 }
@@ -380,6 +406,32 @@ public struct ShareReviewWorkflowView: View {
             }
             Text("Invitations are independent. Partial completion remains retryable and is never shown as fully shared.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var sendInvitationSection: some View {
+        if let invitationURL = model.invitationURL {
+            Section("Send Invitation") {
+                Text("The reader will not see shared content until they open and accept this link using the iCloud account you invited.")
+                    .foregroundStyle(.secondary)
+                if let emailURL = model.emailInvitationURL {
+                    Link(destination: emailURL) {
+                        Label("Email Invitation to \(model.recipient)", systemImage: "envelope")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                ShareLink(
+                    item: invitationURL,
+                    subject: Text("Invitation to review \(model.project.title)"),
+                    message: Text("Open this invitation in Inkstone while signed in to iCloud.")
+                ) {
+                    Label("Send Another Way", systemImage: "square.and.arrow.up")
+                }
+                Text(invitationURL.absoluteString)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
         }
     }
 

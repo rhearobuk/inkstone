@@ -19,6 +19,7 @@ public struct AuthorWorkspaceView: View {
     @State private var expandedBinderItemIDs: Set<String> = []
     @State private var showsFindReplace = false
     @State private var shareReviewScopeID: UUID?
+    @State private var showsManageSharing = false
     @State private var projectFindText = ""
     @State private var newProjectTitle = ""
     @State private var showsNewStoryBibleEntry = false
@@ -179,6 +180,15 @@ public struct AuthorWorkspaceView: View {
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .disabled(defaultShareReviewScope() == nil)
 
+                    Button {
+                        showsManageSharing = true
+                    } label: {
+                        Label("Manage Sharing", systemImage: "person.2.badge.gearshape")
+                    }
+                    .help("View invitation status, access groups, and resend share links")
+                    .accessibilityIdentifier("workspace.manageSharing")
+                    .disabled(controller.projects.isEmpty)
+
                     Menu {
                         Button {
                             assistantMode = .editor
@@ -226,6 +236,12 @@ public struct AuthorWorkspaceView: View {
                     service: CloudKitSharingService(dataStore: controller.store)
                 ))
             }
+        }
+        .sheet(isPresented: $showsManageSharing) {
+            ManageSharingView(model: .init(
+                projects: controller.projects,
+                service: CloudKitSharingService(dataStore: controller.store)
+            ))
         }
         .onReceive(NotificationCenter.default.publisher(for: .shareBookForReview)) { notification in
             shareReviewScopeID = notification.object as? UUID
