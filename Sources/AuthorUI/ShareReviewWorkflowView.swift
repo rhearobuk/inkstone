@@ -319,6 +319,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
 public struct ShareReviewWorkflowView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: ShareReviewWorkflowModel
+    @State private var invitationFailureMessage: String?
 
     public init(model: ShareReviewWorkflowModel) { _model = StateObject(wrappedValue: model) }
 
@@ -355,7 +356,12 @@ public struct ShareReviewWorkflowView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create Invitation Link") { Task { await model.beginSharing() } }
+                    Button("Create Invitation Link") {
+                        Task {
+                            await model.beginSharing()
+                            invitationFailureMessage = model.errorMessage
+                        }
+                    }
                         .disabled(!model.canShare)
                         .accessibilityIdentifier("shareReview.createInvitations")
                 }
@@ -367,6 +373,17 @@ public struct ShareReviewWorkflowView: View {
             .onChange(of: model.role) { _, _ in model.rebuildPreview() }
             .onChange(of: model.selectedScopeID) { _, _ in model.rebuildPreview() }
             .onChange(of: model.selectedStatusIdentifiers) { _, _ in model.rebuildPreview() }
+            .alert(
+                "Invitation Couldn’t Be Created",
+                isPresented: Binding(
+                    get: { invitationFailureMessage != nil },
+                    set: { if !$0 { invitationFailureMessage = nil } }
+                )
+            ) {
+                Button("OK") { invitationFailureMessage = nil }
+            } message: {
+                Text(invitationFailureMessage ?? "CloudKit did not provide an error description.")
+            }
         }
         .frame(minWidth: 700, idealWidth: 760, minHeight: 700, idealHeight: 780)
     }

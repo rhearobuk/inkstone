@@ -107,7 +107,9 @@ public struct SharingTopologyValidator: Sendable {
         groups: [SharingGroupDescriptor],
         routes: [CanonicalRecordRoute]
     ) throws {
-        let groupsByID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        let groupsByID = groups.reduce(into: [UUID: SharingGroupDescriptor]()) { result, group in
+            result[group.id] = group
+        }
         var recordIDs = Set<UUID>()
 
         for route in routes {
