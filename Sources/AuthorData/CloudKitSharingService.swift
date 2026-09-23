@@ -155,15 +155,7 @@ public final class CloudKitSharingService {
         try dataStore.save()
         let manuscriptGroup = try manuscriptGroup(for: group)
         let projection = try scopedProject(for: manuscriptGroup)
-        var matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
-        // Legacy cleanup is a one-time migration step before a scoped manuscript share
-        // exists. Running it while adding Feedback or Story Bible groups can mistake the
-        // newly-created share for the old project-wide share and remove its participant,
-        // making a freshly issued invitation appear expired.
-        if matches[manuscriptGroup.objectID] == nil, group.id == manuscriptGroup.id {
-            try await retireLegacyProjectShare(for: project)
-            matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
-        }
+        let matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
         let existing = matches[manuscriptGroup.objectID] ?? matches[group.objectID]
         let share: CKShare
         let cloudContainer: CKContainer
@@ -265,12 +257,6 @@ public final class CloudKitSharingService {
 
     public func invitationURL(for group: SharingGroup) throws -> URL? {
         try projectShare(for: group).url
-    }
-
-    public func isLegacyProjectShare(_ group: SharingGroup, project: WritingProject) throws -> Bool {
-        let shares = try dataStore.container.fetchShares(matching: [project.objectID, group.objectID])
-        guard let projectShare = shares[project.objectID], let groupShare = shares[group.objectID] else { return false }
-        return projectShare.recordID == groupShare.recordID
     }
 
     public func participants(for group: SharingGroup) throws -> [ShareParticipant] {
@@ -375,15 +361,6 @@ public final class CloudKitSharingService {
         _ = try await persist(share, in: dataStore.privatePersistentStore)
     }
 
-    public func revokeAllParticipants(from share: CKShare) async throws {
-        try requireOwner(of: share)
-        for participant in share.participants where participant.role != .owner {
-            share.removeParticipant(participant)
-        }
-        share.publicPermission = .none
-        _ = try await persist(share, in: dataStore.privatePersistentStore)
-    }
-
     /// Participant departure removes only the local/shared-zone graph. It is never used by an owner.
     public func leaveShare(_ share: CKShare) async throws {
         try requireCloudKit()
@@ -424,29 +401,6 @@ public final class CloudKitSharingService {
                 else { continuation.resume(throwing: CloudSharingError.recordOutsidePrivateStore) }
             }
         }
-    }
-
-    private func retireLegacyProjectShare(for project: WritingProject) async throws {
-        guard let legacyShare = try dataStore.container.fetchShares(matching: [project.objectID])[project.objectID] else {
-            return
-        }
-        if legacyShare.participants.contains(where: { $0.role != .owner }) {
-            try await revokeAllParticipants(from: legacyShare)
-        }
-        let legacyGroups = try dataStore.sharingGroups.fetchAll(predicate: NSPredicate(
-            format: "projectID == %@", project.id as CVarArg
-        )).filter { group in
-            (try? isLegacyProjectShare(group, project: project)) == true
-        }
-        for group in legacyGroups {
-            group.state = "legacyRevoked"
-            group.modifiedAt = Date()
-            for participant in try participants(for: group) {
-                participant.invitationState = "revoked"
-                participant.modifiedAt = Date()
-            }
-        }
-        try dataStore.save()
     }
 
     private func copyAttributes(from source: NSManagedObject, to destination: NSManagedObject) {

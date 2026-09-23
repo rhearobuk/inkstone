@@ -69,7 +69,7 @@ public final class ManageSharingModel: ObservableObject {
 
             let groups = ((try? service.dataStore.sharingGroups.fetchAll(
                 predicate: NSPredicate(format: "projectID == %@", project.id as CVarArg)
-            )) ?? []).filter { $0.state != "revoked" && $0.state != "legacyRevoked" }
+            )) ?? []).filter { $0.state != "revoked" }
             // CloudKit imports can briefly expose both the local object and its freshly
             // reconciled counterpart. Treat the newest active record as authoritative
             // instead of trapping on duplicate semantic IDs.
