@@ -103,9 +103,16 @@ public final class CloudKitSharingService {
             scopedProject.modifiedAt = Date()
         }
 
-        let existingIDs = Set(try dataStore.documents.fetchAll(
+        let requestedIDs = Set(sourceDocuments.map(\.id))
+        let existingDocuments = try dataStore.documents.fetchAll(
             predicate: NSPredicate(format: "sharingGroupID == %@", group.id as CVarArg)
-        ).map(\.id))
+        )
+        // Preparation is replacement, not accumulation. This guarantees the persisted group
+        // membership is identical to the current preview even after a failed/retried attempt.
+        for staleProjection in existingDocuments where !requestedIDs.contains(staleProjection.id) {
+            dataStore.context.delete(staleProjection)
+        }
+        let existingIDs = Set(existingDocuments.lazy.filter { !$0.isDeleted }.map(\.id))
         for source in sourceDocuments where !existingIDs.contains(source.id) {
             let projection = dataStore.documents.create(id: source.id) { projection in
                 self.copyAttributes(from: source, to: projection)
@@ -120,6 +127,10 @@ public final class CloudKitSharingService {
         }
         for projection in group.documents {
             projection.project = scopedProject
+        }
+        let preparedIDs = Set(group.documents.lazy.filter { !$0.isDeleted }.map(\.id))
+        guard preparedIDs == requestedIDs else {
+            throw CloudSharingError.unsafeObjectGraph(details: "prepared document membership did not match the selected preview")
         }
         group.state = "ready"
         group.modifiedAt = Date()

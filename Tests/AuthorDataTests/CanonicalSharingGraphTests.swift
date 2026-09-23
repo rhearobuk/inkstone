@@ -67,7 +67,15 @@ struct CanonicalSharingGraphTests {
         #expect(scopedChapterProject.title == "Chapter")
         #expect(bookCopies.allSatisfy { $0.projectID == scopedBookProject.id })
         #expect(chapterCopies.allSatisfy { $0.projectID == scopedChapterProject.id })
-        let allowed = Set(bookCopies.map(\.objectID)).union([
+
+        // Retrying preparation replaces membership exactly; it must never retain records
+        // from an earlier, broader preview.
+        try service.prepareScopedManuscript(for: bookGroup, project: project, documents: [chapter])
+        let narrowedCopies = try store.documents.fetchAll(predicate: NSPredicate(
+            format: "sharingGroupID == %@", bookGroup.id as CVarArg
+        ))
+        #expect(narrowedCopies.map(\.id) == [chapter.id])
+        let allowed = Set(narrowedCopies.map(\.objectID)).union([
             bookGroup.objectID,
             scopedBookProject.objectID
         ])

@@ -289,7 +289,10 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             project.id as CVarArg, scopeRootID as CVarArg, domain.rawValue
         )
         let existing = try service.dataStore.sharingGroups.fetchAll(predicate: predicate).first {
-            $0.state != "revoked"
+            // Once CloudKit has published a group, its record membership is immutable for
+            // invitation creation purposes. A new invitation must get a fresh group/share;
+            // otherwise records from an earlier, broader preparation can leak into this one.
+            $0.state != "revoked" && $0.cloudKitShareID == nil
         }
         let group = existing ?? service.dataStore.sharingGroups.create { group in
                 group.projectID = project.id
