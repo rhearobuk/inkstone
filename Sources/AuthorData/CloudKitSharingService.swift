@@ -91,8 +91,12 @@ public final class CloudKitSharingService {
         if let existingProjection {
             scopedProject = existingProjection
         } else {
-            scopedProject = dataStore.projects.create(id: project.id) { projection in
+            // A scoped share is a distinct project on the recipient's device. Reusing the
+            // owner's project UUID makes Core Data/UI joins merge separate shares back into
+            // the canonical novel, which exposes sibling books and chapters.
+            scopedProject = dataStore.projects.create(id: group.id) { projection in
                 self.copyAttributes(from: project, to: projection)
+                projection.title = sourceDocuments.first(where: { $0.id == group.scopeRootID })?.title ?? project.title
                 projection.sourceIdentifier = projectionIdentifier
                 projection.sourceFormat = Self.scopedProjectionSourceFormat
             }
@@ -311,6 +315,19 @@ public final class CloudKitSharingService {
         for record in try participantRecords(identity: identity, inProjectOf: group) {
             record.invitationState = "revoked"
             record.modifiedAt = Date()
+        }
+        let scopeGroups = try dataStore.sharingGroups.fetchAll().filter {
+            $0.projectID == group.projectID && $0.scopeRootID == group.scopeRootID
+        }
+        let scopeGroupIDs = Set(scopeGroups.map(\.id))
+        let hasActiveParticipants = try dataStore.shareParticipants.fetchAll().contains {
+            $0.sharingGroupID.map(scopeGroupIDs.contains) == true && $0.invitationState != "revoked"
+        }
+        if !hasActiveParticipants {
+            for scopeGroup in scopeGroups {
+                scopeGroup.state = "revoked"
+                scopeGroup.modifiedAt = Date()
+            }
         }
         try dataStore.save()
     }

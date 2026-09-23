@@ -54,6 +54,19 @@ struct CanonicalSharingGraphTests {
             format: "sourceIdentifier == %@",
             "scoped-share.\(bookGroup.id.uuidString)"
         )).first)
+        let scopedChapterProject = try #require(store.projects.fetchAll(predicate: NSPredicate(
+            format: "sourceIdentifier == %@",
+            "scoped-share.\(chapterGroup.id.uuidString)"
+        )).first)
+        #expect(scopedBookProject.id == bookGroup.id)
+        #expect(scopedChapterProject.id == chapterGroup.id)
+        #expect(scopedBookProject.id != project.id)
+        #expect(scopedChapterProject.id != project.id)
+        #expect(scopedBookProject.id != scopedChapterProject.id)
+        #expect(scopedBookProject.title == "Book")
+        #expect(scopedChapterProject.title == "Chapter")
+        #expect(bookCopies.allSatisfy { $0.projectID == scopedBookProject.id })
+        #expect(chapterCopies.allSatisfy { $0.projectID == scopedChapterProject.id })
         let allowed = Set(bookCopies.map(\.objectID)).union([
             bookGroup.objectID,
             scopedBookProject.objectID
