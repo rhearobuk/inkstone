@@ -808,11 +808,19 @@ public final class WorkspaceController: ObservableObject {
                 WritingProject.self,
                 sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
             )
+            let sharedManuscriptGroupIDs = Set(try store.fetchAcrossStores(SharingGroup.self).filter {
+                store.scope(of: $0) == .participantShared
+                    && $0.domain == SharingGroupDomain.manuscript.rawValue
+                    && $0.state != "revoked"
+            }.map(\.id))
             projects = allProjects
                 .filter {
-                    if $0.sourceFormat == CloudKitSharingService.scopedProjectionSourceFormat,
-                       store.scope(of: $0) != .participantShared {
-                        return false
+                    if $0.sourceFormat == CloudKitSharingService.scopedProjectionSourceFormat {
+                        guard store.scope(of: $0) == .participantShared else { return false }
+                        // A scoped project and its manuscript group deliberately share an ID.
+                        // This is the receiver's authoritative boundary. Older malformed shares
+                        // reused the owner's project ID and must not be presented as valid scopes.
+                        guard sharedManuscriptGroupIDs.contains($0.id) else { return false }
                     }
                     let trashed = isProjectTrashed($0.id)
                     let hidden = isProjectHidden($0.id)
@@ -2839,7 +2847,7 @@ public final class WorkspaceController: ObservableObject {
         return fetched.filter { document in
             guard !document.isDeleted, document.projectID == project.id else { return false }
             if expectsSharedProjection {
-                guard document.sharingGroupID != nil,
+                guard document.sharingGroupID == project.id,
                       store.scope(of: document) == .participantShared else { return false }
             } else if document.sharingGroupID != nil {
                 return false
