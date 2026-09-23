@@ -248,7 +248,11 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         if group == .context, nsError.domain == NSCocoaErrorDomain {
             return "Story Bible access could not be prepared. Set Story Bible Access to None to continue without it."
         }
-        return "Couldn’t create this invitation. iCloud returned error \(nsError.code)."
+        var details = "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
+        if let reason = nsError.localizedFailureReason, !reason.isEmpty {
+            details += " — \(reason)"
+        }
+        return "Couldn’t create this invitation. \(details)"
     }
 
     private static func containsCocoaError(_ code: Int, in error: NSError) -> Bool {
