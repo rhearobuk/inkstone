@@ -23,6 +23,7 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
     case unsafeObjectGraph(details: String)
     case staleShareZone
     case participantNotPublished(String)
+    case participantNotFound(String)
 
     public var errorDescription: String? {
         switch self {
@@ -36,6 +37,8 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
         case .staleShareZone: "This local share refers to a CloudKit zone that no longer exists. Reset the local development library, then try again."
         case .participantNotPublished(let identity):
             "CloudKit created the share but did not grant access to \(identity). No invitation was sent; try again."
+        case .participantNotFound(let identity):
+            "CloudKit no longer has a participant matching \(identity). Refresh sharing status and try again."
         }
     }
 }
@@ -87,13 +90,16 @@ public final class CloudKitSharingService {
         let existingProjection = try dataStore.projects.fetchAll(
             predicate: NSPredicate(format: "sourceIdentifier == %@", projectionIdentifier)
         ).first
-        if existingProjection == nil {
-            let projection = dataStore.projects.create(id: project.id) { projection in
+        let scopedProject: WritingProject
+        if let existingProjection {
+            scopedProject = existingProjection
+        } else {
+            scopedProject = dataStore.projects.create(id: project.id) { projection in
                 self.copyAttributes(from: project, to: projection)
                 projection.sourceIdentifier = projectionIdentifier
                 projection.sourceFormat = Self.scopedProjectionSourceFormat
             }
-            projection.modifiedAt = Date()
+            scopedProject.modifiedAt = Date()
         }
 
         let existingIDs = Set(try dataStore.documents.fetchAll(
@@ -102,21 +108,23 @@ public final class CloudKitSharingService {
         for source in sourceDocuments where !existingIDs.contains(source.id) {
             let projection = dataStore.documents.create(id: source.id) { projection in
                 self.copyAttributes(from: source, to: projection)
-                projection.projectID = project.id
                 projection.parentID = source.parentID
                 projection.sharingGroupID = group.id
                 projection.sharingGroup = group
-                projection.setPrimitiveValue(nil, forKey: "project")
+                projection.project = scopedProject
                 projection.setPrimitiveValue(nil, forKey: "parent")
                 projection.setPrimitiveValue(NSSet(), forKey: "children")
             }
             projection.modifiedAt = source.modifiedAt
         }
+        for projection in group.documents {
+            projection.project = scopedProject
+        }
         group.state = "ready"
         group.modifiedAt = Date()
         try dataStore.save()
 
-        let allowed = Set(group.documents.map(\.objectID)).union([group.objectID])
+        let allowed = Set(group.documents.map(\.objectID)).union([group.objectID, scopedProject.objectID])
         let report = CoreDataSharingPreflight.audit(root: group, allowedObjectIDs: allowed)
         guard report.isObjectGraphSafe else {
             let details = report.exposures.map(\.relationshipPath).joined(separator: ", ")
@@ -304,11 +312,9 @@ public final class CloudKitSharingService {
 
     public func revokeParticipant(identity: String, from group: SharingGroup) async throws {
         let share = try projectShare(for: group)
-        guard let participant = share.participants.first(where: {
-            $0.userIdentity.userRecordID?.recordName == identity
-                || $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == identity.lowercased()
-        }) else { return }
-        try await revoke(participant, from: share)
+        if let participant = try cloudParticipant(identity: identity, in: share, for: group) {
+            try await revoke(participant, from: share)
+        }
         for record in try participantRecords(identity: identity, inProjectOf: group) {
             record.invitationState = "revoked"
             record.modifiedAt = Date()
@@ -322,10 +328,9 @@ public final class CloudKitSharingService {
         to permission: CKShare.ParticipantPermission
     ) async throws {
         let share = try projectShare(for: group)
-        guard let participant = share.participants.first(where: {
-            $0.userIdentity.userRecordID?.recordName == identity
-                || $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == identity.lowercased()
-        }) else { return }
+        guard let participant = try cloudParticipant(identity: identity, in: share, for: group) else {
+            throw CloudSharingError.participantNotFound(identity)
+        }
         try await setPermission(permission, for: participant, in: share)
         for record in try participantRecords(identity: identity, inProjectOf: group) {
             record.cloudKitPermission = permission == .readOnly ? "readOnly" : "readWrite"
@@ -487,6 +492,31 @@ public final class CloudKitSharingService {
         ).filter { participant in
             participant.sharingGroupID.map(scopeGroupIDs.contains) == true
         }
+    }
+
+    private func cloudParticipant(
+        identity: String,
+        in share: CKShare,
+        for group: SharingGroup
+    ) throws -> CKShare.Participant? {
+        let normalizedIdentity = identity.lowercased()
+        let cloudParticipants = share.participants.filter { $0.role != .owner }
+        if let exact = cloudParticipants.first(where: {
+            $0.userIdentity.userRecordID?.recordName.lowercased() == normalizedIdentity
+                || $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == normalizedIdentity
+        }) {
+            return exact
+        }
+
+        // CloudKit can replace an invited email with an opaque record identity after
+        // acceptance. A single local participant and a single CloudKit participant in
+        // this scoped share are therefore the same person even when the email disappears.
+        let localIdentities = Set(try participantRecords(identity: identity, inProjectOf: group)
+            .compactMap { $0.cloudKitIdentity?.lowercased() })
+        if localIdentities == [normalizedIdentity], cloudParticipants.count == 1 {
+            return cloudParticipants[0]
+        }
+        return nil
     }
 
     private static func isZoneNotFound(_ error: Error) -> Bool {

@@ -233,8 +233,8 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     private static func actionableMessage(for error: Error, group: GroupKind) -> String {
         if let sharingError = error as? CloudSharingError {
             switch sharingError {
-            case .unsafeObjectGraph:
-                return "Inkstone found private linked data and stopped before uploading anything. Your project was not changed."
+            case .unsafeObjectGraph(let details):
+                return "Inkstone stopped before uploading because the scoped copy still links to private data through: \(details)."
             case .staleShareZone:
                 return "The previous iCloud share no longer exists. Close and reopen Inkstone, then try again."
             default:
