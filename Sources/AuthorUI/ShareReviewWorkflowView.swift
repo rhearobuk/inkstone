@@ -175,6 +175,9 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                 : nil
         } catch {
             service.dataStore.context.rollback()
+            #if DEBUG
+            print("Inkstone sharing failed while preparing \(currentKind.rawValue): \(error)")
+            #endif
             let message = Self.actionableMessage(for: error, group: currentKind)
             for kind in required { groupStates[kind] = .failed(message) }
             errorMessage = message
@@ -233,8 +236,8 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     private static func actionableMessage(for error: Error, group: GroupKind) -> String {
         if let sharingError = error as? CloudSharingError {
             switch sharingError {
-            case .unsafeObjectGraph(let details):
-                return "Inkstone stopped before uploading because the scoped copy still links to private data through: \(details)."
+            case .unsafeObjectGraph:
+                return "Some selected content links outside this sharing scope. Nothing was uploaded. Choose a broader scope or set Story Bible Access to None, then try again."
             case .staleShareZone:
                 return "The previous iCloud share no longer exists. Close and reopen Inkstone, then try again."
             default:
@@ -248,11 +251,22 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         if group == .context, nsError.domain == NSCocoaErrorDomain {
             return "Story Bible access could not be prepared. Set Story Bible Access to None to continue without it."
         }
-        var details = "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
-        if let reason = nsError.localizedFailureReason, !reason.isEmpty {
-            details += " — \(reason)"
+        if nsError.domain == CKErrorDomain,
+           let code = CKError.Code(rawValue: nsError.code) {
+            switch code {
+            case .networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited, .zoneBusy:
+                return "iCloud is temporarily unavailable. Check your connection, wait a moment, and try again."
+            case .serverRecordChanged:
+                return "This share changed in iCloud while Inkstone was updating it. Refresh Manage Sharing, then try again."
+            case .notAuthenticated:
+                return "Sign in to iCloud in System Settings, then try again."
+            case .permissionFailure:
+                return "iCloud did not allow this account to modify the share. Confirm this Mac is signed into the share owner’s Apple Account."
+            default:
+                return "iCloud couldn’t create the invitation. Wait a moment and try again. If it repeats, copy the error from Xcode’s console for support."
+            }
         }
-        return "Couldn’t create this invitation. \(details)"
+        return "Inkstone couldn’t create the invitation. Nothing was shared. Try again; if it repeats, copy the error from Xcode’s console for support."
     }
 
     private static func containsCocoaError(_ code: Int, in error: NSError) -> Bool {
@@ -537,14 +551,16 @@ private struct SharingSyncErrorBanner: View {
                     .font(.headline)
                 Text(message)
                     .font(.callout)
-                    .textSelection(.enabled)
+                    .lineLimit(3)
             }
             Spacer()
             Button("Dismiss", action: dismiss)
+                .buttonStyle(.borderedProminent)
         }
         .foregroundStyle(.white)
         .padding()
         .background(.red)
+        .frame(maxHeight: 120)
     }
 }
 

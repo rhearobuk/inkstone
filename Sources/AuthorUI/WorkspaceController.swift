@@ -1,5 +1,6 @@
 import AuthorData
 import AuthorAI
+import CloudKit
 import Combine
 import CoreData
 import CryptoKit
@@ -451,9 +452,13 @@ public final class WorkspaceController: ObservableObject {
                 print("Inkstone sync: \(kind) FAILED: \(error)")
                 #endif
                 let nsError = error as NSError
-                let reason = nsError.localizedFailureReason.map { " \($0)" } ?? ""
-                self?.lastError = "iCloud sync \(kind) failed: \(nsError.localizedDescription)" +
-                    " (\(nsError.domain) \(nsError.code)).\(reason)"
+                if nsError.domain == CKErrorDomain,
+                   let code = CKError.Code(rawValue: nsError.code),
+                   [.networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited, .zoneBusy].contains(code) {
+                    self?.lastError = "iCloud sync is temporarily unavailable. Check your connection and try again."
+                } else {
+                    self?.lastError = "iCloud couldn’t sync the latest changes. Try again; if it repeats, copy the error from Xcode’s console for support."
+                }
             } else {
                 #if DEBUG
                 print("Inkstone sync: \(kind) succeeded.")
