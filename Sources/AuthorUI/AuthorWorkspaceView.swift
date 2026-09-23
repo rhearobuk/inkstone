@@ -234,7 +234,9 @@ public struct AuthorWorkspaceView: View {
                     project: project,
                     scopeRoot: root,
                     service: CloudKitSharingService(dataStore: controller.store)
-                ))
+                ), externalErrorMessage: controller.lastError) {
+                    controller.clearLastError()
+                }
             }
         }
         .sheet(isPresented: $showsManageSharing) {

@@ -319,8 +319,18 @@ public struct ShareReviewWorkflowView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: ShareReviewWorkflowModel
     @State private var invitationFailureMessage: String?
+    private let externalErrorMessage: String?
+    private let dismissExternalError: () -> Void
 
-    public init(model: ShareReviewWorkflowModel) { _model = StateObject(wrappedValue: model) }
+    public init(
+        model: ShareReviewWorkflowModel,
+        externalErrorMessage: String? = nil,
+        dismissExternalError: @escaping () -> Void = {}
+    ) {
+        _model = StateObject(wrappedValue: model)
+        self.externalErrorMessage = externalErrorMessage
+        self.dismissExternalError = dismissExternalError
+    }
 
     public var body: some View {
         NavigationStack {
@@ -382,6 +392,14 @@ public struct ShareReviewWorkflowView: View {
                 Button("OK") { invitationFailureMessage = nil }
             } message: {
                 Text(invitationFailureMessage ?? "CloudKit did not provide an error description.")
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let externalErrorMessage {
+                SharingSyncErrorBanner(
+                    message: externalErrorMessage,
+                    dismiss: dismissExternalError
+                )
             }
         }
         .frame(minWidth: 700, idealWidth: 760, minHeight: 700, idealHeight: 780)
@@ -501,6 +519,29 @@ public struct ShareReviewWorkflowView: View {
         }
     }
 
+}
+
+private struct SharingSyncErrorBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            VStack(alignment: .leading, spacing: 3) {
+                Text("iCloud Sharing Error")
+                    .font(.headline)
+                Text(message)
+                    .font(.callout)
+                    .textSelection(.enabled)
+            }
+            Spacer()
+            Button("Dismiss", action: dismiss)
+        }
+        .foregroundStyle(.white)
+        .padding()
+        .background(.red)
+    }
 }
 
 private extension ReviewExclusionReason {

@@ -450,7 +450,10 @@ public final class WorkspaceController: ObservableObject {
                 #if DEBUG
                 print("Inkstone sync: \(kind) FAILED: \(error)")
                 #endif
-                self?.lastError = "iCloud sync \(kind) failed: \(error.localizedDescription)"
+                let nsError = error as NSError
+                let reason = nsError.localizedFailureReason.map { " \($0)" } ?? ""
+                self?.lastError = "iCloud sync \(kind) failed: \(nsError.localizedDescription)" +
+                    " (\(nsError.domain) \(nsError.code)).\(reason)"
             } else {
                 #if DEBUG
                 print("Inkstone sync: \(kind) succeeded.")
