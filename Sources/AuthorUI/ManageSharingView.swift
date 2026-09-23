@@ -1,4 +1,5 @@
 import AuthorData
+import CloudKit
 import SwiftUI
 
 @MainActor
@@ -11,6 +12,7 @@ public final class ManageSharingModel: ObservableObject {
 
     public struct ShareRow: Identifiable {
         public let id: String
+        public let administrationGroupID: UUID
         public let projectTitle: String
         public let recipient: String
         public let role: String
@@ -39,6 +41,7 @@ public final class ManageSharingModel: ObservableObject {
     @Published public private(set) var isRefreshing = false
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var lastUpdated: Date?
+    @Published public private(set) var busyRowIDs: Set<String> = []
 
     private let projects: [WritingProject]
     private let service: CloudKitSharingService
@@ -95,10 +98,14 @@ public final class ManageSharingModel: ObservableObject {
                 let manuscriptGroup = sortedRecords.compactMap { record in
                     record.sharingGroupID.flatMap { groupsByID[$0] }
                 }.first { $0.domain == SharingGroupDomain.manuscript.rawValue }
+                guard let administrationGroup = manuscriptGroup ?? sortedRecords.compactMap({ record in
+                    record.sharingGroupID.flatMap { groupsByID[$0] }
+                }).first else { continue }
                 let invitationURL = manuscriptGroup.flatMap { try? service.invitationURL(for: $0) }
 
                 updatedRows.append(ShareRow(
                     id: "\(project.id.uuidString)-\(rowKey)",
+                    administrationGroupID: administrationGroup.id,
                     projectTitle: project.title,
                     recipient: latest.cloudKitIdentity ?? "Unknown participant",
                     role: latest.inkstoneRole,
@@ -117,6 +124,47 @@ public final class ManageSharingModel: ObservableObject {
         }
         errorMessage = refreshErrors.isEmpty ? nil : refreshErrors.joined(separator: "\n")
         lastUpdated = Date()
+    }
+
+    public func changeRole(for row: ShareRow, to role: SharingRole) async {
+        guard role != .owner, !busyRowIDs.contains(row.id) else { return }
+        busyRowIDs.insert(row.id)
+        defer { busyRowIDs.remove(row.id) }
+
+        do {
+            let group = try service.dataStore.sharingGroups.require(id: row.administrationGroupID)
+            let permission: CKShare.ParticipantPermission = role == .viewer ? .readOnly : .readWrite
+            try await service.updatePermission(for: row.recipient, in: group, to: permission)
+
+            let accessGroupIDs = Set(row.accessGroups.map(\.id))
+            let matchingRecords = try service.dataStore.shareParticipants.fetchAll(
+                predicate: NSPredicate(format: "cloudKitIdentity == %@", row.recipient)
+            ).filter { record in
+                record.sharingGroupID.map(accessGroupIDs.contains) == true
+            }
+            for record in matchingRecords {
+                record.inkstoneRole = role.rawValue
+                record.modifiedAt = Date()
+            }
+            try service.dataStore.save()
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    public func revoke(_ row: ShareRow) async {
+        guard !busyRowIDs.contains(row.id) else { return }
+        busyRowIDs.insert(row.id)
+        defer { busyRowIDs.remove(row.id) }
+
+        do {
+            let group = try service.dataStore.sharingGroups.require(id: row.administrationGroupID)
+            try await service.revokeParticipant(identity: row.recipient, from: group)
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private static func groupName(for domain: String) -> String {
@@ -156,6 +204,7 @@ public final class ManageSharingModel: ObservableObject {
 public struct ManageSharingView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: ManageSharingModel
+    @State private var pendingRevocation: ManageSharingModel.ShareRow?
 
     public init(model: ManageSharingModel) {
         _model = StateObject(wrappedValue: model)
@@ -172,7 +221,12 @@ public struct ManageSharingView: View {
                     )
                 } else {
                     List(model.rows) { row in
-                        ShareManagementRow(row: row)
+                        ShareManagementRow(
+                            row: row,
+                            isBusy: model.busyRowIDs.contains(row.id),
+                            onRoleChange: { role in Task { await model.changeRole(for: row, to: role) } },
+                            onRevoke: { pendingRevocation = row }
+                        )
                     }
                 }
             }
@@ -214,6 +268,23 @@ public struct ManageSharingView: View {
                 }
             }
             .task { await model.refresh() }
+            .confirmationDialog(
+                "Revoke access for \(pendingRevocation?.recipient ?? "this participant")?",
+                isPresented: Binding(
+                    get: { pendingRevocation != nil },
+                    set: { if !$0 { pendingRevocation = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Revoke Access", role: .destructive) {
+                    guard let row = pendingRevocation else { return }
+                    pendingRevocation = nil
+                    Task { await model.revoke(row) }
+                }
+                Button("Cancel", role: .cancel) { pendingRevocation = nil }
+            } message: {
+                Text("This removes access to every listed access group for this share. Content already downloaded cannot be recalled.")
+            }
         }
         .frame(minWidth: 760, idealWidth: 860, minHeight: 560, idealHeight: 680)
     }
@@ -221,6 +292,9 @@ public struct ManageSharingView: View {
 
 private struct ShareManagementRow: View {
     let row: ManageSharingModel.ShareRow
+    let isBusy: Bool
+    let onRoleChange: (SharingRole) -> Void
+    let onRevoke: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -243,6 +317,27 @@ private struct ShareManagementRow: View {
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
+
+            HStack {
+                Menu {
+                    ForEach([SharingRole.viewer, .reviewer, .editor, .collaborator], id: \.self) { role in
+                        Button(role.rawValue.capitalized) { onRoleChange(role) }
+                    }
+                } label: {
+                    Label("Change Access", systemImage: "person.badge.key")
+                }
+                .disabled(isBusy)
+
+                Button("Revoke Access", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                    onRevoke()
+                }
+                .disabled(isBusy)
+
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Access Groups")

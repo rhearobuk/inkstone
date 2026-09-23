@@ -347,7 +347,6 @@ public struct ShareReviewWorkflowView: View {
                     previewSection
                     progressSection
                     sendInvitationSection
-                    participantSection
                 }
                 .formStyle(.grouped)
                 .padding(.horizontal, 20)
@@ -486,36 +485,6 @@ public struct ShareReviewWorkflowView: View {
         }
     }
 
-    private var participantSection: some View {
-        Section("Participants") {
-            if model.participants.isEmpty {
-                Text("No current participants")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(model.participants, id: \.id) { participant in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(participant.cloudKitIdentity ?? "Pending identity")
-                            Text("\(participant.inkstoneRole.capitalized) · \(participant.cloudKitPermission)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Menu(participant.inkstoneRole.capitalized) {
-                            Button("Viewer") { Task { await model.changeRole(for: participant, to: .viewer) } }
-                            Button("Reviewer") { Task { await model.changeRole(for: participant, to: .reviewer) } }
-                            Button("Editor") { Task { await model.changeRole(for: participant, to: .editor) } }
-                            Button("Collaborator") { Task { await model.changeRole(for: participant, to: .collaborator) } }
-                        }
-                        Button("Revoke", role: .destructive) { Task { await model.revoke(participant) } }
-                    }
-                }
-            }
-            Text("Revocation prevents future access after CloudKit propagates it; it cannot recall content already downloaded.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
 }
 
 private extension ReviewExclusionReason {

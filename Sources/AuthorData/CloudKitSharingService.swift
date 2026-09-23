@@ -557,7 +557,14 @@ public final class CloudKitSharingService {
 
     private func requireOwner(of share: CKShare) throws {
         try requireCloudKit()
-        guard share.currentUserParticipant?.role == .owner else { throw CloudSharingError.ownerAuthorityRequired }
+        // A share loaded from the owner's private persistent store can temporarily omit
+        // currentUserParticipant while CloudKit is reconciling its server metadata. A
+        // concrete non-owner role is authoritative; nil is not evidence that this user
+        // lacks ownership. The server still validates the mutation when it is persisted.
+        if let currentParticipant = share.currentUserParticipant,
+           currentParticipant.role != .owner {
+            throw CloudSharingError.ownerAuthorityRequired
+        }
         guard share.publicPermission == .none else { throw CloudSharingError.publicSharingDisabled }
     }
 }
