@@ -121,7 +121,10 @@ public final class CloudKitSharingService {
         group.modifiedAt = Date()
         try dataStore.save()
 
-        let allowed = Set(group.documents.map(\.objectID)).union([group.objectID, scopedProject.objectID])
+        let scopedObjects: [NSManagedObject] = [group, scopedProject] + Array(group.documents)
+        let allowed = Set(scopedObjects.map(\.objectID))
+        detachRelationshipsOutsideScope(from: scopedObjects, allowedObjectIDs: allowed)
+        try dataStore.save()
         let report = CoreDataSharingPreflight.audit(root: group, allowedObjectIDs: allowed)
         guard report.isObjectGraphSafe else {
             let details = report.exposures.map(\.relationshipPath).joined(separator: ", ")
@@ -411,6 +414,37 @@ public final class CloudKitSharingService {
     private func copyAttributes(from source: NSManagedObject, to destination: NSManagedObject) {
         for key in source.entity.attributesByName.keys where key != "id" {
             destination.setValue(source.value(forKey: key), forKey: key)
+        }
+    }
+
+    /// Projection objects are disposable sharing records. Their persisted relationships must
+    /// never escape the projection, even if a previous failed attempt or Core Data inverse
+    /// maintenance temporarily connected them to an owner-private record.
+    private func detachRelationshipsOutsideScope(
+        from objects: [NSManagedObject],
+        allowedObjectIDs: Set<NSManagedObjectID>
+    ) {
+        for object in objects {
+            for relationship in object.entity.relationshipsByName.values {
+                guard let value = object.primitiveValue(forKey: relationship.name) else { continue }
+                if relationship.isToMany {
+                    let related: [NSManagedObject]
+                    if let set = value as? Set<NSManagedObject> {
+                        related = Array(set)
+                    } else if let set = value as? NSSet {
+                        related = set.compactMap { $0 as? NSManagedObject }
+                    } else {
+                        related = []
+                    }
+                    let scoped = related.filter { allowedObjectIDs.contains($0.objectID) }
+                    if scoped.count != related.count {
+                        object.setPrimitiveValue(NSSet(array: scoped), forKey: relationship.name)
+                    }
+                } else if let related = value as? NSManagedObject,
+                          !allowedObjectIDs.contains(related.objectID) {
+                    object.setPrimitiveValue(nil, forKey: relationship.name)
+                }
+            }
         }
     }
 

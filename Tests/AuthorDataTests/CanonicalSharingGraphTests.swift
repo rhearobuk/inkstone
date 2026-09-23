@@ -50,7 +50,14 @@ struct CanonicalSharingGraphTests {
         #expect(try store.projects.fetchAll(predicate: NSPredicate(
             format: "sourceFormat == %@", CloudKitSharingService.scopedProjectionSourceFormat
         )).count == 2)
-        let allowed = Set(bookCopies.map(\.objectID)).union([bookGroup.objectID])
+        let scopedBookProject = try #require(store.projects.fetchAll(predicate: NSPredicate(
+            format: "sourceIdentifier == %@",
+            "scoped-share.\(bookGroup.id.uuidString)"
+        )).first)
+        let allowed = Set(bookCopies.map(\.objectID)).union([
+            bookGroup.objectID,
+            scopedBookProject.objectID
+        ])
         #expect(CoreDataSharingPreflight.audit(root: bookGroup, allowedObjectIDs: allowed).isObjectGraphSafe)
     }
 
