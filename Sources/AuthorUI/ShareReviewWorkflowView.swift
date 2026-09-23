@@ -271,8 +271,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             project.id as CVarArg, scopeRootID as CVarArg, domain.rawValue
         )
         let existing = try service.dataStore.sharingGroups.fetchAll(predicate: predicate).first { group in
-            group.state != "legacyRevoked"
-                && (try? service.isLegacyProjectShare(group, project: project)) != true
+            group.state != "legacyRevoked" && group.state != "revoked"
         }
         let group = existing ?? service.dataStore.sharingGroups.create { group in
                 group.projectID = project.id

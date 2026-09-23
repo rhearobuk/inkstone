@@ -152,12 +152,18 @@ public final class CloudKitSharingService {
               let project = try canonicalProject(id: projectID) else {
             throw CloudSharingError.recordOutsidePrivateStore
         }
-        try await retireLegacyProjectShare(for: project)
-
         try dataStore.save()
         let manuscriptGroup = try manuscriptGroup(for: group)
         let projection = try scopedProject(for: manuscriptGroup)
-        let matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
+        var matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
+        // Legacy cleanup is a one-time migration step before a scoped manuscript share
+        // exists. Running it while adding Feedback or Story Bible groups can mistake the
+        // newly-created share for the old project-wide share and remove its participant,
+        // making a freshly issued invitation appear expired.
+        if matches[manuscriptGroup.objectID] == nil, group.id == manuscriptGroup.id {
+            try await retireLegacyProjectShare(for: project)
+            matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
+        }
         let existing = matches[manuscriptGroup.objectID] ?? matches[group.objectID]
         let share: CKShare
         let cloudContainer: CKContainer
