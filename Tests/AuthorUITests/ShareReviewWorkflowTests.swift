@@ -20,20 +20,6 @@ struct ShareReviewWorkflowTests {
         #expect(model.preview?.exclusionCount(for: .directDoNotPublish) == 1)
     }
 
-    @Test("Partial invitation groups remain visibly failed and retryable")
-    func partialProgress() throws {
-        let fixture = try Fixture()
-        let model = ShareReviewWorkflowModel(
-            project: fixture.project,
-            scopeRoot: fixture.book,
-            service: CloudKitSharingService(dataStore: fixture.store)
-        )
-        model.record(.init(groupID: UUID(), succeeded: true), for: .manuscript)
-        model.record(.init(groupID: UUID(), succeeded: false, message: "Offline"), for: .feedback)
-        #expect(model.groupStates[.manuscript] == .succeeded)
-        #expect(model.groupStates[.feedback] == .failed("Offline"))
-    }
-
     @MainActor
     private final class Fixture {
         let store: AuthorDataStore

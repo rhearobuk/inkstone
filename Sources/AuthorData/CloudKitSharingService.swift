@@ -37,26 +37,6 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
     }
 }
 
-public struct SharingGroupOperationResult: Equatable, Sendable {
-    public let groupID: UUID
-    public let succeeded: Bool
-    public let message: String?
-
-    public init(groupID: UUID, succeeded: Bool, message: String? = nil) {
-        self.groupID = groupID
-        self.succeeded = succeeded
-        self.message = message
-    }
-}
-
-public struct SharingWorkflowResult: Equatable, Sendable {
-    public let groups: [SharingGroupOperationResult]
-    public var isPartial: Bool { groups.contains(where: \.succeeded) && groups.contains { !$0.succeeded } }
-    public var canRetry: Bool { groups.contains { !$0.succeeded } }
-
-    public init(groups: [SharingGroupOperationResult]) { self.groups = groups }
-}
-
 @MainActor
 public final class CloudKitSharingService {
     public static let scopedProjectionSourceFormat = "inkstone-scoped-share"
@@ -140,24 +120,33 @@ public final class CloudKitSharingService {
     }
 
     public func publishInvitation(
-        for group: SharingGroup,
+        for groups: [SharingGroup],
         recipientEmail: String,
         permission: CKShare.ParticipantPermission
     ) async throws -> CKShare {
         try requireCloudKit()
+        guard let firstGroup = groups.first else {
+            throw CloudSharingError.recordOutsidePrivateStore
+        }
         guard permission == .readOnly || permission == .readWrite else {
             throw CloudSharingError.publicSharingDisabled
         }
-        guard let projectID = group.projectID,
+        guard let projectID = firstGroup.projectID,
               let project = try canonicalProject(id: projectID) else {
             throw CloudSharingError.recordOutsidePrivateStore
         }
         try dataStore.save()
-        let manuscriptGroup = try manuscriptGroup(for: group)
+        let manuscriptGroup = try manuscriptGroup(for: firstGroup)
+        guard groups.allSatisfy({
+            $0.projectID == manuscriptGroup.projectID && $0.scopeRootID == manuscriptGroup.scopeRootID
+        }) else {
+            throw CloudSharingError.recordOutsidePrivateStore
+        }
         let projection = try scopedProject(for: manuscriptGroup)
-        let matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
-        let existing = matches[manuscriptGroup.objectID] ?? matches[group.objectID]
-        let share: CKShare
+        let objectIDs = Array(Set(groups.map(\.objectID) + [manuscriptGroup.objectID]))
+        let matches = try dataStore.container.fetchShares(matching: objectIDs)
+        let existing = matches[manuscriptGroup.objectID] ?? groups.compactMap { matches[$0.objectID] }.first
+        var share: CKShare
         let cloudContainer: CKContainer
         if let existing {
             cloudContainer = CKContainer(identifier: Self.containerIdentifier)
@@ -170,12 +159,15 @@ public final class CloudKitSharingService {
                 throw error
             }
             share = existing
-            if matches[group.objectID] == nil {
-                _ = try await addObjects([group], to: share)
+            let missingGroups = groups.filter { matches[$0.objectID] == nil }
+            if !missingGroups.isEmpty {
+                share = try await addObjects(missingGroups, to: share)
             }
         } else {
-            guard group.id == manuscriptGroup.id else { throw CloudSharingError.recordOutsidePrivateStore }
-            (share, cloudContainer) = try await createPrivateShare(for: [manuscriptGroup, projection])
+            guard groups.contains(where: { $0.id == manuscriptGroup.id }) else {
+                throw CloudSharingError.recordOutsidePrivateStore
+            }
+            (share, cloudContainer) = try await createPrivateShare(for: groups + [projection])
         }
 
         let normalizedEmail = recipientEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -196,22 +188,28 @@ public final class CloudKitSharingService {
         share[CKShare.SystemFieldKey.title] = scopeTitle as CKRecordValue
         let updatedShare = try await persist(share, in: dataStore.privatePersistentStore)
 
-        group.cloudKitShareID = share.recordID.recordName
-        group.state = "awaitingAcceptance"
-        group.modifiedAt = Date()
         let identity = normalizedEmail
-        let existingParticipant = try dataStore.shareParticipants.fetchAll(
-            predicate: NSPredicate(format: "sharingGroupID == %@ AND cloudKitIdentity == %@", group.id as CVarArg, identity)
-        ).first
-        let participantRecord = existingParticipant ?? dataStore.shareParticipants.create { record in
-            record.sharingGroupID = group.id
-            record.cloudKitIdentity = identity
-            record.createdAt = Date()
+        for group in groups {
+            group.cloudKitShareID = share.recordID.recordName
+            group.state = "awaitingAcceptance"
+            group.modifiedAt = Date()
+            let existingParticipant = try dataStore.shareParticipants.fetchAll(
+                predicate: NSPredicate(
+                    format: "sharingGroupID == %@ AND cloudKitIdentity == %@",
+                    group.id as CVarArg,
+                    identity
+                )
+            ).first
+            let participantRecord = existingParticipant ?? dataStore.shareParticipants.create { record in
+                record.sharingGroupID = group.id
+                record.cloudKitIdentity = identity
+                record.createdAt = Date()
+            }
+            participantRecord.inkstoneRole = "participant"
+            participantRecord.cloudKitPermission = permission == .readOnly ? "readOnly" : "readWrite"
+            participantRecord.invitationState = Self.invitationState(for: participant.acceptanceStatus)
+            participantRecord.modifiedAt = Date()
         }
-        participantRecord.inkstoneRole = "participant"
-        participantRecord.cloudKitPermission = permission == .readOnly ? "readOnly" : "readWrite"
-        participantRecord.invitationState = Self.invitationState(for: participant.acceptanceStatus)
-        participantRecord.modifiedAt = Date()
         try dataStore.save()
         return updatedShare
     }

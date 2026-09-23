@@ -31,16 +31,6 @@ struct CloudKitSharingLifecycleTests {
         #expect(try sharedGroups.fetch(id: privateID) == nil)
     }
 
-    @Test("Partial multi-group outcomes remain retryable and non-atomic")
-    func partialWorkflow() {
-        let result = SharingWorkflowResult(groups: [
-            .init(groupID: UUID(), succeeded: true),
-            .init(groupID: UUID(), succeeded: false, message: "network unavailable")
-        ])
-        #expect(result.isPartial)
-        #expect(result.canRetry)
-    }
-
     @Test("CloudKit acceptance states have stable display values")
     func invitationStates() {
         #expect(CloudKitSharingService.invitationState(for: .pending) == "pending")

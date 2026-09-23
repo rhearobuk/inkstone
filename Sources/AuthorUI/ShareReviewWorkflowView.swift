@@ -150,36 +150,36 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         invitationURL = nil
         let required = GroupKind.allCases.filter { groupStates[$0] == .ready || isFailed(groupStates[$0]) }
         for kind in required { groupStates[kind] = .pending }
-        for kind in required {
-            do {
-                let group = try prepareGroup(for: kind)
-                let permission = cloudKitPermission(for: kind)
-                let share = try await service.publishInvitation(
-                    for: group,
-                    recipientEmail: recipient.trimmingCharacters(in: .whitespacesAndNewlines),
-                    permission: permission
-                )
-                invitationURL = share.url ?? invitationURL
+        var currentKind = required.first ?? .manuscript
+        do {
+            var preparedGroups: [(kind: GroupKind, group: SharingGroup)] = []
+            for kind in required {
+                currentKind = kind
+                preparedGroups.append((kind, try prepareGroup(for: kind)))
+            }
+            let share = try await service.publishInvitation(
+                for: preparedGroups.map(\.group),
+                recipientEmail: recipient.trimmingCharacters(in: .whitespacesAndNewlines),
+                permission: cloudKitPermission
+            )
+            invitationURL = share.url
+            for (kind, group) in preparedGroups {
                 if let participant = try service.participants(for: group).last {
                     participant.inkstoneRole = role.rawValue
-                    try service.dataStore.save()
                 }
                 groupStates[kind] = .succeeded
-            } catch {
-                service.dataStore.context.rollback()
-                groupStates[kind] = .failed(Self.actionableMessage(for: error, group: kind))
             }
+            try service.dataStore.save()
+            errorMessage = invitationURL == nil
+                ? "The share was created, but iCloud did not return an invitation link."
+                : nil
+        } catch {
+            service.dataStore.context.rollback()
+            let message = Self.actionableMessage(for: error, group: currentKind)
+            for kind in required { groupStates[kind] = .failed(message) }
+            errorMessage = message
         }
         refreshParticipants()
-        if groupStates.values.contains(where: { if case .failed = $0 { true } else { false } }) {
-            errorMessage = "Some invitation groups failed. Successful groups remain active; retry only the failed groups."
-        } else if invitationURL == nil {
-            errorMessage = "The share was created, but iCloud did not return an invitation link. Refresh Manage Sharing and try again."
-        }
-    }
-
-    public func record(_ result: SharingGroupOperationResult, for kind: GroupKind) {
-        groupStates[kind] = result.succeeded ? .succeeded : .failed(result.message ?? "Sharing failed")
     }
 
     public func refreshParticipants() {
@@ -299,7 +299,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         switch kind { case .manuscript: .manuscript; case .feedback: .feedback; case .context: .storyContext }
     }
 
-    private func cloudKitPermission(for kind: GroupKind) -> CKShare.ParticipantPermission {
+    private var cloudKitPermission: CKShare.ParticipantPermission {
         // CloudKit has one permission per participant for the whole project share.
         // Inkstone enforces the narrower manuscript, feedback, and context capabilities.
         role == .viewer ? .readOnly : .readWrite
@@ -488,7 +488,7 @@ public struct ShareReviewWorkflowView: View {
             ForEach(ShareReviewWorkflowModel.GroupKind.allCases) { kind in
                 HStack { Text(kind.label); Spacer(); Text(model.groupStates[kind, default: .notRequired].label) }
             }
-            Text("Invitations are independent. Partial completion remains retryable and is never shown as fully shared.")
+            Text("All selected access groups are published together in one scoped invitation.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
