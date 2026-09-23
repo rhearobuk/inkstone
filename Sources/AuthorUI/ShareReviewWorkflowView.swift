@@ -17,7 +17,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     @Published public private(set) var participants: [ShareParticipant] = []
 
     public let project: WritingProject
-    public let scopeRoot: Document
+    @Published public var scopeRoot: Document
     private let service: CloudKitSharingService
 
     public init(project: WritingProject, scopeRoot: Document, service: CloudKitSharingService) {
@@ -27,10 +27,25 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         let statuses = project.statusDefinitions.filter(\.isDefault).map(\.sourceIdentifier)
         selectedStatusIdentifiers = Set(statuses)
         rebuildPreview()
+        refreshParticipants()
     }
 
     public var availableStatuses: [StatusDefinition] {
         project.statusDefinitions.sorted { ($0.orderIndex, $0.sourceIdentifier) < ($1.orderIndex, $1.sourceIdentifier) }
+    }
+
+    public var availableBooks: [Document] {
+        projectDocuments
+            .filter { $0.narrativeType == NarrativeType.book.rawValue }
+            .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
+    }
+
+    private var projectDocuments: [Document] {
+        let fetched = (try? service.dataStore.documents.fetchAll(
+            predicate: NSPredicate(format: "projectID == %@", project.id as CVarArg)
+        )) ?? Array(project.documents)
+        var seenIDs = Set<UUID>()
+        return fetched.filter { !$0.isDeleted && seenIDs.insert($0.id).inserted }
     }
 
     public var canShare: Bool {
@@ -39,7 +54,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
 
     public func rebuildPreview() {
         do {
-            let records = project.documents.filter { !$0.isDeleted }.map { document in
+            let records = projectDocuments.map { document in
                 ReviewPolicyRecord(
                     id: document.id,
                     projectID: project.id,
@@ -95,7 +110,8 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                 }
                 groupStates[kind] = .succeeded
             } catch {
-                groupStates[kind] = .failed(error.localizedDescription)
+                service.dataStore.context.rollback()
+                groupStates[kind] = .failed(Self.actionableMessage(for: error, group: kind))
             }
         }
         refreshParticipants()
@@ -109,7 +125,19 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     }
 
     public func refreshParticipants() {
-        participants = (try? service.dataStore.shareParticipants.fetchAll()) ?? []
+        let projectGroupIDs = Set(((try? service.dataStore.sharingGroups.fetchAll(
+            predicate: NSPredicate(format: "projectID == %@", project.id as CVarArg)
+        )) ?? []).map(\.id))
+        let records = ((try? service.dataStore.shareParticipants.fetchAll()) ?? []).filter {
+            $0.invitationState != "revoked" && $0.sharingGroupID.map(projectGroupIDs.contains) == true
+        }
+        var seenIdentities = Set<String>()
+        participants = records
+            .sorted { ($0.modifiedAt ?? .distantPast) > ($1.modifiedAt ?? .distantPast) }
+            .filter { participant in
+                let identity = participant.cloudKitIdentity?.lowercased() ?? participant.id.uuidString
+                return seenIdentities.insert(identity).inserted
+            }
     }
 
     public func revoke(_ participant: ShareParticipant) async {
@@ -125,31 +153,55 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     }
 
     public func changeRole(for participant: ShareParticipant, to newRole: SharingRole) async {
-        guard let identity = participant.cloudKitIdentity else { return }
+        guard let identity = participant.cloudKitIdentity,
+              let groupID = participant.sharingGroupID,
+              let group = try? service.dataStore.sharingGroups.fetch(id: groupID) else { return }
         do {
             let matching = try service.dataStore.shareParticipants.fetchAll(
                 predicate: NSPredicate(format: "cloudKitIdentity == %@", identity)
             )
+            let permission: CKShare.ParticipantPermission = newRole == .viewer ? .readOnly : .readWrite
+            try await service.updatePermission(for: identity, in: group, to: permission)
             for record in matching {
-                guard let groupID = record.sharingGroupID,
-                      let group = try service.dataStore.sharingGroups.fetch(id: groupID) else { continue }
-                if group.domain == SharingGroupDomain.feedback.rawValue, newRole == .viewer {
-                    try await service.revokeParticipant(identity: identity, from: group)
-                    continue
-                }
-                let permission: CKShare.ParticipantPermission
-                if group.domain == SharingGroupDomain.manuscript.rawValue {
-                    permission = newRole == .viewer || newRole == .reviewer ? .readOnly : .readWrite
-                } else {
-                    permission = record.cloudKitPermission == "readOnly" ? .readOnly : .readWrite
-                }
-                try await service.updatePermission(for: identity, in: group, to: permission)
                 record.inkstoneRole = newRole.rawValue
             }
             try service.dataStore.save()
             refreshParticipants()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private static func actionableMessage(for error: Error, group: GroupKind) -> String {
+        if let sharingError = error as? CloudSharingError {
+            switch sharingError {
+            case .unsafeObjectGraph:
+                return "Inkstone found private linked data and stopped before uploading anything. Your project was not changed."
+            case .staleShareZone:
+                return "The previous iCloud share no longer exists. Close and reopen Inkstone, then try again."
+            default:
+                break
+            }
+        }
+        let nsError = error as NSError
+        if containsCocoaError(134060, in: nsError) {
+            return "This local library still contains records tied to old iCloud shares. This is not an entitlement or connection problem. Reset the local development library before sharing again."
+        }
+        if group == .context, nsError.domain == NSCocoaErrorDomain {
+            return "Story Bible access could not be prepared. Set Story Bible Access to None to continue without it."
+        }
+        return "Couldn’t create this invitation. iCloud returned error \(nsError.code)."
+    }
+
+    private static func containsCocoaError(_ code: Int, in error: NSError) -> Bool {
+        if error.domain == NSCocoaErrorDomain, error.code == code { return true }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
+           containsCocoaError(code, in: underlying) {
+            return true
+        }
+        return error.userInfo.values.contains { value in
+            guard let nested = value as? NSError else { return false }
+            return containsCocoaError(code, in: nested)
         }
     }
 
@@ -168,22 +220,8 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                 group.createdAt = Date()
                 group.modifiedAt = Date()
             }
-        let preparer = CanonicalSharingGraphPreparer()
-        switch kind {
-        case .manuscript:
-            let includedIDs = Set(preview?.included.map(\.recordID) ?? [])
-            try preparer.prepareManuscript(project.documents.filter { includedIDs.contains($0.id) }, for: group)
-        case .feedback:
-            break
-        case .context:
-            let entities: [SemanticEntity]
-            switch storyBibleGrant {
-            case .none: entities = []
-            case .selected(let ids): entities = project.semanticEntities.filter { ids.contains($0.id) }
-            case .fullRead, .edit: entities = Array(project.semanticEntities)
-            }
-            try preparer.prepareStoryContext(entities, for: group)
-        }
+        // Groups describe Inkstone-level access inside the project's single CKShare.
+        // They must never re-parent or detach the canonical project object graph.
         group.state = "ready"
         group.modifiedAt = Date()
         try service.dataStore.save()
@@ -195,11 +233,9 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     }
 
     private func cloudKitPermission(for kind: GroupKind) -> CKShare.ParticipantPermission {
-        switch kind {
-        case .feedback: .readWrite
-        case .context: storyBibleGrant == .edit ? .readWrite : .readOnly
-        case .manuscript: role == .viewer || role == .reviewer ? .readOnly : .readWrite
-        }
+        // CloudKit has one permission per participant for the whole project share.
+        // Inkstone enforces the narrower manuscript, feedback, and context capabilities.
+        role == .viewer ? .readOnly : .readWrite
     }
 
     private func isFailed(_ state: GroupState?) -> Bool {
@@ -252,8 +288,12 @@ public struct ShareReviewWorkflowView: View {
                         .accessibilityIdentifier("shareReview.createInvitations")
                 }
             }
-            .onAppear { model.rebuildPreview() }
+            .onAppear {
+                model.rebuildPreview()
+                model.refreshParticipants()
+            }
             .onChange(of: model.role) { _, _ in model.rebuildPreview() }
+            .onChange(of: model.scopeRoot) { _, _ in model.rebuildPreview() }
             .onChange(of: model.selectedStatusIdentifiers) { _, _ in model.rebuildPreview() }
         }
         .frame(minWidth: 700, idealWidth: 760, minHeight: 700, idealHeight: 780)
@@ -276,7 +316,12 @@ public struct ShareReviewWorkflowView: View {
     private var scopeSection: some View {
         Section("Scope") {
             LabeledContent("Project", value: model.project.title)
-            LabeledContent("Book", value: model.scopeRoot.title)
+            Picker("Book", selection: $model.scopeRoot) {
+                ForEach(model.availableBooks, id: \.objectID) { book in
+                    Text(book.title).tag(book)
+                }
+            }
+            .accessibilityIdentifier("shareReview.bookScope")
         }
     }
 
@@ -353,7 +398,7 @@ public struct ShareReviewWorkflowView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Menu("Role") {
+                        Menu(participant.inkstoneRole.capitalized) {
                             Button("Viewer") { Task { await model.changeRole(for: participant, to: .viewer) } }
                             Button("Reviewer") { Task { await model.changeRole(for: participant, to: .reviewer) } }
                             Button("Editor") { Task { await model.changeRole(for: participant, to: .editor) } }

@@ -12,7 +12,9 @@ struct DocumentContentView: View {
     @ObservedObject var controller: WorkspaceController
 
     var body: some View {
-        if let imageData = imageResource?.data {
+        if document.isDeleted || document.managedObjectContext == nil {
+            EmptyView()
+        } else if let imageData = imageResource?.data {
             PlatformImageView(data: imageData)
         } else if let rtfData = rtfResource?.data,
                   let attributedText = try? NSAttributedString(
@@ -62,11 +64,13 @@ struct DocumentContentView: View {
     }
 
     private var passage: EditorialPassage? {
-        controller.editorialPassage?.documentID == document.id ? controller.editorialPassage : nil
+        guard !document.isDeleted, document.managedObjectContext != nil else { return nil }
+        return controller.editorialPassage?.documentID == document.id ? controller.editorialPassage : nil
     }
 
     private var rtfResource: ContentResource? {
-        document.resources.first {
+        guard !document.isDeleted, document.managedObjectContext != nil else { return nil }
+        return document.resources.first {
             $0.role == "content"
                 && $0.mediaType == "application/rtf"
                 && !$0.isSourcePreserved
@@ -76,7 +80,8 @@ struct DocumentContentView: View {
     }
 
     private var imageResource: ContentResource? {
-        document.resources.first {
+        guard !document.isDeleted, document.managedObjectContext != nil else { return nil }
+        return document.resources.first {
             $0.role == "content" && $0.mediaType.hasPrefix("image/")
         }
     }

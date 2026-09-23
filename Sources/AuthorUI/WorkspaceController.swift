@@ -349,6 +349,7 @@ public final class WorkspaceController: ObservableObject {
     @Published public private(set) var binderItems: [BinderItem] = []
     @Published public private(set) var cachedMurderBoards: [Document] = []
     @Published public private(set) var cachedMurderBoardBooks: [Document] = []
+    private var binderChildrenByParentID: [UUID: [Document]] = [:]
     var murderBoardBookScopedEntityCache: [MurderBoardBookScopeCacheKey: Set<UUID>] = [:]
     @Published public var activeDropTarget: ActiveDropTarget?
     @Published public var labelFilter: String?
@@ -890,32 +891,75 @@ public final class WorkspaceController: ObservableObject {
         guard let project = try store.projects.fetch(id: projectID) else {
             throw WorkspaceError.missingProject(projectID)
         }
-        store.context.delete(project)
-        setProjectPinned(projectID, pinned: false)
-        setProjectHidden(projectID, hidden: false)
-        var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedProjectIDs") ?? [])
-        trashedIDs.remove(projectID.uuidString)
-        projectListPreferences.set(Array(trashedIDs), forKey: "trashedProjectIDs")
+
+        try stageProjectDeletion(project, projectID: projectID)
+        do {
+            try store.save()
+        } catch {
+            store.rollback()
+            throw error
+        }
+
+        removeProjectPreferences(for: projectID)
         if selectedProjectID == projectID {
             selectedProjectID = nil
             selection = nil
         }
-        try store.save()
         refresh()
+    }
+
+    private func stageProjectDeletion(_ project: WritingProject, projectID: UUID) throws {
+        // Document.project is a UUID-routed compatibility accessor, so older imports and
+        // duplicated projects may not appear in WritingProject.documents for cascade deletion.
+        // Fetch by the durable routing ID to ensure the actual document graph is removed.
+        for document in try store.documents.fetchAll(
+            predicate: NSPredicate(format: "projectID == %@", projectID as CVarArg)
+        ) {
+            store.context.delete(document)
+        }
+
+        // Sharing groups and participants are routed by UUID rather than by a Core Data
+        // relationship to WritingProject, so the project's cascade rules cannot remove them.
+        // Delete them in the same transaction to avoid leaving CloudKit metadata behind.
+        let sharingGroups = try store.sharingGroups.fetchAll(
+            predicate: NSPredicate(format: "projectID == %@", projectID as CVarArg)
+        )
+        let sharingGroupIDs = Set(sharingGroups.map(\.id))
+        if !sharingGroupIDs.isEmpty {
+            for participant in try store.shareParticipants.fetchAll()
+            where participant.sharingGroupID.map(sharingGroupIDs.contains) == true {
+                store.context.delete(participant)
+            }
+            for group in sharingGroups {
+                store.context.delete(group)
+            }
+        }
+        store.context.delete(project)
+    }
+
+    private func removeProjectPreferences(for projectID: UUID) {
+        for key in ["pinnedProjectIDs", "hiddenProjectIDs", "trashedProjectIDs"] {
+            var ids = Set(projectListPreferences.stringArray(forKey: key) ?? [])
+            ids.remove(projectID.uuidString)
+            projectListPreferences.set(Array(ids), forKey: key)
+        }
     }
 
     public func emptyProjectTrash() throws {
         let projects = trashedProjects
         let projectIDs = projects.map(\.id)
         for project in projects {
-            store.context.delete(project)
+            try stageProjectDeletion(project, projectID: project.id)
         }
-        for id in projectIDs {
-            setProjectPinned(id, pinned: false)
-            setProjectHidden(id, hidden: false)
+        do {
+            try store.save()
+        } catch {
+            store.rollback()
+            throw error
         }
-        try store.save()
-        projectListPreferences.set([String](), forKey: "trashedProjectIDs")
+        for projectID in projectIDs {
+            removeProjectPreferences(for: projectID)
+        }
         refresh()
     }
 
@@ -1027,7 +1071,10 @@ public final class WorkspaceController: ObservableObject {
         guard let document = try store.documents.fetch(id: documentID) else {
             throw WorkspaceError.missingDocument(documentID)
         }
-        let project = document.project
+        let project: WritingProject = document.project
+        if case .document(let id) = selection, id == documentID {
+            selection = .trash(project.id)
+        }
         deleteImportedPlaceCards(in: document)
         WordCountService.removeSubtree(document, from: document.parent)
         document.parent = nil
@@ -1038,9 +1085,6 @@ public final class WorkspaceController: ObservableObject {
         var hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
         hiddenIDs.remove(documentID.uuidString)
         projectListPreferences.set(Array(hiddenIDs), forKey: "hiddenDocumentIDs")
-        if case .document(let id) = selection, id == documentID {
-            selection = .trash(project.id)
-        }
         project.modifiedAt = Date()
         try store.save()
         refresh()
@@ -1055,6 +1099,10 @@ public final class WorkspaceController: ObservableObject {
         let trashedDocIDSet = Set(docIDs)
         var trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
         var hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
+        if case .document(let selectedDocumentID) = selection,
+           trashedDocIDSet.contains(selectedDocumentID) {
+            selection = .trash(project.id)
+        }
         for doc in trashed {
             deleteImportedPlaceCards(in: doc)
             // Only adjust rollups from documents whose parent survives this batch; descendants
@@ -1071,9 +1119,6 @@ public final class WorkspaceController: ObservableObject {
         }
         projectListPreferences.set(Array(trashedIDs), forKey: "trashedDocumentIDs")
         projectListPreferences.set(Array(hiddenIDs), forKey: "hiddenDocumentIDs")
-        if case .document = selection {
-            selection = .trash(project.id)
-        }
         project.modifiedAt = Date()
         try store.save()
         refresh()
@@ -2455,6 +2500,10 @@ public final class WorkspaceController: ObservableObject {
         lastError = error.localizedDescription
     }
 
+    public func clearLastError() {
+        lastError = nil
+    }
+
     public func clearImportSummary() {
         importSummary = nil
     }
@@ -2518,14 +2567,24 @@ public final class WorkspaceController: ObservableObject {
         sectionTypeLookup = Dictionary(
             uniqueKeysWithValues: project.sectionTypeDefinitions.map { ($0.sourceIdentifier, $0) }
         )
-        cachedMurderBoards = project.documents
+        let documents = documents(in: project)
+        binderChildrenByParentID = Dictionary(
+            grouping: documents.compactMap { document in
+                document.parentID.map { ($0, document) }
+            },
+            by: \.0
+        ).mapValues { entries in
+            entries.map(\.1).sorted(by: documentOrder)
+        }
+
+        cachedMurderBoards = documents
             .filter {
                 !$0.isDeleted &&
                     !isDocumentTrashed($0) &&
                     $0.sectionTypeIdentifier == murderBoardSectionTypeIdentifier
             }
             .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
-        cachedMurderBoardBooks = project.documents
+        cachedMurderBoardBooks = documents
             .filter {
                 !$0.isDeleted &&
                     !isDocumentTrashed($0) &&
@@ -2573,10 +2632,9 @@ public final class WorkspaceController: ObservableObject {
                 }
             )
         }
-        let documents = documents(in: project)
         let activeDocuments = documents.filter { !isDocumentTrashed($0) }
         let binderDocuments = showsHiddenDocuments ? activeDocuments : activeDocuments.filter { !isDocumentHidden($0) }
-        let roots = binderDocuments.filter { $0.parent == nil }.sorted(by: documentOrder)
+        let roots = binderDocuments.filter { $0.parentID == nil }.sorted(by: documentOrder)
         let storyBibleRoots = Dictionary(grouping: roots.compactMap { document in
             storyBibleCategory(for: document).map { ($0, document) }
         }, by: \.0)
@@ -2588,7 +2646,7 @@ public final class WorkspaceController: ObservableObject {
         if narrativeRoots.count == 1,
            let root = narrativeRoots.first,
            root.sourceIdentifier.hasPrefix("native.narrative.") {
-            visibleNarrativeRoots = root.orderedChildren.filter { !isDocumentTrashed($0) && (showsHiddenDocuments || !isDocumentHidden($0)) }
+            visibleNarrativeRoots = binderChildren(for: root).filter { !isDocumentTrashed($0) && (showsHiddenDocuments || !isDocumentHidden($0)) }
             narrativeDocumentID = root.id
         } else {
             visibleNarrativeRoots = narrativeRoots
@@ -2700,7 +2758,7 @@ public final class WorkspaceController: ObservableObject {
         let status = document.statusIdentifier.flatMap { statusLookup[$0] }
         let sectionType = document.sectionTypeIdentifier.flatMap { sectionTypeLookup[$0] }
         let isHidden = isDocumentHidden(document)
-        let validChildren = document.orderedChildren.filter {
+        let validChildren = binderChildren(for: document).filter {
             if isTrashed { return true }
             return !isDocumentTrashed($0) && (showsHiddenDocuments || !isDocumentHidden($0))
         }
@@ -2741,7 +2799,21 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func documents(in project: WritingProject) -> [Document] {
-        project.documents.filter { !$0.isDeleted }
+        guard let fetched = try? store.documents.fetchAll(
+            sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
+        ) else {
+            return project.documents.filter { !$0.isDeleted }
+        }
+
+        var seenIDs = Set<UUID>()
+        return fetched.filter { document in
+            guard !document.isDeleted, document.projectID == project.id else { return false }
+            return seenIDs.insert(document.id).inserted
+        }
+    }
+
+    private func binderChildren(for document: Document) -> [Document] {
+        binderChildrenByParentID[document.id] ?? []
     }
 
     private func uniqueDefinitions<T: NSManagedObject>(_ definitions: [T]) -> [T]

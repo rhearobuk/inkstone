@@ -43,7 +43,7 @@ public enum ReviewScopeResolver {
         var visited = Set<UUID>()
         var snapshots: [ReviewInputSnapshot] = []
         func visit(_ document: Document, path: String) throws {
-            guard document.project.id == project.id, visited.insert(document.id).inserted else {
+            guard document.projectID == project.id, visited.insert(document.id).inserted else {
                 throw ReviewScopeError.invalidHierarchy
             }
             let path = path.isEmpty ? document.title : path + " / " + document.title

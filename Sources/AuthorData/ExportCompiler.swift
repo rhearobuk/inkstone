@@ -290,7 +290,7 @@ public final class ExportCompiler {
         guard let root = try store.documents.fetch(id: request.rootDocumentID) else {
             throw ExportCompilerError.rootDocumentNotFound(request.rootDocumentID)
         }
-        guard root.project.id == project.id else {
+        guard root.projectID == project.id else {
             throw ExportCompilerError.rootDoesNotBelongToProject(
                 documentID: root.id,
                 projectID: project.id

@@ -97,8 +97,12 @@ public final class Document: NSManagedObject, AuthorManagedObject {
             preconditionFailure("Document \(id) has no project")
         }
         set {
-            projectID = newValue.id
-            setPrimitiveValue(newValue, forKey: "project")
+            // Core Data sends nil through this Objective-C setter while cascading a
+            // WritingProject deletion, even though live Documents require a project.
+            // Reinterpret the nullable Objective-C reference before dereferencing it.
+            let nullableValue = unsafeBitCast(newValue, to: WritingProject?.self)
+            projectID = nullableValue?.id
+            setPrimitiveValue(nullableValue, forKey: "project")
         }
     }
     @objc public var parent: Document? {

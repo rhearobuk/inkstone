@@ -124,6 +124,31 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertTrue(controller.projects.isEmpty)
     }
 
+    func testPermanentlyDeletesProjectSharingMetadata() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Shared Project")
+        let projectID = project.id
+        let group = controller.store.sharingGroups.create { group in
+            group.projectID = projectID
+            group.scopeRootID = project.documents.first?.id
+            group.domain = SharingGroupDomain.manuscript.rawValue
+            group.state = "ready"
+        }
+        controller.store.shareParticipants.create { participant in
+            participant.sharingGroupID = group.id
+            participant.inkstoneRole = "reviewer"
+            participant.cloudKitPermission = "readOnly"
+            participant.invitationState = "pending"
+        }
+        try controller.store.save()
+
+        try controller.deleteProjectPermanently(projectID)
+
+        XCTAssertNil(try controller.store.projects.fetch(id: projectID))
+        XCTAssertEqual(try controller.store.sharingGroups.count(), 0)
+        XCTAssertEqual(try controller.store.shareParticipants.count(), 0)
+    }
+
     func testEmptyProjectTrashPermanentlyDeletesAllTrashedProjects() throws {
         let preferences = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceControllerTests.\(UUID().uuidString)"))
         let controller = WorkspaceController(

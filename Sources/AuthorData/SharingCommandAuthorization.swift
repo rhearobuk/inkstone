@@ -200,7 +200,7 @@ public struct SharingMutationGuard {
                 return
             }
             targetID = authorization.authorizedRecordIDs.contains(document.id)
-                ? document.id : (document.parent?.id ?? document.project.id)
+                ? document.id : (document.parent?.id ?? document.projectID ?? document.id)
         case let annotation as Annotation:
             command = change == .insert ? .createFeedback : .editFeedback
             targetID = annotation.document.id

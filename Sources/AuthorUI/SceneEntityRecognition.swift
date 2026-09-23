@@ -47,6 +47,7 @@ struct SceneEntityRecognitionService {
               document.narrativeType == NarrativeType.scene.rawValue else {
             return
         }
+        let project = document.project
 
         guard let text = document.plainText?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
@@ -57,7 +58,7 @@ struct SceneEntityRecognitionService {
             return
         }
 
-        let entities = Array(document.project.semanticEntities.filter { !$0.isDeleted })
+        let entities = Array(project.semanticEntities.filter { !$0.isDeleted })
         let matches: [ResolvedCandidateMatch]
         do {
             matches = try await resolveMentions(in: text, entities: entities)
@@ -73,7 +74,7 @@ struct SceneEntityRecognitionService {
         }
 
         let refreshTime = Date()
-        document.project.modifiedAt = max(document.project.modifiedAt, refreshTime)
+        project.modifiedAt = max(project.modifiedAt, refreshTime)
         if saveChanges {
             try store.save()
         }
@@ -83,7 +84,7 @@ struct SceneEntityRecognitionService {
         let grouped = Dictionary(grouping: entity.mentions.filter {
             $0.document.narrativeType == NarrativeType.scene.rawValue
                 && !$0.document.isDeleted
-                && $0.document.project.id == entity.project.id
+                && $0.document.projectID == entity.project.id
                 && !excludingDocumentIDs.contains($0.document.id)
                 && $0.source.hasPrefix(Self.mentionSourcePrefix)
         }, by: { $0.document.id })

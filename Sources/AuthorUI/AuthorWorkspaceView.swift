@@ -399,12 +399,24 @@ public struct AuthorWorkspaceView: View {
                     .background(.regularMaterial, in: Capsule())
                     .padding()
             } else if let error = controller.lastError {
-                Text(error)
-                    .font(.caption)
-                    .padding(8)
-                    .background(.red.opacity(0.9), in: Capsule())
-                    .foregroundStyle(.white)
-                    .padding()
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(error)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                    Button {
+                        controller.clearLastError()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss error")
+                }
+                .padding(12)
+                .frame(maxWidth: 720)
+                .background(.red.opacity(0.92), in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.white)
+                .padding()
             }
         }
     }

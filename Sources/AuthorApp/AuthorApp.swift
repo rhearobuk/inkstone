@@ -169,7 +169,7 @@ private final class InkstoneStartup: ObservableObject {
             at: directory,
             withIntermediateDirectories: true
         )
-        return directory.appendingPathComponent("AuthorData.sqlite")
+        return directory.appendingPathComponent("AuthorData-v2.sqlite")
     }
 }
 

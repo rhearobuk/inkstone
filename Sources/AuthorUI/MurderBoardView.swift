@@ -287,7 +287,7 @@ extension WorkspaceController {
                 isTruncated: false
             )
         }
-        let project = board.project
+        let project: WritingProject = board.project
         let allEntities = project.semanticEntities
             .filter { isStoryBibleEntityAvailable($0) }
             .sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }

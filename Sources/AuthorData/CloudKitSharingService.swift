@@ -20,7 +20,8 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
     case ownerAuthorityRequired
     case participantCannotRevokeOwnerData
     case invitationAlreadyProcessed
-    case unsafeObjectGraph
+    case unsafeObjectGraph(details: String)
+    case staleShareZone
 
     public var errorDescription: String? {
         switch self {
@@ -30,7 +31,8 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
         case .ownerAuthorityRequired: "Only the CloudKit share owner can change participant permissions."
         case .participantCannotRevokeOwnerData: "Participant cleanup cannot delete the owner's canonical records."
         case .invitationAlreadyProcessed: "This invitation has already been processed."
-        case .unsafeObjectGraph: "Sharing stopped because the selected group still reaches private records."
+        case .unsafeObjectGraph(let details): "Sharing stopped because the selected group reaches private records through: \(details)."
+        case .staleShareZone: "This local share refers to a CloudKit zone that no longer exists. Reset the local development library, then try again."
         }
     }
 }
@@ -94,33 +96,30 @@ public final class CloudKitSharingService {
         guard permission == .readOnly || permission == .readWrite else {
             throw CloudSharingError.publicSharingDisabled
         }
-        try dataStore.save()
-
-        let allowedObjectIDs = Set([group.objectID])
-            .union(group.documents.map(\.objectID))
-            .union(group.feedback.map(\.objectID))
-            .union(group.storyEntities.map(\.objectID))
-        let report = CoreDataSharingPreflight.audit(root: group, allowedObjectIDs: allowedObjectIDs)
-        let storyEntityNames = Set([
-            SemanticEntity.entityName, EntityAlias.entityName, CharacterProfile.entityName,
-            CharacterMeasurement.entityName, CharacterNote.entityName, CharacterRelationship.entityName,
-            CharacterConflict.entityName, StoryBibleCard.entityName, StoryBibleNote.entityName,
-            StoryBibleRelationship.entityName
-        ])
-        let safeStoryExpansion = group.domain == SharingGroupDomain.storyContext.rawValue
-            && report.exposures.allSatisfy { storyEntityNames.contains($0.entityName) }
-        guard report.isObjectGraphSafe || safeStoryExpansion else {
-            throw CloudSharingError.unsafeObjectGraph
+        guard let projectID = group.projectID,
+              let project = try dataStore.projects.fetch(id: projectID) else {
+            throw CloudSharingError.recordOutsidePrivateStore
         }
 
-        let existing = try dataStore.container.fetchShares(matching: [group.objectID])[group.objectID]
+        // A Core Data object graph can belong to only one CKShare zone. The project is the
+        // sole CloudKit sharing root; manuscript/feedback/context groups are local access rules.
+        try dataStore.save()
+        let existing = try dataStore.container.fetchShares(matching: [project.objectID])[project.objectID]
         let share: CKShare
         let cloudContainer: CKContainer
         if let existing {
-            share = existing
             cloudContainer = CKContainer(identifier: Self.containerIdentifier)
+            do {
+                _ = try await cloudContainer.privateCloudDatabase.recordZone(for: existing.recordID.zoneID)
+            } catch {
+                if Self.isZoneNotFound(error) {
+                    throw CloudSharingError.staleShareZone
+                }
+                throw error
+            }
+            share = existing
         } else {
-            (share, cloudContainer) = try await createPrivateShare(for: [group])
+            (share, cloudContainer) = try await createPrivateShare(for: [project])
         }
 
         let participant = try await cloudContainer.shareParticipant(forEmailAddress: recipientEmail)
@@ -183,15 +182,13 @@ public final class CloudKitSharingService {
     }
 
     public func revokeParticipant(identity: String, from group: SharingGroup) async throws {
-        guard let share = try dataStore.container.fetchShares(matching: [group.objectID])[group.objectID] else {
-            throw CloudSharingError.ownerAuthorityRequired
-        }
+        let share = try projectShare(for: group)
         guard let participant = share.participants.first(where: {
             $0.userIdentity.userRecordID?.recordName == identity
                 || $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == identity.lowercased()
         }) else { return }
         try await revoke(participant, from: share)
-        for record in try participants(for: group) where record.cloudKitIdentity == identity {
+        for record in try participantRecords(identity: identity, inProjectOf: group) {
             record.invitationState = "revoked"
             record.modifiedAt = Date()
         }
@@ -203,15 +200,13 @@ public final class CloudKitSharingService {
         in group: SharingGroup,
         to permission: CKShare.ParticipantPermission
     ) async throws {
-        guard let share = try dataStore.container.fetchShares(matching: [group.objectID])[group.objectID] else {
-            throw CloudSharingError.ownerAuthorityRequired
-        }
+        let share = try projectShare(for: group)
         guard let participant = share.participants.first(where: {
             $0.userIdentity.userRecordID?.recordName == identity
                 || $0.userIdentity.lookupInfo?.emailAddress?.lowercased() == identity.lowercased()
         }) else { return }
         try await setPermission(permission, for: participant, in: share)
-        for record in try participants(for: group) where record.cloudKitIdentity == identity {
+        for record in try participantRecords(identity: identity, inProjectOf: group) {
             record.cloudKitPermission = permission == .readOnly ? "readOnly" : "readWrite"
             record.modifiedAt = Date()
         }
@@ -301,6 +296,45 @@ public final class CloudKitSharingService {
     }
 
     private static var containerIdentifier: String { AuthorDataStore.cloudKitContainerIdentifier }
+
+    private func projectShare(for group: SharingGroup) throws -> CKShare {
+        guard let projectID = group.projectID,
+              let project = try dataStore.projects.fetch(id: projectID) else {
+            throw CloudSharingError.recordOutsidePrivateStore
+        }
+        let shares = try dataStore.container.fetchShares(matching: [project.objectID, group.objectID])
+        guard let share = shares[project.objectID] ?? shares[group.objectID] else {
+            throw CloudSharingError.ownerAuthorityRequired
+        }
+        return share
+    }
+
+    private func participantRecords(identity: String, inProjectOf group: SharingGroup) throws -> [ShareParticipant] {
+        guard let projectID = group.projectID else { return [] }
+        let projectGroupIDs = Set(try dataStore.sharingGroups.fetchAll(
+            predicate: NSPredicate(format: "projectID == %@", projectID as CVarArg)
+        ).map(\.id))
+        return try dataStore.shareParticipants.fetchAll(
+            predicate: NSPredicate(format: "cloudKitIdentity == %@", identity)
+        ).filter { participant in
+            participant.sharingGroupID.map(projectGroupIDs.contains) == true
+        }
+    }
+
+    private static func isZoneNotFound(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == CKErrorDomain, nsError.code == CKError.zoneNotFound.rawValue {
+            return true
+        }
+        if let partialErrors = nsError.userInfo[CKPartialErrorsByItemIDKey] as? [AnyHashable: Error],
+           partialErrors.values.contains(where: isZoneNotFound) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isZoneNotFound(underlying)
+        }
+        return false
+    }
 
     private func requireOwner(of share: CKShare) throws {
         try requireCloudKit()

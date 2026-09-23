@@ -214,6 +214,7 @@ public enum NarrativeMetadataStore {
         on document: Document,
         store: AuthorDataStore
     ) {
+        let project = document.project
         // Text bindings save on each keystroke, so trailing whitespace is still being edited.
         let input: String
         switch descriptor.valueKind {
@@ -226,7 +227,7 @@ public enum NarrativeMetadataStore {
             for: descriptor.key,
             displayName: descriptor.displayName,
             valueType: descriptor.valueKind,
-            in: document.project,
+            in: project,
             store: store
         )
         let existing = value(for: descriptor, on: document)
@@ -265,6 +266,7 @@ public enum NarrativeMetadataStore {
         store: AuthorDataStore
     ) {
         guard format.isUserSelectable else { return }
+        let project = document.project
         guard !document.metadataValues.contains(where: { $0.field.key == format.isbnMetadataKey }) else {
             return
         }
@@ -272,7 +274,7 @@ public enum NarrativeMetadataStore {
             for: format.isbnMetadataKey,
             displayName: format.isbnFieldDescriptor.displayName,
             valueType: .text,
-            in: document.project,
+            in: project,
             store: store
         )
         _ = store.metadataValues.create {

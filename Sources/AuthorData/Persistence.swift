@@ -30,7 +30,7 @@ public enum PersistenceError: LocalizedError {
 public final class AuthorDataStore {
     /// The iCloud container used to mirror the store via CloudKit. Must match the
     /// `com.apple.developer.icloud-container-identifiers` entry in the app's entitlements.
-    public static let cloudKitContainerIdentifier = "iCloud.com.robertrhea.scribe"
+    public static let cloudKitContainerIdentifier = "iCloud.com.robertrhea.inkstone"
 
     public let container: NSPersistentCloudKitContainer
     public let cloudKitSyncEnabled: Bool
@@ -193,10 +193,6 @@ public final class AuthorDataStore {
 
         container.viewContext.mergePolicy = NSMergePolicy(merge: .mergeByPropertyObjectTrumpMergePolicyType)
         container.viewContext.automaticallyMergesChangesFromParent = true
-        try Self.backfillLegacyRoutingIDs(
-            context: container.viewContext,
-            privateStore: loadedPrivateStore
-        )
 
         editorPersonas = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
         editorialReviews = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
