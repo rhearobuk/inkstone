@@ -22,6 +22,7 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
     case invitationAlreadyProcessed
     case unsafeObjectGraph(details: String)
     case staleShareZone
+    case participantNotPublished(String)
 
     public var errorDescription: String? {
         switch self {
@@ -33,6 +34,8 @@ public enum CloudSharingError: Error, Equatable, LocalizedError, Sendable {
         case .invitationAlreadyProcessed: "This invitation has already been processed."
         case .unsafeObjectGraph(let details): "Sharing stopped because the selected group reaches private records through: \(details)."
         case .staleShareZone: "This local share refers to a CloudKit zone that no longer exists. Reset the local development library, then try again."
+        case .participantNotPublished(let identity):
+            "CloudKit created the share but did not grant access to \(identity). No invitation was sent; try again."
         }
     }
 }
@@ -64,7 +67,9 @@ public final class CloudKitSharingService {
             }
         }
         result.0.publicPermission = .none
-        _ = try await persist(result.0, in: dataStore.privatePersistentStore)
+        // `share(objects:to:)` has already created the private share. Return that exact
+        // server-versioned object so the caller can add participants without modifying a
+        // stale pre-save copy and triggering a CloudKit change-tag conflict.
         return result
     }
 
@@ -187,6 +192,13 @@ public final class CloudKitSharingService {
         let scopeTitle = try scopeTitle(for: manuscriptGroup) ?? project.title
         share[CKShare.SystemFieldKey.title] = scopeTitle as CKRecordValue
         let updatedShare = try await persist(share, in: dataStore.privatePersistentStore)
+        let serverRecord = try await cloudContainer.privateCloudDatabase.record(for: updatedShare.recordID)
+        guard let serverShare = serverRecord as? CKShare,
+              serverShare.participants.contains(where: { serverParticipant in
+                  Self.sameIdentity(serverParticipant, participant)
+              }) else {
+            throw CloudSharingError.participantNotPublished(normalizedEmail)
+        }
 
         let identity = normalizedEmail
         for group in groups {
@@ -211,7 +223,7 @@ public final class CloudKitSharingService {
             participantRecord.modifiedAt = Date()
         }
         try dataStore.save()
-        return updatedShare
+        return serverShare
     }
 
     /// Fetches each scoped share for a project and reconciles its invitation state.
@@ -511,6 +523,19 @@ public final class CloudKitSharingService {
             result.insert(recordName)
         }
         return result
+    }
+
+    private static func sameIdentity(
+        _ lhs: CKShare.Participant,
+        _ rhs: CKShare.Participant
+    ) -> Bool {
+        if let lhsRecord = lhs.userIdentity.userRecordID?.recordName,
+           let rhsRecord = rhs.userIdentity.userRecordID?.recordName {
+            return lhsRecord == rhsRecord
+        }
+        let lhsEmail = lhs.userIdentity.lookupInfo?.emailAddress?.lowercased()
+        let rhsEmail = rhs.userIdentity.lookupInfo?.emailAddress?.lowercased()
+        return lhsEmail != nil && lhsEmail == rhsEmail
     }
 
     private func requireOwner(of share: CKShare) throws {
