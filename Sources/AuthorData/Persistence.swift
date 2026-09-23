@@ -307,6 +307,38 @@ public final class AuthorDataStore {
         guard let store else { throw PersistenceError.storeNotFound(scope) }
         return EntityRepository(context: context, persistentStore: store)
     }
+
+    /// Fetches a record for display regardless of whether CloudKit placed it in
+    /// the owner's private store or a participant's shared store.
+    public func fetchAcrossStores<Model: AuthorManagedObject>(
+        _ model: Model.Type,
+        id: UUID
+    ) throws -> Model? {
+        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+        return try context.fetch(request).first
+    }
+
+    /// Fetches display records from both the private and shared databases. New
+    /// records must still be created through a store-scoped repository.
+    public func fetchAcrossStores<Model: AuthorManagedObject>(
+        _ model: Model.Type,
+        predicate: NSPredicate? = nil,
+        sortedBy sortDescriptors: [NSSortDescriptor] = []
+    ) throws -> [Model] {
+        let request = NSFetchRequest<Model>(entityName: Model.entityName)
+        request.predicate = predicate
+        request.sortDescriptors = sortDescriptors
+        return try context.fetch(request)
+    }
+
+    public func scope(of object: NSManagedObject) -> AuthorStoreScope? {
+        guard let persistentStore = object.objectID.persistentStore else { return nil }
+        if persistentStore === sharedPersistentStore { return .participantShared }
+        if persistentStore === privatePersistentStore { return .ownerPrivate }
+        return nil
+    }
 }
 
 @MainActor

@@ -5,6 +5,39 @@ import XCTest
 
 @MainActor
 final class WorkspaceControllerTests: XCTestCase {
+    func testDisplaysProjectsAndDocumentsImportedIntoSharedStore() throws {
+        let store = try AuthorDataStore(inMemory: true)
+        let sharedProjects = try store.repository(for: WritingProject.self, scope: .participantShared)
+        let sharedDocuments = try store.repository(for: Document.self, scope: .participantShared)
+        let now = Date()
+        let project = sharedProjects.create { project in
+            project.title = "Shared Manuscript"
+            project.sourceIdentifier = "shared.project"
+            project.sourceFormat = "inkstone"
+            project.createdAt = now
+            project.modifiedAt = now
+        }
+        let document = sharedDocuments.create { document in
+            document.projectID = project.id
+            document.sourceIdentifier = "shared.scene"
+            document.title = "Opening Scene"
+            document.kind = DocumentKind.text.rawValue
+            document.orderIndex = 0
+            document.createdAt = now
+            document.modifiedAt = now
+            document.project = project
+        }
+        try store.save()
+
+        let controller = WorkspaceController(store: store)
+
+        XCTAssertEqual(controller.projects.map(\.id), [project.id])
+        XCTAssertTrue(controller.isSharedProject(project))
+        controller.selection = .document(document.id)
+        XCTAssertEqual(controller.selectedDocument?.id, document.id)
+        XCTAssertTrue(controller.binderItems.description.contains("Opening Scene"))
+    }
+
     func testCreatesStarterProjectWithWorkspaceRootsAndNarrative() throws {
         let controller = try makeController()
 

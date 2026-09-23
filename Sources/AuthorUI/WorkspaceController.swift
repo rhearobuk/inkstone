@@ -465,9 +465,13 @@ public final class WorkspaceController: ObservableObject {
         return projects.first { $0.id == selectedProjectID }
     }
 
+    public func isSharedProject(_ project: WritingProject) -> Bool {
+        store.scope(of: project) == .participantShared
+    }
+
     public var selectedDocument: Document? {
         guard case .document(let id) = selection else { return nil }
-        return try? store.documents.fetch(id: id)
+        return try? store.fetchAcrossStores(Document.self, id: id)
     }
 
     /// Returns only publication roots matching the selected narrative object's level. This keeps
@@ -510,7 +514,7 @@ public final class WorkspaceController: ObservableObject {
 
     public var selectedSemanticEntity: SemanticEntity? {
         guard case .semanticEntity(let id) = selection else { return nil }
-        return try? store.semanticEntities.fetch(id: id)
+        return try? store.fetchAcrossStores(SemanticEntity.self, id: id)
     }
 
     public var selectedCharacterProfile: CharacterProfile? {
@@ -525,7 +529,7 @@ public final class WorkspaceController: ObservableObject {
 
     public var selectedStoryBibleCard: StoryBibleCard? {
         if case .document(let id) = selection,
-           let document = try? store.documents.fetch(id: id) {
+           let document = try? store.fetchAcrossStores(Document.self, id: id) {
             return importedPlaceCard(for: document)
         }
         guard case .storyBibleCard(let id) = selection else { return nil }
@@ -791,7 +795,8 @@ public final class WorkspaceController: ObservableObject {
     public func refresh() {
         do {
             murderBoardBookScopedEntityCache.removeAll()
-            let allProjects = try store.projects.fetchAll(
+            let allProjects = try store.fetchAcrossStores(
+                WritingProject.self,
                 sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
             )
             projects = allProjects
@@ -825,7 +830,10 @@ public final class WorkspaceController: ObservableObject {
     }
 
     public var trashedProjects: [WritingProject] {
-        (try? store.projects.fetchAll(sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]))?
+        (try? store.fetchAcrossStores(
+            WritingProject.self,
+            sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
+        ))?
             .filter { isProjectTrashed($0.id) } ?? []
     }
 
@@ -982,7 +990,7 @@ public final class WorkspaceController: ObservableObject {
     public func isDocumentTrashed(_ documentID: UUID) -> Bool {
         let trashedIDs = Set(projectListPreferences.stringArray(forKey: "trashedDocumentIDs") ?? [])
         if trashedIDs.contains(documentID.uuidString) { return true }
-        if let doc = try? store.documents.fetch(id: documentID), !doc.isDeleted {
+        if let doc = try? store.fetchAcrossStores(Document.self, id: documentID), !doc.isDeleted {
             return isDocumentTrashed(doc)
         }
         return false
@@ -1008,7 +1016,7 @@ public final class WorkspaceController: ObservableObject {
     public func isDocumentHidden(_ documentID: UUID) -> Bool {
         let hiddenIDs = Set(projectListPreferences.stringArray(forKey: "hiddenDocumentIDs") ?? [])
         if hiddenIDs.contains(documentID.uuidString) { return true }
-        if let doc = try? store.documents.fetch(id: documentID), !doc.isDeleted {
+        if let doc = try? store.fetchAcrossStores(Document.self, id: documentID), !doc.isDeleted {
             return isDocumentHidden(doc)
         }
         return false
@@ -1059,12 +1067,12 @@ public final class WorkspaceController: ObservableObject {
     }
 
     public func documentTitle(for id: UUID) -> String {
-        (try? store.documents.fetch(id: id))?.title ?? "this scene"
+        (try? store.fetchAcrossStores(Document.self, id: id))?.title ?? "this scene"
     }
 
     public func projectTitle(for id: UUID) -> String {
         projects.first(where: { $0.id == id })?.title ??
-            (try? store.projects.fetch(id: id))?.title ?? "this project"
+            (try? store.fetchAcrossStores(WritingProject.self, id: id))?.title ?? "this project"
     }
 
     public func deleteDocumentPermanently(_ documentID: UUID) throws {
@@ -2799,7 +2807,8 @@ public final class WorkspaceController: ObservableObject {
     }
 
     private func documents(in project: WritingProject) -> [Document] {
-        guard let fetched = try? store.documents.fetchAll(
+        guard let fetched = try? store.fetchAcrossStores(
+            Document.self,
             sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
         ) else {
             return project.documents.filter { !$0.isDeleted }

@@ -546,7 +546,12 @@ public struct AuthorWorkspaceView: View {
                 ForEach(activeProjects, id: \.id) { project in
                     Label {
                         HStack {
-                            Text(project.title)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(project.title)
+                                Text(controller.isSharedProject(project) ? "Shared with You" : "Owned by You")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                             if controller.isProjectHidden(project.id) {
                                 Spacer()
                                 Image(systemName: "eye.slash")
@@ -627,6 +632,25 @@ public struct AuthorWorkspaceView: View {
 
     private var binder: some View {
         VStack(spacing: 0) {
+            if let project = controller.selectedProject {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(project.title)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Label(
+                            controller.isSharedProject(project) ? "Shared with You" : "Owned by You",
+                            systemImage: controller.isSharedProject(project) ? "person.2.fill" : "person.crop.circle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(controller.isSharedProject(project) ? .blue : .secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                Divider()
+            }
             if showsBinderFind {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
