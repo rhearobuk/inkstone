@@ -341,14 +341,18 @@ extension WorkspaceController {
     ) throws -> ManagedContent {
         switch target {
         case .document(let id):
-            let document = try store.documents.require(id: id)
+            guard let document = try store.fetchAcrossStores(Document.self, id: id) else {
+                throw WorkspaceError.missingDocument(id)
+            }
             guard !document.isDeleted, document.project.id == selectedProjectID,
                   allowsTrashed || !isDocumentTrashed(document) else {
                 throw ContentManagementError.unavailableTarget
             }
             return .document(document)
         case .semanticEntity(let id):
-            let entity = try store.semanticEntities.require(id: id)
+            guard let entity = try store.fetchAcrossStores(SemanticEntity.self, id: id) else {
+                throw ContentManagementError.unavailableTarget
+            }
             guard !entity.isDeleted, entity.project.id == selectedProjectID else {
                 throw ContentManagementError.unavailableTarget
             }

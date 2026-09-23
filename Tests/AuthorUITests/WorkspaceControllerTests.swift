@@ -36,6 +36,7 @@ final class WorkspaceControllerTests: XCTestCase {
         controller.selection = .document(document.id)
         XCTAssertEqual(controller.selectedDocument?.id, document.id)
         XCTAssertTrue(controller.binderItems.description.contains("Opening Scene"))
+        XCTAssertNoThrow(try controller.contentMetadata(for: .document(document.id)))
     }
 
     func testCreatesStarterProjectWithWorkspaceRootsAndNarrative() throws {
