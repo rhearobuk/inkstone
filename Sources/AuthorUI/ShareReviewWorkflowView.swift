@@ -6,6 +6,11 @@ import SwiftUI
 public final class ShareReviewWorkflowModel: ObservableObject {
     public enum GroupKind: String, CaseIterable, Identifiable { case manuscript, feedback, context; public var id: Self { self } }
     public enum GroupState: Equatable { case notRequired, ready, pending, succeeded, failed(String) }
+    public struct ScopeOption: Identifiable, Hashable {
+        public let id: UUID?
+        public let title: String
+        public let depth: Int
+    }
 
     @Published public var recipient = ""
     @Published public var role: SharingRole = .reviewer
@@ -19,12 +24,12 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     @Published public private(set) var isCreatingInvitation = false
 
     public let project: WritingProject
-    @Published public var scopeRoot: Document
+    @Published public var selectedScopeID: UUID?
     private let service: CloudKitSharingService
 
     public init(project: WritingProject, scopeRoot: Document, service: CloudKitSharingService) {
         self.project = project
-        self.scopeRoot = scopeRoot
+        selectedScopeID = scopeRoot.id
         self.service = service
         let statuses = project.statusDefinitions.filter(\.isDefault).map(\.sourceIdentifier)
         selectedStatusIdentifiers = Set(statuses)
@@ -36,10 +41,21 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         project.statusDefinitions.sorted { ($0.orderIndex, $0.sourceIdentifier) < ($1.orderIndex, $1.sourceIdentifier) }
     }
 
-    public var availableBooks: [Document] {
-        projectDocuments
-            .filter { $0.narrativeType == NarrativeType.book.rawValue }
-            .sorted { ($0.orderIndex, $0.title, $0.id.uuidString) < ($1.orderIndex, $1.title, $1.id.uuidString) }
+    public var availableScopes: [ScopeOption] {
+        let documents = projectDocuments
+        let ids = Set(documents.map(\.id))
+        let children = Dictionary(grouping: documents, by: { document in
+            document.parentID.flatMap(ids.contains) == true ? document.parentID : nil
+        })
+        var result = [ScopeOption(id: nil, title: project.title, depth: 0)]
+        func append(_ document: Document, depth: Int) {
+            result.append(ScopeOption(id: document.id, title: document.title, depth: depth))
+            for child in (children[document.id] ?? []).sorted(by: documentOrder) {
+                append(child, depth: depth + 1)
+            }
+        }
+        for root in (children[nil] ?? []).sorted(by: documentOrder) { append(root, depth: 1) }
+        return result
     }
 
     private var projectDocuments: [Document] {
@@ -47,7 +63,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             predicate: NSPredicate(format: "projectID == %@", project.id as CVarArg)
         )) ?? Array(project.documents)
         var seenIDs = Set<UUID>()
-        return fetched.filter { !$0.isDeleted && seenIDs.insert($0.id).inserted }
+        return fetched.filter { !$0.isDeleted && $0.sharingGroupID == nil && seenIDs.insert($0.id).inserted }
     }
 
     public var canShare: Bool {
@@ -73,7 +89,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
 
     public func rebuildPreview() {
         do {
-            let records = projectDocuments.map { document in
+            var records = projectDocuments.map { document in
                 ReviewPolicyRecord(
                     id: document.id,
                     projectID: project.id,
@@ -83,10 +99,27 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                     includeInCompile: document.includeInCompile?.boolValue
                 )
             }
+            let scopeRootID: UUID
+            if let selectedScopeID {
+                scopeRootID = selectedScopeID
+            } else {
+                scopeRootID = project.id
+                records = records.map { record in
+                    ReviewPolicyRecord(
+                        id: record.id,
+                        projectID: record.projectID,
+                        parentID: record.parentID ?? project.id,
+                        kind: record.kind,
+                        statusIdentifier: record.statusIdentifier,
+                        includeInCompile: record.includeInCompile
+                    )
+                }
+                records.append(ReviewPolicyRecord(id: project.id, projectID: project.id, kind: .structure))
+            }
             let policy = ReviewAccessPolicy(
                 version: 1,
                 projectID: project.id,
-                scopeRootID: scopeRoot.id,
+                scopeRootID: scopeRootID,
                 reviewableStatusIdentifiers: selectedStatusIdentifiers
             )
             let reviewRole: ReviewParticipantRole = role == .viewer ? .viewer : (role == .reviewer ? .reviewer : .editor)
@@ -232,21 +265,31 @@ public final class ShareReviewWorkflowModel: ObservableObject {
 
     private func prepareGroup(for kind: GroupKind) throws -> SharingGroup {
         let domain = domain(for: kind)
+        let scopeRootID = selectedScopeID ?? project.id
         let predicate = NSPredicate(
             format: "projectID == %@ AND scopeRootID == %@ AND domain == %@",
-            project.id as CVarArg, scopeRoot.id as CVarArg, domain.rawValue
+            project.id as CVarArg, scopeRootID as CVarArg, domain.rawValue
         )
-        let group = try service.dataStore.sharingGroups.fetchAll(predicate: predicate).first
-            ?? service.dataStore.sharingGroups.create { group in
+        let existing = try service.dataStore.sharingGroups.fetchAll(predicate: predicate).first { group in
+            group.state != "legacyRevoked"
+                && (try? service.isLegacyProjectShare(group, project: project)) != true
+        }
+        let group = existing ?? service.dataStore.sharingGroups.create { group in
                 group.projectID = project.id
-                group.scopeRootID = scopeRoot.id
+                group.scopeRootID = scopeRootID
                 group.domain = domain.rawValue
                 group.state = "preparing"
                 group.createdAt = Date()
                 group.modifiedAt = Date()
             }
-        // Groups describe Inkstone-level access inside the project's single CKShare.
-        // They must never re-parent or detach the canonical project object graph.
+        if kind == .manuscript, let preview {
+            let includedIDs = Set(preview.included.map(\.recordID))
+            try service.prepareScopedManuscript(
+                for: group,
+                project: project,
+                documents: projectDocuments.filter { includedIDs.contains($0.id) }
+            )
+        }
         group.state = "ready"
         group.modifiedAt = Date()
         try service.dataStore.save()
@@ -266,6 +309,10 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     private func isFailed(_ state: GroupState?) -> Bool {
         if case .failed = state { return true }
         return false
+    }
+
+    private func documentOrder(_ lhs: Document, _ rhs: Document) -> Bool {
+        (lhs.orderIndex, lhs.title, lhs.id.uuidString) < (rhs.orderIndex, rhs.title, rhs.id.uuidString)
     }
 }
 
@@ -319,7 +366,7 @@ public struct ShareReviewWorkflowView: View {
                 model.refreshParticipants()
             }
             .onChange(of: model.role) { _, _ in model.rebuildPreview() }
-            .onChange(of: model.scopeRoot) { _, _ in model.rebuildPreview() }
+            .onChange(of: model.selectedScopeID) { _, _ in model.rebuildPreview() }
             .onChange(of: model.selectedStatusIdentifiers) { _, _ in model.rebuildPreview() }
         }
         .frame(minWidth: 700, idealWidth: 760, minHeight: 700, idealHeight: 780)
@@ -342,12 +389,16 @@ public struct ShareReviewWorkflowView: View {
     private var scopeSection: some View {
         Section("Scope") {
             LabeledContent("Project", value: model.project.title)
-            Picker("Book", selection: $model.scopeRoot) {
-                ForEach(model.availableBooks, id: \.objectID) { book in
-                    Text(book.title).tag(book)
+            Picker("Share", selection: $model.selectedScopeID) {
+                ForEach(model.availableScopes) { scope in
+                    Text(String(repeating: "  ", count: scope.depth) + scope.title)
+                        .tag(scope.id)
                 }
             }
-            .accessibilityIdentifier("shareReview.bookScope")
+            .accessibilityIdentifier("shareReview.contentScope")
+            Text("Choose the whole project or any binder item. Everything nested beneath that item is included according to the status rules below.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

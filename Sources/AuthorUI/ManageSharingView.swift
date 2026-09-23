@@ -57,13 +57,10 @@ public final class ManageSharingModel: ObservableObject {
         var refreshErrors: [String] = []
 
         for project in projects where !project.isDeleted {
-            let invitationURL: URL?
             do {
-                invitationURL = try await service.refreshInvitationStatuses(for: project)?.url
+                _ = try await service.refreshInvitationStatuses(for: project)
             } catch CloudSharingError.localOnlyBuild {
-                invitationURL = nil
             } catch {
-                invitationURL = nil
                 refreshErrors.append("\(project.title): \(error.localizedDescription)")
             }
 
@@ -75,11 +72,13 @@ public final class ManageSharingModel: ObservableObject {
             let participants = ((try? service.dataStore.shareParticipants.fetchAll()) ?? []).filter {
                 $0.sharingGroupID.map(groupIDs.contains) == true && $0.invitationState != "revoked"
             }
-            let participantsByIdentity = Dictionary(grouping: participants) {
-                $0.cloudKitIdentity?.lowercased() ?? $0.id.uuidString
+            let participantsByIdentityAndScope = Dictionary(grouping: participants) { participant in
+                let identity = participant.cloudKitIdentity?.lowercased() ?? participant.id.uuidString
+                let scopeID = participant.sharingGroupID.flatMap { groupsByID[$0]?.scopeRootID }
+                return "\(identity)|\(scopeID?.uuidString ?? "project")"
             }
 
-            for (identity, records) in participantsByIdentity {
+            for (rowKey, records) in participantsByIdentityAndScope {
                 let sortedRecords = records.sorted { ($0.modifiedAt ?? .distantPast) > ($1.modifiedAt ?? .distantPast) }
                 guard let latest = sortedRecords.first else { continue }
                 let accessGroups = sortedRecords.compactMap { record -> AccessGroup? in
@@ -93,9 +92,13 @@ public final class ManageSharingModel: ObservableObject {
                 .reduce(into: [UUID: AccessGroup]()) { $0[$1.id] = $1 }
                 .values
                 .sorted { $0.name < $1.name }
+                let manuscriptGroup = sortedRecords.compactMap { record in
+                    record.sharingGroupID.flatMap { groupsByID[$0] }
+                }.first { $0.domain == SharingGroupDomain.manuscript.rawValue }
+                let invitationURL = manuscriptGroup.flatMap { try? service.invitationURL(for: $0) }
 
                 updatedRows.append(ShareRow(
-                    id: "\(project.id.uuidString)-\(identity)",
+                    id: "\(project.id.uuidString)-\(rowKey)",
                     projectTitle: project.title,
                     recipient: latest.cloudKitIdentity ?? "Unknown participant",
                     role: latest.inkstoneRole,
@@ -131,8 +134,11 @@ public final class ManageSharingModel: ObservableObject {
         service: CloudKitSharingService
     ) -> String {
         let scopeTitle: String
-        if let scopeID = group.scopeRootID,
-           let document = try? service.dataStore.documents.fetch(id: scopeID) {
+        if let scopeID = group.scopeRootID, scopeID != project.id,
+           let document = try? service.dataStore.documents.fetchAll(predicate: NSPredicate(
+                format: "id == %@ AND sharingGroupID == nil",
+                scopeID as CVarArg
+           )).first {
             scopeTitle = document.title
         } else {
             scopeTitle = project.title

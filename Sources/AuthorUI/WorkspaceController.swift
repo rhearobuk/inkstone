@@ -471,7 +471,8 @@ public final class WorkspaceController: ObservableObject {
 
     public var selectedDocument: Document? {
         guard case .document(let id) = selection else { return nil }
-        return try? store.fetchAcrossStores(Document.self, id: id)
+        guard let project = selectedProject else { return nil }
+        return documents(in: project).first { $0.id == id }
     }
 
     /// Returns only publication roots matching the selected narrative object's level. This keeps
@@ -801,6 +802,10 @@ public final class WorkspaceController: ObservableObject {
             )
             projects = allProjects
                 .filter {
+                    if $0.sourceFormat == CloudKitSharingService.scopedProjectionSourceFormat,
+                       store.scope(of: $0) != .participantShared {
+                        return false
+                    }
                     let trashed = isProjectTrashed($0.id)
                     let hidden = isProjectHidden($0.id)
                     if trashed {
@@ -1692,7 +1697,8 @@ public final class WorkspaceController: ObservableObject {
         synopsis: String?,
         plainText: String?
     ) {
-        guard let document = try? store.documents.fetch(id: documentID) else { return }
+        guard let project = selectedProject,
+              let document = documents(in: project).first(where: { $0.id == documentID }) else { return }
         document.title = title
         document.synopsis = synopsis?.nilIfBlank
         document.plainText = plainText
@@ -1706,14 +1712,15 @@ public final class WorkspaceController: ObservableObject {
     }
 
     public func updateDocumentRichText(documentID: UUID, rtfData: Data, plainText: String) {
-        guard let document = try? store.documents.fetch(id: documentID) else {
+        guard let project = selectedProject,
+              let document = documents(in: project).first(where: { $0.id == documentID }) else {
             return
         }
         let resource = document.resources.first {
             $0.role == "content"
                 && $0.mediaType == "application/rtf"
                 && !$0.isSourcePreserved
-        } ?? store.resources.create {
+        } ?? (store.scope(of: document) == .ownerPrivate ? store.resources.create {
             $0.sourcePath = "Native/Documents/\(document.id.uuidString)/content.rtf"
             $0.role = "content"
             $0.mediaType = "application/rtf"
@@ -1722,15 +1729,15 @@ public final class WorkspaceController: ObservableObject {
             $0.isSourcePreserved = false
             $0.project = document.project
             $0.document = document
-        }
+        } : nil)
         document.plainText = plainText
         WordCountService.recomputeOwnWordCount(for: document)
         document.modifiedAt = Date()
         document.project.modifiedAt = Date()
-        resource.data = rtfData
-        resource.textContent = plainText
-        resource.byteCount = Int64(rtfData.count)
-        resource.sha256 = SHA256.hash(data: rtfData).map { String(format: "%02x", $0) }.joined()
+        resource?.data = rtfData
+        resource?.textContent = plainText
+        resource?.byteCount = Int64(rtfData.count)
+        resource?.sha256 = SHA256.hash(data: rtfData).map { String(format: "%02x", $0) }.joined()
         if !binderSearchText.isEmpty {
             rebuildBinder()
         }
@@ -2642,7 +2649,11 @@ public final class WorkspaceController: ObservableObject {
         }
         let activeDocuments = documents.filter { !isDocumentTrashed($0) }
         let binderDocuments = showsHiddenDocuments ? activeDocuments : activeDocuments.filter { !isDocumentHidden($0) }
-        let roots = binderDocuments.filter { $0.parentID == nil }.sorted(by: documentOrder)
+        let binderDocumentIDs = Set(binderDocuments.map(\.id))
+        let roots = binderDocuments.filter { document in
+            guard let parentID = document.parentID else { return true }
+            return !binderDocumentIDs.contains(parentID)
+        }.sorted(by: documentOrder)
         let storyBibleRoots = Dictionary(grouping: roots.compactMap { document in
             storyBibleCategory(for: document).map { ($0, document) }
         }, by: \.0)
@@ -2806,7 +2817,7 @@ public final class WorkspaceController: ObservableObject {
         )
     }
 
-    private func documents(in project: WritingProject) -> [Document] {
+    func documents(in project: WritingProject) -> [Document] {
         guard let fetched = try? store.fetchAcrossStores(
             Document.self,
             sortedBy: [NSSortDescriptor(key: "modifiedAt", ascending: false)]
@@ -2814,9 +2825,17 @@ public final class WorkspaceController: ObservableObject {
             return project.documents.filter { !$0.isDeleted }
         }
 
+        let expectsSharedProjection = store.scope(of: project) == .participantShared
+            && project.sourceFormat == CloudKitSharingService.scopedProjectionSourceFormat
         var seenIDs = Set<UUID>()
         return fetched.filter { document in
             guard !document.isDeleted, document.projectID == project.id else { return false }
+            if expectsSharedProjection {
+                guard document.sharingGroupID != nil,
+                      store.scope(of: document) == .participantShared else { return false }
+            } else if document.sharingGroupID != nil {
+                return false
+            }
             return seenIDs.insert(document.id).inserted
         }
     }

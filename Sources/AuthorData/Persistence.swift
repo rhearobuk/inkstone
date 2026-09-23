@@ -316,8 +316,17 @@ public final class AuthorDataStore {
     ) throws -> Model? {
         let request = NSFetchRequest<Model>(entityName: Model.entityName)
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-        request.fetchLimit = 1
-        return try context.fetch(request).first
+        let matches = try context.fetch(request)
+        if Model.self == Document.self {
+            return matches.first { ($0 as? Document)?.sharingGroupID == nil }
+                ?? matches.first
+        }
+        if Model.self == WritingProject.self {
+            return matches.first {
+                ($0 as? WritingProject)?.sourceFormat != CloudKitSharingService.scopedProjectionSourceFormat
+            } ?? matches.first
+        }
+        return matches.first
     }
 
     /// Fetches display records from both the private and shared databases. New
@@ -367,7 +376,18 @@ public final class EntityRepository<Model: AuthorManagedObject> {
 
     public func fetch(id: UUID) throws -> Model? {
         let request = makeRequest()
-        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        var predicates = [NSPredicate(format: "id == %@", id as CVarArg)]
+        if persistentStore?.configurationName == AuthorStoreScope.ownerPrivate.configurationName {
+            if Model.self == Document.self {
+                predicates.append(NSPredicate(format: "sharingGroupID == nil"))
+            } else if Model.self == WritingProject.self {
+                predicates.append(NSPredicate(
+                    format: "sourceFormat != %@",
+                    CloudKitSharingService.scopedProjectionSourceFormat
+                ))
+            }
+        }
+        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         request.fetchLimit = 1
         return try context.fetch(request).first
     }

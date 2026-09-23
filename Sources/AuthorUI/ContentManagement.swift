@@ -341,7 +341,8 @@ extension WorkspaceController {
     ) throws -> ManagedContent {
         switch target {
         case .document(let id):
-            guard let document = try store.fetchAcrossStores(Document.self, id: id) else {
+            guard let project = selectedProject,
+                  let document = documents(in: project).first(where: { $0.id == id }) else {
                 throw WorkspaceError.missingDocument(id)
             }
             guard !document.isDeleted, document.project.id == selectedProjectID,

@@ -5,6 +5,55 @@ import Testing
 @Suite("Canonical production sharing graph", .serialized)
 @MainActor
 struct CanonicalSharingGraphTests {
+    @Test("Overlapping binder scopes create isolated projections without moving canonical documents")
+    func overlappingScopedProjections() throws {
+        let store = try AuthorDataStore(inMemory: true)
+        let project = store.projects.create {
+            $0.title = "Flexible Outline"; $0.sourceIdentifier = "project"; $0.sourceFormat = "native"
+            $0.createdAt = Date(); $0.modifiedAt = Date()
+        }
+        let book = store.documents.create {
+            $0.project = project; $0.sourceIdentifier = "book"; $0.title = "Book"
+            $0.kind = DocumentKind.folder.rawValue; $0.narrativeType = NarrativeType.book.rawValue
+        }
+        let chapter = store.documents.create {
+            $0.project = project; $0.parent = book; $0.sourceIdentifier = "chapter"; $0.title = "Chapter"
+            $0.kind = DocumentKind.text.rawValue; $0.narrativeType = NarrativeType.chapter.rawValue
+            $0.plainText = "Canonical chapter text"
+        }
+        let bookGroup = store.sharingGroups.create {
+            $0.projectID = project.id; $0.scopeRootID = book.id
+            $0.domain = SharingGroupDomain.manuscript.rawValue; $0.state = "preparing"
+        }
+        let chapterGroup = store.sharingGroups.create {
+            $0.projectID = project.id; $0.scopeRootID = chapter.id
+            $0.domain = SharingGroupDomain.manuscript.rawValue; $0.state = "preparing"
+        }
+        try store.save()
+        let service = CloudKitSharingService(dataStore: store)
+
+        try service.prepareScopedManuscript(for: bookGroup, project: project, documents: [book, chapter])
+        try service.prepareScopedManuscript(for: chapterGroup, project: project, documents: [chapter])
+
+        #expect(book.sharingGroupID == nil)
+        #expect(chapter.sharingGroupID == nil)
+        #expect(chapter.project == project)
+        let bookCopies = try store.documents.fetchAll(predicate: NSPredicate(
+            format: "sharingGroupID == %@", bookGroup.id as CVarArg
+        ))
+        let chapterCopies = try store.documents.fetchAll(predicate: NSPredicate(
+            format: "sharingGroupID == %@", chapterGroup.id as CVarArg
+        ))
+        #expect(Set(bookCopies.map(\.id)) == [book.id, chapter.id])
+        #expect(chapterCopies.map(\.id) == [chapter.id])
+        #expect(chapterCopies.first?.plainText == "Canonical chapter text")
+        #expect(try store.projects.fetchAll(predicate: NSPredicate(
+            format: "sourceFormat == %@", CloudKitSharingService.scopedProjectionSourceFormat
+        )).count == 2)
+        let allowed = Set(bookCopies.map(\.objectID)).union([bookGroup.objectID])
+        #expect(CoreDataSharingPreflight.audit(root: bookGroup, allowedObjectIDs: allowed).isObjectGraphSafe)
+    }
+
     @Test("Manuscript preparation detaches private graph without copying text")
     func manuscriptBoundary() throws {
         let store = try AuthorDataStore(inMemory: true)

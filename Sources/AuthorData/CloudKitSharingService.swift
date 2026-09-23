@@ -59,6 +59,7 @@ public struct SharingWorkflowResult: Equatable, Sendable {
 
 @MainActor
 public final class CloudKitSharingService {
+    public static let scopedProjectionSourceFormat = "inkstone-scoped-share"
     public let dataStore: AuthorDataStore
     private var processedInvitationIDs = Set<CKRecord.ID>()
 
@@ -87,6 +88,57 @@ public final class CloudKitSharingService {
         return result
     }
 
+    /// Builds an isolated, UUID-addressable projection for a binder subtree. The owner's
+    /// canonical records stay in the private graph, allowing the same source document to
+    /// participate in more than one independently permissioned share.
+    public func prepareScopedManuscript(
+        for group: SharingGroup,
+        project: WritingProject,
+        documents sourceDocuments: [Document]
+    ) throws {
+        guard group.domain == SharingGroupDomain.manuscript.rawValue else { return }
+
+        let projectionIdentifier = scopedProjectIdentifier(for: group)
+        let existingProjection = try dataStore.projects.fetchAll(
+            predicate: NSPredicate(format: "sourceIdentifier == %@", projectionIdentifier)
+        ).first
+        if existingProjection == nil {
+            let projection = dataStore.projects.create(id: project.id) { projection in
+                self.copyAttributes(from: project, to: projection)
+                projection.sourceIdentifier = projectionIdentifier
+                projection.sourceFormat = Self.scopedProjectionSourceFormat
+            }
+            projection.modifiedAt = Date()
+        }
+
+        let existingIDs = Set(try dataStore.documents.fetchAll(
+            predicate: NSPredicate(format: "sharingGroupID == %@", group.id as CVarArg)
+        ).map(\.id))
+        for source in sourceDocuments where !existingIDs.contains(source.id) {
+            let projection = dataStore.documents.create(id: source.id) { projection in
+                self.copyAttributes(from: source, to: projection)
+                projection.projectID = project.id
+                projection.parentID = source.parentID
+                projection.sharingGroupID = group.id
+                projection.sharingGroup = group
+                projection.setPrimitiveValue(nil, forKey: "project")
+                projection.setPrimitiveValue(nil, forKey: "parent")
+                projection.setPrimitiveValue(NSSet(), forKey: "children")
+            }
+            projection.modifiedAt = source.modifiedAt
+        }
+        group.state = "ready"
+        group.modifiedAt = Date()
+        try dataStore.save()
+
+        let allowed = Set(group.documents.map(\.objectID)).union([group.objectID])
+        let report = CoreDataSharingPreflight.audit(root: group, allowedObjectIDs: allowed)
+        guard report.isObjectGraphSafe else {
+            let details = report.exposures.map(\.relationshipPath).joined(separator: ", ")
+            throw CloudSharingError.unsafeObjectGraph(details: details)
+        }
+    }
+
     public func publishInvitation(
         for group: SharingGroup,
         recipientEmail: String,
@@ -97,14 +149,16 @@ public final class CloudKitSharingService {
             throw CloudSharingError.publicSharingDisabled
         }
         guard let projectID = group.projectID,
-              let project = try dataStore.projects.fetch(id: projectID) else {
+              let project = try canonicalProject(id: projectID) else {
             throw CloudSharingError.recordOutsidePrivateStore
         }
+        try await retireLegacyProjectShare(for: project)
 
-        // A Core Data object graph can belong to only one CKShare zone. The project is the
-        // sole CloudKit sharing root; manuscript/feedback/context groups are local access rules.
         try dataStore.save()
-        let existing = try dataStore.container.fetchShares(matching: [project.objectID])[project.objectID]
+        let manuscriptGroup = try manuscriptGroup(for: group)
+        let projection = try scopedProject(for: manuscriptGroup)
+        let matches = try dataStore.container.fetchShares(matching: [manuscriptGroup.objectID, group.objectID])
+        let existing = matches[manuscriptGroup.objectID] ?? matches[group.objectID]
         let share: CKShare
         let cloudContainer: CKContainer
         if let existing {
@@ -118,8 +172,12 @@ public final class CloudKitSharingService {
                 throw error
             }
             share = existing
+            if matches[group.objectID] == nil {
+                _ = try await addObjects([group], to: share)
+            }
         } else {
-            (share, cloudContainer) = try await createPrivateShare(for: [project])
+            guard group.id == manuscriptGroup.id else { throw CloudSharingError.recordOutsidePrivateStore }
+            (share, cloudContainer) = try await createPrivateShare(for: [manuscriptGroup, projection])
         }
 
         let normalizedEmail = recipientEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -136,7 +194,8 @@ public final class CloudKitSharingService {
         if !share.participants.contains(where: { $0 === participant }) {
             share.addParticipant(participant)
         }
-        share[CKShare.SystemFieldKey.title] = project.title as CKRecordValue
+        let scopeTitle = try scopeTitle(for: manuscriptGroup) ?? project.title
+        share[CKShare.SystemFieldKey.title] = scopeTitle as CKRecordValue
         let updatedShare = try await persist(share, in: dataStore.privatePersistentStore)
 
         group.cloudKitShareID = share.recordID.recordName
@@ -159,40 +218,53 @@ public final class CloudKitSharingService {
         return updatedShare
     }
 
-    /// Fetches the latest server copy of a project's share and reconciles the
-    /// locally displayed invitation states with CloudKit's acceptance states.
+    /// Fetches each scoped share for a project and reconciles its invitation state.
     @discardableResult
     public func refreshInvitationStatuses(for project: WritingProject) async throws -> CKShare? {
         try requireCloudKit()
-        guard let localShare = try dataStore.container.fetchShares(matching: [project.objectID])[project.objectID] else {
-            return nil
-        }
-
-        let cloudContainer = CKContainer(identifier: Self.containerIdentifier)
-        let serverRecord = try await cloudContainer.privateCloudDatabase.record(for: localShare.recordID)
-        guard let serverShare = serverRecord as? CKShare else { return localShare }
-
-        let groupIDs = Set(try dataStore.sharingGroups.fetchAll(
+        let groups = try dataStore.sharingGroups.fetchAll(
             predicate: NSPredicate(format: "projectID == %@", project.id as CVarArg)
-        ).map(\.id))
-        let localParticipants = try dataStore.shareParticipants.fetchAll().filter {
-            $0.sharingGroupID.map(groupIDs.contains) == true && $0.invitationState != "revoked"
-        }
-
-        for participant in serverShare.participants where participant.role != .owner {
-            let identities = Self.identities(for: participant)
-            for record in localParticipants where identities.contains(record.cloudKitIdentity?.lowercased() ?? "") {
-                record.invitationState = Self.invitationState(for: participant.acceptanceStatus)
-                record.cloudKitPermission = participant.permission == .readOnly ? "readOnly" : "readWrite"
-                record.modifiedAt = Date()
+        )
+        let manuscriptGroups = groups.filter { $0.domain == SharingGroupDomain.manuscript.rawValue }
+        let matches = try dataStore.container.fetchShares(matching: manuscriptGroups.map(\.objectID))
+        let cloudContainer = CKContainer(identifier: Self.containerIdentifier)
+        var firstShare: CKShare?
+        for manuscriptGroup in manuscriptGroups {
+            guard let localShare = matches[manuscriptGroup.objectID] else { continue }
+            let serverRecord = try await cloudContainer.privateCloudDatabase.record(for: localShare.recordID)
+            let serverShare = (serverRecord as? CKShare) ?? localShare
+            firstShare = firstShare ?? serverShare
+            let scopeGroupIDs = Set(groups.filter {
+                $0.scopeRootID == manuscriptGroup.scopeRootID
+            }.map(\.id))
+            let localParticipants = try dataStore.shareParticipants.fetchAll().filter {
+                $0.sharingGroupID.map(scopeGroupIDs.contains) == true && $0.invitationState != "revoked"
+            }
+            for participant in serverShare.participants where participant.role != .owner {
+                let identities = Self.identities(for: participant)
+                for record in localParticipants where identities.contains(record.cloudKitIdentity?.lowercased() ?? "") {
+                    record.invitationState = Self.invitationState(for: participant.acceptanceStatus)
+                    record.cloudKitPermission = participant.permission == .readOnly ? "readOnly" : "readWrite"
+                    record.modifiedAt = Date()
+                }
             }
         }
         try dataStore.save()
-        return serverShare
+        return firstShare
     }
 
     public func invitationURL(for project: WritingProject) async throws -> URL? {
         try await refreshInvitationStatuses(for: project)?.url
+    }
+
+    public func invitationURL(for group: SharingGroup) throws -> URL? {
+        try projectShare(for: group).url
+    }
+
+    public func isLegacyProjectShare(_ group: SharingGroup, project: WritingProject) throws -> Bool {
+        let shares = try dataStore.container.fetchShares(matching: [project.objectID, group.objectID])
+        guard let projectShare = shares[project.objectID], let groupShare = shares[group.objectID] else { return false }
+        return projectShare.recordID == groupShare.recordID
     }
 
     public func participants(for group: SharingGroup) throws -> [ShareParticipant] {
@@ -338,6 +410,86 @@ public final class CloudKitSharingService {
         }
     }
 
+    private func addObjects(_ objects: [NSManagedObject], to share: CKShare) async throws -> CKShare {
+        try await withCheckedThrowingContinuation { continuation in
+            dataStore.container.share(objects, to: share) { _, updatedShare, _, error in
+                if let error { continuation.resume(throwing: error) }
+                else if let updatedShare { continuation.resume(returning: updatedShare) }
+                else { continuation.resume(throwing: CloudSharingError.recordOutsidePrivateStore) }
+            }
+        }
+    }
+
+    private func retireLegacyProjectShare(for project: WritingProject) async throws {
+        guard let legacyShare = try dataStore.container.fetchShares(matching: [project.objectID])[project.objectID] else {
+            return
+        }
+        if legacyShare.participants.contains(where: { $0.role != .owner }) {
+            try await revokeAllParticipants(from: legacyShare)
+        }
+        let legacyGroups = try dataStore.sharingGroups.fetchAll(predicate: NSPredicate(
+            format: "projectID == %@", project.id as CVarArg
+        )).filter { group in
+            (try? isLegacyProjectShare(group, project: project)) == true
+        }
+        for group in legacyGroups {
+            group.state = "legacyRevoked"
+            group.modifiedAt = Date()
+            for participant in try participants(for: group) {
+                participant.invitationState = "revoked"
+                participant.modifiedAt = Date()
+            }
+        }
+        try dataStore.save()
+    }
+
+    private func copyAttributes(from source: NSManagedObject, to destination: NSManagedObject) {
+        for key in source.entity.attributesByName.keys where key != "id" {
+            destination.setValue(source.value(forKey: key), forKey: key)
+        }
+    }
+
+    private func canonicalProject(id: UUID) throws -> WritingProject? {
+        try dataStore.projects.fetchAll(predicate: NSPredicate(format: "id == %@", id as CVarArg))
+            .first { $0.sourceFormat != Self.scopedProjectionSourceFormat }
+    }
+
+    private func manuscriptGroup(for group: SharingGroup) throws -> SharingGroup {
+        if group.domain == SharingGroupDomain.manuscript.rawValue { return group }
+        guard let projectID = group.projectID, let scopeRootID = group.scopeRootID,
+              let manuscript = try dataStore.sharingGroups.fetchAll(predicate: NSPredicate(
+                format: "projectID == %@ AND scopeRootID == %@ AND domain == %@",
+                projectID as CVarArg,
+                scopeRootID as CVarArg,
+                SharingGroupDomain.manuscript.rawValue
+              )).first else {
+            throw CloudSharingError.recordOutsidePrivateStore
+        }
+        return manuscript
+    }
+
+    private func scopedProjectIdentifier(for group: SharingGroup) -> String {
+        "scoped-share.\(group.id.uuidString)"
+    }
+
+    private func scopedProject(for group: SharingGroup) throws -> WritingProject {
+        guard let project = try dataStore.projects.fetchAll(predicate: NSPredicate(
+            format: "sourceIdentifier == %@",
+            scopedProjectIdentifier(for: group)
+        )).first else {
+            throw CloudSharingError.recordOutsidePrivateStore
+        }
+        return project
+    }
+
+    private func scopeTitle(for group: SharingGroup) throws -> String? {
+        guard let scopeRootID = group.scopeRootID else { return nil }
+        return try dataStore.documents.fetchAll(predicate: NSPredicate(
+            format: "id == %@ AND sharingGroupID == nil",
+            scopeRootID as CVarArg
+        )).first?.title
+    }
+
     private func requireCloudKit() throws {
         guard dataStore.cloudKitSyncEnabled else { throw CloudSharingError.localOnlyBuild }
     }
@@ -345,26 +497,25 @@ public final class CloudKitSharingService {
     private static var containerIdentifier: String { AuthorDataStore.cloudKitContainerIdentifier }
 
     private func projectShare(for group: SharingGroup) throws -> CKShare {
-        guard let projectID = group.projectID,
-              let project = try dataStore.projects.fetch(id: projectID) else {
-            throw CloudSharingError.recordOutsidePrivateStore
-        }
-        let shares = try dataStore.container.fetchShares(matching: [project.objectID, group.objectID])
-        guard let share = shares[project.objectID] ?? shares[group.objectID] else {
+        let manuscript = try manuscriptGroup(for: group)
+        let shares = try dataStore.container.fetchShares(matching: [manuscript.objectID, group.objectID])
+        guard let share = shares[manuscript.objectID] ?? shares[group.objectID] else {
             throw CloudSharingError.ownerAuthorityRequired
         }
         return share
     }
 
     private func participantRecords(identity: String, inProjectOf group: SharingGroup) throws -> [ShareParticipant] {
-        guard let projectID = group.projectID else { return [] }
-        let projectGroupIDs = Set(try dataStore.sharingGroups.fetchAll(
-            predicate: NSPredicate(format: "projectID == %@", projectID as CVarArg)
-        ).map(\.id))
+        guard let projectID = group.projectID, let scopeRootID = group.scopeRootID else { return [] }
+        let scopeGroupIDs = Set(try dataStore.sharingGroups.fetchAll(predicate: NSPredicate(
+            format: "projectID == %@ AND scopeRootID == %@",
+            projectID as CVarArg,
+            scopeRootID as CVarArg
+        )).map(\.id))
         return try dataStore.shareParticipants.fetchAll(
             predicate: NSPredicate(format: "cloudKitIdentity == %@", identity)
         ).filter { participant in
-            participant.sharingGroupID.map(projectGroupIDs.contains) == true
+            participant.sharingGroupID.map(scopeGroupIDs.contains) == true
         }
     }
 
