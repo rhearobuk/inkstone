@@ -2843,14 +2843,24 @@ public final class WorkspaceController: ObservableObject {
 
         let expectsSharedProjection = store.scope(of: project) == .participantShared
             && project.sourceFormat == CloudKitSharingService.scopedProjectionSourceFormat
+        let sharedGroup = expectsSharedProjection
+            ? (try? store.fetchAcrossStores(SharingGroup.self, id: project.id))
+            : nil
+        let allowedStatuses = sharedGroup?.reviewableStatusIdentifiers ?? []
         var seenIDs = Set<UUID>()
         return fetched.filter { document in
-            guard !document.isDeleted, document.projectID == project.id else { return false }
+            guard !document.isDeleted else { return false }
             if expectsSharedProjection {
                 guard document.sharingGroupID == project.id,
                       store.scope(of: document) == .participantShared else { return false }
-            } else if document.sharingGroupID != nil {
-                return false
+                if document.kind == DocumentKind.text.rawValue,
+                   !allowedStatuses.isEmpty,
+                   !allowedStatuses.contains(document.statusIdentifier ?? "") {
+                    return false
+                }
+            } else {
+                guard document.projectID == project.id,
+                      store.scope(of: document) == store.scope(of: project) else { return false }
             }
             return seenIDs.insert(document.id).inserted
         }

@@ -122,7 +122,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                 scopeRootID: scopeRootID,
                 reviewableStatusIdentifiers: selectedStatusIdentifiers
             )
-            let reviewRole: ReviewParticipantRole = role == .viewer ? .viewer : (role == .reviewer ? .reviewer : .editor)
+            let reviewRole = ReviewParticipantRole(rawValue: role.rawValue) ?? .viewer
             preview = try ReviewAccessPolicyResolver.preview(
                 policy: policy,
                 grant: .init(role: reviewRole, storyBible: storyBibleGrant),
@@ -289,10 +289,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             project.id as CVarArg, scopeRootID as CVarArg, domain.rawValue
         )
         let existing = try service.dataStore.sharingGroups.fetchAll(predicate: predicate).first {
-            // Once CloudKit has published a group, its record membership is immutable for
-            // invitation creation purposes. A new invitation must get a fresh group/share;
-            // otherwise records from an earlier, broader preparation can leak into this one.
-            $0.state != "revoked" && $0.cloudKitShareID == nil
+            $0.state != "revoked"
         }
         let group = existing ?? service.dataStore.sharingGroups.create { group in
                 group.projectID = project.id
@@ -303,6 +300,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                 group.modifiedAt = Date()
             }
         if kind == .manuscript, let preview {
+            group.reviewableStatusIdentifiers = selectedStatusIdentifiers
             let includedIDs = Set(preview.included.map(\.recordID))
             try service.prepareScopedManuscript(
                 for: group,

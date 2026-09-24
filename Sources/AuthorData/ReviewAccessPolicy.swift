@@ -3,14 +3,15 @@ import Foundation
 
 public enum ReviewParticipantRole: String, Codable, CaseIterable, Sendable {
     case viewer
-    case reviewer
     case editor
+    case reviewer
+    case collaborator
 
     public var capabilities: Set<ReviewCapability> {
         switch self {
         case .viewer: [.readManuscript]
-        case .reviewer: [.readManuscript, .createFeedback]
-        case .editor: [.readManuscript, .createFeedback, .editManuscript]
+        case .editor, .reviewer: [.readManuscript, .createFeedback]
+        case .collaborator: [.readManuscript, .createFeedback, .editManuscript]
         }
     }
 }

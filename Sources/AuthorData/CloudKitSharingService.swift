@@ -73,9 +73,8 @@ public final class CloudKitSharingService {
         return result
     }
 
-    /// Builds an isolated, UUID-addressable projection for a binder subtree. The owner's
-    /// canonical records stay in the private graph, allowing the same source document to
-    /// participate in more than one independently permissioned share.
+    /// Prepares the canonical manuscript records for sharing. The lightweight project record
+    /// is navigation metadata only; manuscript text is never copied.
     public func prepareScopedManuscript(
         for group: SharingGroup,
         project: WritingProject,
@@ -104,33 +103,14 @@ public final class CloudKitSharingService {
         }
 
         let requestedIDs = Set(sourceDocuments.map(\.id))
-        let existingDocuments = try dataStore.documents.fetchAll(
-            predicate: NSPredicate(format: "sharingGroupID == %@", group.id as CVarArg)
-        )
-        // Preparation is replacement, not accumulation. This guarantees the persisted group
-        // membership is identical to the current preview even after a failed/retried attempt.
-        for staleProjection in existingDocuments where !requestedIDs.contains(staleProjection.id) {
-            dataStore.context.delete(staleProjection)
+        for document in group.documents where !requestedIDs.contains(document.id) {
+            document.sharingGroup = nil
+            document.sharingGroupID = nil
         }
-        let existingIDs = Set(existingDocuments.lazy.filter { !$0.isDeleted }.map(\.id))
-        for source in sourceDocuments where !existingIDs.contains(source.id) {
-            let projection = dataStore.documents.create(id: source.id) { projection in
-                self.copyAttributes(from: source, to: projection)
-                projection.parentID = source.parentID
-                projection.sharingGroupID = group.id
-                projection.sharingGroup = group
-                projection.project = scopedProject
-                projection.setPrimitiveValue(nil, forKey: "parent")
-                projection.setPrimitiveValue(NSSet(), forKey: "children")
-            }
-            projection.modifiedAt = source.modifiedAt
-        }
-        for projection in group.documents {
-            projection.project = scopedProject
-        }
+        try CanonicalSharingGraphPreparer().prepareManuscript(sourceDocuments, for: group)
         let preparedIDs = Set(group.documents.lazy.filter { !$0.isDeleted }.map(\.id))
         guard preparedIDs == requestedIDs else {
-            throw CloudSharingError.unsafeObjectGraph(details: "prepared document membership did not match the selected preview")
+            throw CloudSharingError.unsafeObjectGraph(details: "canonical document membership did not match the selected preview")
         }
         group.state = "ready"
         group.modifiedAt = Date()

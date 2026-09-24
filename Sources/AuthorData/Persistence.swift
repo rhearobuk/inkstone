@@ -317,10 +317,7 @@ public final class AuthorDataStore {
         let request = NSFetchRequest<Model>(entityName: Model.entityName)
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
         let matches = try context.fetch(request)
-        if Model.self == Document.self {
-            return matches.first { ($0 as? Document)?.sharingGroupID == nil }
-                ?? matches.first
-        }
+        if Model.self == Document.self { return matches.first }
         if Model.self == WritingProject.self {
             return matches.first {
                 ($0 as? WritingProject)?.sourceFormat != CloudKitSharingService.scopedProjectionSourceFormat
@@ -378,9 +375,7 @@ public final class EntityRepository<Model: AuthorManagedObject> {
         let request = makeRequest()
         var predicates = [NSPredicate(format: "id == %@", id as CVarArg)]
         if persistentStore?.configurationName == AuthorStoreScope.ownerPrivate.configurationName {
-            if Model.self == Document.self {
-                predicates.append(NSPredicate(format: "sharingGroupID == nil"))
-            } else if Model.self == WritingProject.self {
+            if Model.self == WritingProject.self {
                 predicates.append(NSPredicate(
                     format: "sourceFormat != %@",
                     CloudKitSharingService.scopedProjectionSourceFormat

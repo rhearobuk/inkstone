@@ -12,7 +12,7 @@ struct SharingCommandAuthorizationTests {
         (.viewer, .createFeedback, false),
         (.reviewer, .createFeedback, true),
         (.reviewer, .editProse, false),
-        (.editor, .editProse, true),
+        (.editor, .editProse, false),
         (.editor, .editStructure, false),
         (.collaborator, .editStructure, true),
         (.collaborator, .administerSharing, false),

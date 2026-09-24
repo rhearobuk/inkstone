@@ -5,8 +5,8 @@ import Testing
 @Suite("Canonical production sharing graph", .serialized)
 @MainActor
 struct CanonicalSharingGraphTests {
-    @Test("Overlapping binder scopes create isolated projections without moving canonical documents")
-    func overlappingScopedProjections() throws {
+    @Test("Scoped sharing uses the canonical manuscript records")
+    func canonicalScopedManuscript() throws {
         let store = try AuthorDataStore(inMemory: true)
         let project = store.projects.create {
             $0.title = "Flexible Outline"; $0.sourceIdentifier = "project"; $0.sourceFormat = "native"
@@ -25,57 +25,43 @@ struct CanonicalSharingGraphTests {
             $0.projectID = project.id; $0.scopeRootID = book.id
             $0.domain = SharingGroupDomain.manuscript.rawValue; $0.state = "preparing"
         }
-        let chapterGroup = store.sharingGroups.create {
-            $0.projectID = project.id; $0.scopeRootID = chapter.id
-            $0.domain = SharingGroupDomain.manuscript.rawValue; $0.state = "preparing"
-        }
         try store.save()
         let service = CloudKitSharingService(dataStore: store)
 
         try service.prepareScopedManuscript(for: bookGroup, project: project, documents: [book, chapter])
-        try service.prepareScopedManuscript(for: chapterGroup, project: project, documents: [chapter])
 
-        #expect(book.sharingGroupID == nil)
-        #expect(chapter.sharingGroupID == nil)
+        #expect(book.sharingGroupID == bookGroup.id)
+        #expect(chapter.sharingGroupID == bookGroup.id)
         #expect(chapter.project == project)
-        let bookCopies = try store.documents.fetchAll(predicate: NSPredicate(
+        let sharedDocuments = try store.documents.fetchAll(predicate: NSPredicate(
             format: "sharingGroupID == %@", bookGroup.id as CVarArg
         ))
-        let chapterCopies = try store.documents.fetchAll(predicate: NSPredicate(
-            format: "sharingGroupID == %@", chapterGroup.id as CVarArg
-        ))
-        #expect(Set(bookCopies.map(\.id)) == [book.id, chapter.id])
-        #expect(chapterCopies.map(\.id) == [chapter.id])
-        #expect(chapterCopies.first?.plainText == "Canonical chapter text")
+        #expect(Set(sharedDocuments.map(\.id)) == [book.id, chapter.id])
+        #expect(try store.documents.count() == 2)
+        chapter.plainText = "Live canonical edit"
+        #expect(sharedDocuments.first(where: { $0.id == chapter.id })?.plainText == "Live canonical edit")
         #expect(try store.projects.fetchAll(predicate: NSPredicate(
             format: "sourceFormat == %@", CloudKitSharingService.scopedProjectionSourceFormat
-        )).count == 2)
+        )).count == 1)
         let scopedBookProject = try #require(store.projects.fetchAll(predicate: NSPredicate(
             format: "sourceIdentifier == %@",
             "scoped-share.\(bookGroup.id.uuidString)"
         )).first)
-        let scopedChapterProject = try #require(store.projects.fetchAll(predicate: NSPredicate(
-            format: "sourceIdentifier == %@",
-            "scoped-share.\(chapterGroup.id.uuidString)"
-        )).first)
         #expect(scopedBookProject.id == bookGroup.id)
-        #expect(scopedChapterProject.id == chapterGroup.id)
         #expect(scopedBookProject.id != project.id)
-        #expect(scopedChapterProject.id != project.id)
-        #expect(scopedBookProject.id != scopedChapterProject.id)
         #expect(scopedBookProject.title == "Book")
-        #expect(scopedChapterProject.title == "Chapter")
-        #expect(bookCopies.allSatisfy { $0.projectID == scopedBookProject.id })
-        #expect(chapterCopies.allSatisfy { $0.projectID == scopedChapterProject.id })
+        #expect(sharedDocuments.allSatisfy { $0.projectID == project.id })
 
         // Retrying preparation replaces membership exactly; it must never retain records
         // from an earlier, broader preview.
         try service.prepareScopedManuscript(for: bookGroup, project: project, documents: [chapter])
-        let narrowedCopies = try store.documents.fetchAll(predicate: NSPredicate(
+        let narrowedDocuments = try store.documents.fetchAll(predicate: NSPredicate(
             format: "sharingGroupID == %@", bookGroup.id as CVarArg
         ))
-        #expect(narrowedCopies.map(\.id) == [chapter.id])
-        let allowed = Set(narrowedCopies.map(\.objectID)).union([
+        #expect(narrowedDocuments.map(\.id) == [chapter.id])
+        #expect(book.sharingGroupID == nil)
+        #expect(try store.documents.count() == 2)
+        let allowed = Set(narrowedDocuments.map(\.objectID)).union([
             bookGroup.objectID,
             scopedBookProject.objectID
         ])

@@ -11,7 +11,8 @@ struct ReviewAccessPolicyTests {
     @Test("Every participant role receives only its owner-authorized capabilities", arguments: [
         (ReviewParticipantRole.viewer, Set([ReviewCapability.readManuscript])),
         (.reviewer, Set([.readManuscript, .createFeedback])),
-        (.editor, Set([.readManuscript, .createFeedback, .editManuscript]))
+        (.editor, Set([.readManuscript, .createFeedback])),
+        (.collaborator, Set([.readManuscript, .createFeedback, .editManuscript]))
     ])
     func roleCapabilities(role: ReviewParticipantRole, expected: Set<ReviewCapability>) throws {
         let result = try resolve(grant: .init(role: role))

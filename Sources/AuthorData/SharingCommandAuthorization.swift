@@ -71,7 +71,7 @@ public struct SharingCommandAuthorizer: Sendable {
             result = [.readManuscript, .readMetadata, .search, .export, .useAIContext, .createFeedback, .editFeedback]
         case .editor:
             result = [.readManuscript, .readMetadata, .search, .export, .useAIContext,
-                      .createFeedback, .editFeedback, .editProse, .editMetadata]
+                      .createFeedback, .editFeedback]
         case .collaborator:
             result = Set(SharingCommand.allCases).subtracting([.administerSharing, .readPrivateHistory])
         case .owner:

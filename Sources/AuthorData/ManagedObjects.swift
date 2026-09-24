@@ -336,6 +336,16 @@ public final class SharingGroup: NSManagedObject, AuthorManagedObject {
     @NSManaged public var documents: Set<Document>
     @NSManaged public var feedback: Set<Annotation>
     @NSManaged public var storyEntities: Set<SemanticEntity>
+
+    public var reviewableStatusIdentifiers: Set<String> {
+        get {
+            guard let value = ownerIdentity, value.hasPrefix("statuses:") else { return [] }
+            return Set(value.dropFirst("statuses:".count).split(separator: ",").map(String.init))
+        }
+        set {
+            ownerIdentity = "statuses:" + newValue.sorted().joined(separator: ",")
+        }
+    }
 }
 
 @objc(ShareParticipant)
