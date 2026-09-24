@@ -63,7 +63,11 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             predicate: NSPredicate(format: "projectID == %@", project.id as CVarArg)
         )) ?? Array(project.documents)
         var seenIDs = Set<UUID>()
-        return fetched.filter { !$0.isDeleted && $0.sharingGroupID == nil && seenIDs.insert($0.id).inserted }
+        return fetched.filter { document in
+            !document.isDeleted
+                && service.dataStore.scope(of: document) == .ownerPrivate
+                && seenIDs.insert(document.id).inserted
+        }
     }
 
     public var canShare: Bool {
@@ -248,8 +252,8 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         if containsCocoaError(134060, in: nsError) {
             return "This local library still contains records tied to old iCloud shares. This is not an entitlement or connection problem. Reset the local development library before sharing again."
         }
-        if group == .context, nsError.domain == NSCocoaErrorDomain {
-            return "Story Bible access could not be prepared. Set Story Bible Access to None to continue without it."
+        if group == .context, error is CanonicalSharingGraphError {
+            return "Story Bible access could not be prepared: \(error.localizedDescription)"
         }
         if nsError.domain == CKErrorDomain,
            let code = CKError.Code(rawValue: nsError.code) {
@@ -307,6 +311,17 @@ public final class ShareReviewWorkflowModel: ObservableObject {
                 project: project,
                 documents: projectDocuments.filter { includedIDs.contains($0.id) }
             )
+        } else if kind == .context {
+            let entities: [SemanticEntity]
+            switch storyBibleGrant {
+            case .none:
+                entities = []
+            case .selected(let identifiers):
+                entities = project.semanticEntities.filter { identifiers.contains($0.id) }
+            case .fullRead, .edit:
+                entities = Array(project.semanticEntities)
+            }
+            try CanonicalSharingGraphPreparer().prepareStoryContext(entities, for: group)
         }
         group.state = "ready"
         group.modifiedAt = Date()
