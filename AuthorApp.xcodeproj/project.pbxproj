@@ -338,7 +338,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Sources/AuthorApp/AuthorApp-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
@@ -354,9 +354,10 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Configuration/AuthorApp-Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.3.1;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp;
 				PRODUCT_NAME = Inkstone;
 				REGISTER_APP_GROUPS = NO;
@@ -389,7 +390,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/AuthorApp/AuthorApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Sources/AuthorApp/AuthorApp-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = AUF5J8E9CA;
 				ENABLE_APP_SANDBOX = YES;
@@ -405,9 +406,10 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Configuration/AuthorApp-Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.3.1;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.robertrhea.AuthorApp;
 				PRODUCT_NAME = Inkstone;
 				REGISTER_APP_GROUPS = NO;
