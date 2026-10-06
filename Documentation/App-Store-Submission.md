@@ -112,7 +112,7 @@ Apple Intelligence walkthrough.
   Intelligence requires eligible hardware and OS 26+ with an available model.
 - Archive and validate signed Release builds for each submitted platform.
   Verify App Sandbox/file access/network capabilities, production push
-  entitlement and CloudKit container `iCloud.com.robertrhea.scribe`; verify its
+  entitlement and CloudKit container `iCloud.com.robertrhea.inkstone`; verify its
   production schema and sync using non-personal test content.
 - Inspect the final archive's `PrivacyInfo.xcprivacy` (UserDefaults reason
   `CA92.1`) and dependencies. Source configuration is not a signing or runtime
