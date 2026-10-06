@@ -456,6 +456,37 @@ public final class CloudKitSharingService {
         }
     }
 
+    /// Releases records still claimed by sharing groups that never reached CloudKit.
+    /// Preparation saves assignments before publishing, so a failed or abandoned attempt
+    /// (or one for a different scope) can leave records claimed with no CKShare behind them.
+    /// Records held by a group that has a live share are left untouched.
+    public func releaseUnpublishedAssignments(
+        documents: [Document],
+        entities: [SemanticEntity],
+        keeping group: SharingGroup
+    ) throws {
+        let claimedIDs = Set(documents.compactMap(\.sharingGroupID) + entities.compactMap(\.sharingGroupID))
+            .subtracting([group.id])
+        guard !claimedIDs.isEmpty else { return }
+        let claimingGroups = try dataStore.sharingGroups.fetchAll(
+            predicate: NSPredicate(format: "id IN %@", Array(claimedIDs))
+        )
+        let shares = (try? dataStore.container.fetchShares(matching: claimingGroups.map(\.objectID))) ?? [:]
+        let published = Set(claimingGroups.filter {
+            shares[$0.objectID] != nil || ($0.cloudKitShareID != nil && $0.state != "revoked")
+        }.map(\.id))
+        let releasable = claimedIDs.subtracting(published)
+        guard !releasable.isEmpty else { return }
+        for document in documents where document.sharingGroupID.map(releasable.contains) == true {
+            document.sharingGroup = nil
+            document.sharingGroupID = nil
+        }
+        for entity in entities where entity.sharingGroupID.map(releasable.contains) == true {
+            entity.contextGroup = nil
+            entity.sharingGroupID = nil
+        }
+    }
+
     private func canonicalProject(id: UUID) throws -> WritingProject? {
         try dataStore.projects.fetchAll(predicate: NSPredicate(format: "id == %@", id as CVarArg))
             .first { $0.sourceFormat != Self.scopedProjectionSourceFormat }

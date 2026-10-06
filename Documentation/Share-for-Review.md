@@ -12,6 +12,12 @@ Ready, Pending, Shared, or Failed; partial completion is never labelled fully
 shared and failed groups remain retryable. Recipients see only authorized
 navigation and content, never the author's exclusion explanations.
 
+A canonical record belongs to at most one sharing group, because a CloudKit record
+can live in only one share. Preparation saves group membership before publishing,
+so before each attempt Inkstone releases records held by groups that never got a
+CKShare (failed, abandoned, or different-scope attempts). Records in a live share
+stay put, and the owner sees which item and which shared scope already hold it.
+
 Sharing is asynchronous. Read-only manuscript access, permitted feedback,
 Story Bible access, and conflict recovery depend on the role and grants shown in
 the workflow. Revocation stops future access after CloudKit propagates, but it

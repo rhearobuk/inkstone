@@ -5,6 +5,50 @@ import Testing
 @Suite("Canonical production sharing graph", .serialized)
 @MainActor
 struct CanonicalSharingGraphTests {
+    @Test("A different scope can reclaim records from an unpublished attempt but not from a live share")
+    func reclaimsOnlyUnpublishedAssignments() throws {
+        let store = try AuthorDataStore(inMemory: true)
+        let project = store.projects.create {
+            $0.title = "Oz"; $0.sourceIdentifier = "project"; $0.sourceFormat = "native"
+            $0.createdAt = Date(); $0.modifiedAt = Date()
+        }
+        let book = store.documents.create {
+            $0.project = project; $0.sourceIdentifier = "book"; $0.title = "Ozma of Oz"
+            $0.kind = DocumentKind.folder.rawValue; $0.narrativeType = NarrativeType.book.rawValue
+        }
+        let chapter = store.documents.create {
+            $0.project = project; $0.parent = book; $0.sourceIdentifier = "chapter"; $0.title = "Chapter"
+            $0.kind = DocumentKind.text.rawValue
+        }
+        func group(scope: UUID) -> SharingGroup {
+            store.sharingGroups.create {
+                $0.projectID = project.id; $0.scopeRootID = scope
+                $0.domain = SharingGroupDomain.manuscript.rawValue; $0.state = "preparing"
+            }
+        }
+        let abandoned = group(scope: project.id)
+        try store.save()
+        let service = CloudKitSharingService(dataStore: store)
+        try service.prepareScopedManuscript(for: abandoned, project: project, documents: [book, chapter])
+
+        let bookGroup = group(scope: book.id)
+        #expect(throws: CanonicalSharingGraphError.self) {
+            try service.prepareScopedManuscript(for: bookGroup, project: project, documents: [book, chapter])
+        }
+        try service.releaseUnpublishedAssignments(documents: [book, chapter], entities: [], keeping: bookGroup)
+        try service.prepareScopedManuscript(for: bookGroup, project: project, documents: [book, chapter])
+        #expect(chapter.sharingGroupID == bookGroup.id)
+
+        bookGroup.cloudKitShareID = "live-share"
+        try store.save()
+        let otherGroup = group(scope: project.id)
+        try service.releaseUnpublishedAssignments(documents: [chapter], entities: [], keeping: otherGroup)
+        #expect(chapter.sharingGroupID == bookGroup.id)
+        #expect(throws: CanonicalSharingGraphError.recordAlreadyAssigned(recordID: chapter.id, groupID: bookGroup.id)) {
+            try service.prepareScopedManuscript(for: otherGroup, project: project, documents: [chapter])
+        }
+    }
+
     @Test("Scoped sharing uses the canonical manuscript records")
     func canonicalScopedManuscript() throws {
         let store = try AuthorDataStore(inMemory: true)

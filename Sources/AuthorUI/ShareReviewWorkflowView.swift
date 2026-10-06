@@ -156,12 +156,14 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         let required = GroupKind.allCases.filter { groupStates[$0] == .ready || isFailed(groupStates[$0]) }
         for kind in required { groupStates[kind] = .pending }
         var currentKind = required.first ?? .manuscript
+        var phase = "preparing"
         do {
             var preparedGroups: [(kind: GroupKind, group: SharingGroup)] = []
             for kind in required {
                 currentKind = kind
                 preparedGroups.append((kind, try prepareGroup(for: kind)))
             }
+            phase = "publishing"
             let share = try await service.publishInvitation(
                 for: preparedGroups.map(\.group),
                 recipientEmail: recipient.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -181,9 +183,10 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         } catch {
             service.dataStore.context.rollback()
             #if DEBUG
-            print("Inkstone sharing failed while preparing \(currentKind.rawValue): \(error)")
+            print("Inkstone sharing failed while \(phase) \(currentKind.rawValue): \(error)")
             #endif
-            let message = Self.actionableMessage(for: error, group: currentKind)
+            let message = alreadySharedMessage(for: error)
+                ?? Self.actionableMessage(for: error, group: currentKind)
             for kind in required { groupStates[kind] = .failed(message) }
             errorMessage = message
         }
@@ -236,6 +239,23 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// A canonical record can live in only one CloudKit share, so overlapping scopes conflict.
+    private func alreadySharedMessage(for error: Error) -> String? {
+        guard case .recordAlreadyAssigned(let recordID, let groupID) = error as? CanonicalSharingGraphError else {
+            return nil
+        }
+        let store = service.dataStore
+        let recordTitle = (try? store.documents.fetch(id: recordID))?.title
+            ?? (try? store.semanticEntities.fetch(id: recordID))?.canonicalName
+        let holder = try? store.sharingGroups.fetch(id: groupID)
+        let scopeTitle = holder?.scopeRootID.flatMap { scopeID in
+            scopeID == project.id ? project.title : (try? store.documents.fetch(id: scopeID))?.title
+        }
+        let record = recordTitle.map { "“\($0)”" } ?? "Some selected content"
+        let scope = scopeTitle.map { "the “\($0)” share" } ?? "another share"
+        return "\(record) is already part of \(scope). Each item can belong to only one shared scope. Nothing new was shared. To invite someone else to the same material, select that scope; otherwise stop sharing it in Manage Sharing first."
     }
 
     private static func actionableMessage(for error: Error, group: GroupKind) -> String {
@@ -307,11 +327,9 @@ public final class ShareReviewWorkflowModel: ObservableObject {
         if kind == .manuscript, let preview {
             group.reviewableStatusIdentifiers = selectedStatusIdentifiers
             let includedIDs = Set(preview.included.map(\.recordID))
-            try service.prepareScopedManuscript(
-                for: group,
-                project: project,
-                documents: projectDocuments.filter { includedIDs.contains($0.id) }
-            )
+            let documents = projectDocuments.filter { includedIDs.contains($0.id) }
+            try service.releaseUnpublishedAssignments(documents: documents, entities: [], keeping: group)
+            try service.prepareScopedManuscript(for: group, project: project, documents: documents)
         } else if kind == .context {
             let entities: [SemanticEntity]
             switch storyBibleGrant {
@@ -322,6 +340,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
             case .fullRead, .edit:
                 entities = Array(project.semanticEntities)
             }
+            try service.releaseUnpublishedAssignments(documents: [], entities: entities, keeping: group)
             try CanonicalSharingGraphPreparer().prepareStoryContext(entities, for: group)
         }
         group.state = "ready"
