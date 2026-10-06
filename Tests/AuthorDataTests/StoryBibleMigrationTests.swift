@@ -53,7 +53,7 @@ final class StoryBibleMigrationTests: XCTestCase {
 
         let migrated = try AuthorDataStore(storeURL: url)
         defer { try? close(migrated.container) }
-        XCTAssertEqual(migrated.container.managedObjectModel.versionIdentifiers, ["12"])
+        XCTAssertEqual(migrated.container.managedObjectModel.versionIdentifiers, ["13"])
         try assertGraph(fixture, in: migrated)
         try assertNewFieldsAreNil(in: migrated)
         let document = try migrated.documents.require(id: fixture.document)
@@ -192,6 +192,11 @@ final class StoryBibleMigrationTests: XCTestCase {
     private func populate(_ ids: Fixture, in context: NSManagedObjectContext) {
         func insert<T: AuthorManagedObject>(_ type: T.Type, id: UUID) -> T {
             let object = NSEntityDescription.insertNewObject(forEntityName: T.entityName, into: context) as! T
+            if let privateStore = context.persistentStoreCoordinator?.persistentStores.first(where: {
+                $0.configurationName == AuthorStoreScope.ownerPrivate.configurationName
+            }) {
+                context.assign(object, to: privateStore)
+            }
             object.id = id
             return object
         }

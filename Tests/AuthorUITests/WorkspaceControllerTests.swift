@@ -1140,9 +1140,7 @@ final class WorkspaceControllerTests: XCTestCase {
             return item.systemImage
         }
 
-        XCTAssertEqual(try icon(for: book.id), "folder")
-
-        controller.setNarrativeType(book, to: .book)
+        // New projects start with their first narrative folder typed as a book.
         XCTAssertEqual(try icon(for: book.id), "book.closed")
 
         controller.setNarrativeType(book, to: .chapter)
@@ -1357,6 +1355,53 @@ final class WorkspaceControllerTests: XCTestCase {
         let fileSource = try controller.scrivenerSource(from: scrivxURL)
         XCTAssertEqual(fileSource.xml.standardizedFileURL, scrivxURL.standardizedFileURL)
         XCTAssertEqual(fileSource.files.standardizedFileURL, filesURL.standardizedFileURL)
+    }
+
+    func testUnwrapsImportedStoryBibleContainerIntoCategories() throws {
+        let controller = try makeController()
+        let project = try controller.createProject(title: "Imported", createStarterContent: false)
+        func folder(_ title: String, parent: Document? = nil, order: Int64 = 0) -> Document {
+            controller.store.documents.create {
+                $0.sourceIdentifier = "scriv.\(title)"
+                $0.title = title
+                $0.kind = DocumentKind.folder.rawValue
+                $0.orderIndex = order
+                $0.project = project
+                $0.parent = parent
+            }
+        }
+        controller.store.documents.create {
+            $0.sourceIdentifier = "scriv.draft"
+            $0.title = "Manuscript"
+            $0.kind = DocumentKind.draftFolder.rawValue
+            $0.orderIndex = 0
+            $0.project = project
+        }
+        let bible = folder("Story Bible", order: 1)
+        let characters = folder("Characters", parent: bible, order: 0)
+        let places = folder("Places and Regions", parent: bible, order: 1)
+        let package = folder("Publishing Package", parent: bible, order: 2)
+        let dorothy = controller.store.documents.create {
+            $0.sourceIdentifier = "scriv.dorothy"
+            $0.title = "Dorothy"
+            $0.kind = DocumentKind.text.rawValue
+            $0.sectionTypeIdentifier = "Character"
+            $0.project = project
+            $0.parent = characters
+        }
+        try controller.store.save()
+
+        try controller.unwrapImportedStoryBibleContainers(in: project)
+        controller.refresh()
+
+        XCTAssertTrue(bible.isDeleted || bible.managedObjectContext == nil)
+        XCTAssertNil(characters.parent)
+        XCTAssertEqual(dorothy.parent?.id, characters.id)
+        XCTAssertEqual(controller.storyBibleCategory(for: characters), .people)
+        XCTAssertEqual(controller.storyBibleCategory(for: places), .places)
+        XCTAssertEqual(controller.storyBibleCategory(for: package), .research)
+        let narrative = try XCTUnwrap(controller.binderItems.first { $0.title == "Narrative" })
+        XCTAssertEqual(narrative.children?.map(\.title), ["Manuscript"])
     }
 
     func testSeparatesImportedStoryBibleRootsFromNarrative() throws {

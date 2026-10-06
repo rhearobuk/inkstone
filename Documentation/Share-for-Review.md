@@ -21,4 +21,6 @@ sharing is unavailable rather than reporting success.
 
 Creating invitations now creates or reuses three independent CloudKit groups: manuscript, feedback, and optional Story Bible context. Each group reports its own success or failure and failed groups can be retried without recreating successful shares. The entered email address is resolved as a private CloudKit participant; public sharing remains disabled.
 
+Once the link exists, the Send Invitation section moves to the top of the sheet. **Copy Link** puts the invitation URL on the pasteboard and is the dependable path; emailing via Mail or sending through the system share picker are the other options. The same actions are available later from Manage Access. While an invitation is being created, the create button shows progress and ignores repeat clicks.
+
 Reviewer manuscript permission is server-enforced read-only. Its feedback group is read-write, and feedback is inserted into the participant shared store with a scalar `documentID` anchor. No reviewer manuscript or reconciliation copy is created. Owners can inspect persisted participants and revoke future access. Revocation is asynchronous and cannot recall content that a participant already downloaded.

@@ -33,6 +33,13 @@ Re-imports update the source document without overwriting the editable card.
 Place cards support the same category-then-entry relationship composer as other
 Story Bible entries and participate in Relationship Explorer.
 
+Story Bible categories are derived from top-level binder folders (Characters,
+Places, Research, Template Sheets, and so on). Some projects wrap those folders
+in a single top-level "Story Bible" (or "Series Bible"/"World Bible") folder.
+After import, Inkstone unwraps that container: each subfolder is filed into the
+category its name or section types indicate (Research when nothing matches), and
+the empty wrapper is removed. A wrapper with its own text is kept under Research.
+
 ## Compatibility boundary
 
 - Inkstone does not modify the selected Scrivener project or its source files.

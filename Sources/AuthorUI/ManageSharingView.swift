@@ -368,22 +368,13 @@ private struct ShareManagementRow: View {
             }
 
             if let invitationURL = row.invitationURL {
-                HStack {
-                    if let emailURL = row.emailURL {
-                        Link(destination: emailURL) {
-                            Label("Email Again", systemImage: "envelope")
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    ShareLink(
-                        item: invitationURL,
-                        subject: Text("Invitation to review \(row.projectTitle)"),
-                        message: Text("Open this invitation in Inkstone while signed in to iCloud.")
-                    ) {
-                        Label("Resend Another Way", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.bordered)
-                }
+                InvitationLinkActions(
+                    invitationURL: invitationURL,
+                    emailURL: row.emailURL,
+                    emailTitle: "Email Again",
+                    shareSubject: "Invitation to review \(row.projectTitle)",
+                    shareTitle: "Resend Another Way"
+                )
             } else {
                 Label("Invitation link unavailable. Refresh while connected to iCloud.", systemImage: "exclamationmark.triangle")
                     .font(.caption)

@@ -36,9 +36,9 @@ final class CoreDataSharingPreflightTests: XCTestCase {
 
         XCTAssertFalse(report.isObjectGraphSafe)
         XCTAssertTrue(report.exposures.contains { $0.entityName == WritingProject.entityName })
-        XCTAssertFalse(report.exposures.contains {
+        XCTAssertTrue(report.exposures.contains {
             $0.entityName == Document.entityName && $0.objectID == privateScene.objectID.uriRepresentation()
-        }, "V13 ID-backed project membership must not traverse to sibling documents")
+        }, "An unshared document keeps its project relationship, so sharing it directly would expose siblings")
     }
 
     func testDisconnectedCanonicalRecordPassesObjectGraphPreflight() throws {

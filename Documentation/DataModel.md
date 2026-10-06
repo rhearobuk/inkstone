@@ -192,3 +192,9 @@ Separate groups enforce separate CloudKit permissions:
 - `storyContext`: explicitly granted Story Bible entities, independent of manuscript permission.
 
 `SharingGroup` is the only share root. Its relationships contain only records authorized for that group. A canonical record with an existing different `sharingGroupID` is rejected instead of copied into another share.
+
+Implementation notes (1.0.0):
+
+- `Document.project` and `Document.parent` are custom accessors that write the UUID routing field and the legacy relationship together. Because they replace Core Data's generated setters, they maintain the inverse sets (`WritingProject.documents`, `Document.children`) explicitly, so new or imported documents are visible to the binder and to sharing before the context is saved or the app is relaunched. When the relationship is absent (a shared document), the getter resolves the target by its routing ID.
+- On open, `PersistenceController` backfills `projectID`/`parentID` for any document that predates the routing fields. On save, routing IDs are synchronized only when they change, and an unshared document moved to the top level has its `parentID` cleared; shared documents keep their IDs because their relationships are intentionally empty.
+- 1.0.0 is the first released version with sharing, so no shipped library needs a V12→V13 migration; the additive migration exists for development libraries.

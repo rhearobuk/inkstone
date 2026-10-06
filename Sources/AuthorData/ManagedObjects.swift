@@ -11,10 +11,34 @@ public extension AuthorManagedObject {
 
     func relatedObject<Model: AuthorManagedObject>(_ type: Model.Type, id: UUID?) -> Model? {
         guard let id, let context = managedObjectContext else { return nil }
+        // Shared documents navigate by UUID on every binder/ancestor read. A fetch per read
+        // stalls the main thread while CloudKit mirroring holds the coordinator, so resolved
+        // permanent object IDs are cached per context and re-validated on each hit.
+        let cacheKey = "\(Model.entityName):\(id.uuidString)"
+        let cache = Self.relatedObjectIDCache(in: context)
+        if let objectID = cache[cacheKey] as? NSManagedObjectID {
+            if let object = try? context.existingObject(with: objectID) as? Model,
+               !object.isDeleted, object.id == id {
+                return object
+            }
+            cache.removeObject(forKey: cacheKey)
+        }
         let request = NSFetchRequest<Model>(entityName: Model.entityName)
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
         request.fetchLimit = 1
-        return try? context.fetch(request).first
+        guard let object = try? context.fetch(request).first else { return nil }
+        if !object.objectID.isTemporaryID {
+            cache[cacheKey] = object.objectID
+        }
+        return object
+    }
+
+    private static func relatedObjectIDCache(in context: NSManagedObjectContext) -> NSMutableDictionary {
+        let key = "Inkstone.relatedObjectIDCache"
+        if let cache = context.userInfo[key] as? NSMutableDictionary { return cache }
+        let cache = NSMutableDictionary()
+        context.userInfo[key] = cache
+        return cache
     }
 
     func relatedObjects<Model: AuthorManagedObject>(_ type: Model.Type, key: String, id: UUID) -> Set<Model> {
@@ -90,27 +114,73 @@ public final class Document: NSManagedObject, AuthorManagedObject {
     /// to date incrementally by `WordCountService` whenever text changes or the tree is
     /// restructured, so it never needs a full-tree recalculation.
     @NSManaged public var actualWordCount: Int64
-    @objc public var project: WritingProject {
+    /// Core Data and KVO access the relationship through this optional accessor: a document is
+    /// legitimately without a project while being inserted, cascade-deleted, or migrated.
+    @objc(project) public var projectReference: WritingProject? {
         get {
-            if let project = relatedObject(WritingProject.self, id: projectID) { return project }
-            if let project = primitiveValue(forKey: "project") as? WritingProject { return project }
-            preconditionFailure("Document \(id) has no project")
+            relationshipValue(forKey: "project") as? WritingProject
+                ?? relatedObject(WritingProject.self, id: routingID(forKey: "projectID"))
         }
         set {
-            // Core Data sends nil through this Objective-C setter while cascading a
-            // WritingProject deletion, even though live Documents require a project.
-            // Reinterpret the nullable Objective-C reference before dereferencing it.
-            let nullableValue = unsafeBitCast(newValue, to: WritingProject?.self)
-            projectID = nullableValue?.id
-            setPrimitiveValue(nullableValue, forKey: "project")
+            setRoutingID(newValue?.id, forKey: "projectID")
+            setToOne(newValue, forKey: "project", inverseKey: "documents")
         }
     }
-    @objc public var parent: Document? {
-        get { relatedObject(Document.self, id: parentID) ?? primitiveValue(forKey: "parent") as? Document }
-        set {
-            parentID = newValue?.id
-            setPrimitiveValue(newValue, forKey: "parent")
+    public var project: WritingProject {
+        get {
+            guard let project = projectReference else { preconditionFailure("Document \(id) has no project") }
+            return project
         }
+        set { projectReference = newValue }
+    }
+    @objc(parent) public var parent: Document? {
+        get {
+            relationshipValue(forKey: "parent") as? Document
+                ?? relatedObject(Document.self, id: routingID(forKey: "parentID"))
+        }
+        set {
+            setRoutingID(newValue?.id, forKey: "parentID")
+            setToOne(newValue, forKey: "parent", inverseKey: "children")
+        }
+    }
+
+    /// Custom accessors replace Core Data's generated setter, which is what normally maintains
+    /// the inverse to-many set. Update both sides explicitly using the documented primitive
+    /// set-mutation pattern so `project.documents` and `parent.children` stay correct.
+    private func setToOne(_ newValue: NSManagedObject?, forKey key: String, inverseKey: String) {
+        let oldValue = relationshipValue(forKey: key) as? NSManagedObject
+        guard oldValue !== newValue else { return }
+        let member: Set<AnyHashable> = [self]
+        if let oldValue, !oldValue.isDeleted {
+            oldValue.willChangeValue(forKey: inverseKey, withSetMutation: .minus, using: member)
+            (oldValue.primitiveValue(forKey: inverseKey) as? NSMutableSet)?.remove(self)
+            oldValue.didChangeValue(forKey: inverseKey, withSetMutation: .minus, using: member)
+        }
+        willChangeValue(forKey: key)
+        setPrimitiveValue(newValue, forKey: key)
+        didChangeValue(forKey: key)
+        if let newValue {
+            newValue.willChangeValue(forKey: inverseKey, withSetMutation: .union, using: member)
+            (newValue.primitiveValue(forKey: inverseKey) as? NSMutableSet)?.add(self)
+            newValue.didChangeValue(forKey: inverseKey, withSetMutation: .union, using: member)
+        }
+    }
+
+    private func relationshipValue(forKey key: String) -> Any? {
+        willAccessValue(forKey: key)
+        defer { didAccessValue(forKey: key) }
+        return primitiveValue(forKey: key)
+    }
+
+    private func routingID(forKey key: String) -> UUID? {
+        guard entity.attributesByName[key] != nil else { return nil }
+        return value(forKey: key) as? UUID
+    }
+
+    /// Older model versions (used while migrating) have no routing ID attributes.
+    private func setRoutingID(_ value: UUID?, forKey key: String) {
+        guard entity.attributesByName[key] != nil else { return }
+        setValue(value, forKey: key)
     }
     @NSManaged public var children: Set<Document>
     @NSManaged public var resources: Set<ContentResource>

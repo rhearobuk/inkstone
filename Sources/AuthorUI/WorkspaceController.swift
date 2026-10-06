@@ -1199,6 +1199,7 @@ public final class WorkspaceController: ObservableObject {
             throw error
         }
         selectedProjectID = result.projectID
+        try unwrapImportedStoryBibleContainers(in: targetProject)
         try normalizeImportedPlaceCards(in: targetProject)
         selection = .projectDefinition(result.projectID)
         refresh()
@@ -1207,6 +1208,62 @@ public final class WorkspaceController: ObservableObject {
         with \(result.warnings.count) warning\(result.warnings.count == 1 ? "" : "s").
         """
         return result
+    }
+
+    /// Scrivener projects often keep all reference material under one top-level "Story Bible"
+    /// folder. Story Bible categories are derived from root folders, so that wrapper would file
+    /// every subfolder under one category. Promote each subfolder into its own category instead.
+    func unwrapImportedStoryBibleContainers(in project: WritingProject) throws {
+        let containerTitles: Set<String> = ["story bible", "storybible", "series bible", "world bible", "bible"]
+        let containers = documents(in: project).filter {
+            $0.parent == nil &&
+                !$0.sourceIdentifier.hasPrefix("native.") &&
+                $0.kind != DocumentKind.draftFolder.rawValue &&
+                containerTitles.contains($0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        }
+        guard !containers.isEmpty else { return }
+        for container in containers {
+            let children = documents(in: project)
+                .filter { $0.parent?.id == container.id }
+                .sorted(by: documentOrder)
+            for child in children {
+                try relocateDocument(child.id, toStoryBibleCategory: importedStoryBibleCategory(for: child))
+            }
+            if (container.plainText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                store.context.delete(container)
+            } else {
+                try relocateDocument(container.id, toStoryBibleCategory: .research)
+            }
+        }
+        try store.save()
+    }
+
+    private func importedStoryBibleCategory(for document: Document) -> StoryBibleCategory {
+        let title = document.title.lowercased()
+        let titleRules: [(StoryBibleCategory, [String])] = [
+            (.people, ["character", "people", "cast"]),
+            (.organizations, ["organization", "organisation", "faction", "guild"]),
+            (.places, ["place", "location", "region", "setting"]),
+            (.artifacts, ["artifact", "artefact", "object", "item"]),
+            (.events, ["event", "conflict", "timeline"]),
+            (.worldbuilding, ["world", "lore", "magic"]),
+            (.research, ["research", "template", "note"]),
+        ]
+        if let match = titleRules.first(where: { $0.1.contains(where: title.contains) }) {
+            return match.0
+        }
+        var stack = [document]
+        while let next = stack.popLast() {
+            if !next.sourceCharacterProfiles.isEmpty { return .people }
+            switch next.sectionTypeIdentifier?.lowercased() {
+            case "character": return .people
+            case "location", "place", "setting": return .places
+            case "worldbuilding": return .worldbuilding
+            default: break
+            }
+            stack.append(contentsOf: next.children.filter { !$0.isDeleted })
+        }
+        return .research
     }
 
     @discardableResult

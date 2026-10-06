@@ -343,6 +343,10 @@ extension WorkspaceController {
         case .document(let id):
             guard let project = selectedProject,
                   let document = documents(in: project).first(where: { $0.id == id }) else {
+                // Exists, but in another project or outside this participant's share scope.
+                if try store.fetchAcrossStores(Document.self, id: id) != nil {
+                    throw ContentManagementError.unavailableTarget
+                }
                 throw WorkspaceError.missingDocument(id)
             }
             guard !document.isDeleted, document.project.id == selectedProjectID,

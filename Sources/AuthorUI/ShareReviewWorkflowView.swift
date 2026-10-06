@@ -143,6 +143,7 @@ public final class ShareReviewWorkflowModel: ObservableObject {
     }
 
     public func beginSharing() async {
+        guard !isCreatingInvitation else { return }
         rebuildPreview()
         guard canShare else { return }
         guard service.state != .localOnly else {
@@ -384,13 +385,13 @@ public struct ShareReviewWorkflowView: View {
                 Divider()
 
                 Form {
+                    sendInvitationSection
                     recipientSection
                     scopeSection
                     eligibilitySection
                     contextSection
                     previewSection
                     progressSection
-                    sendInvitationSection
                 }
                 .formStyle(.grouped)
                 .padding(.horizontal, 20)
@@ -399,10 +400,19 @@ public struct ShareReviewWorkflowView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create Invitation Link") {
+                    Button {
                         Task {
                             await model.beginSharing()
                             invitationFailureMessage = model.errorMessage
+                        }
+                    } label: {
+                        if model.isCreatingInvitation {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Creating…")
+                            }
+                        } else {
+                            Text(model.invitationURL == nil ? "Create Invitation Link" : "Create Another Invitation")
                         }
                     }
                         .disabled(!model.canShare)
@@ -533,19 +543,13 @@ public struct ShareReviewWorkflowView: View {
             Section("Send Invitation") {
                 Text("The reader will not see shared content until they open and accept this link using the iCloud account you invited.")
                     .foregroundStyle(.secondary)
-                if let emailURL = model.emailInvitationURL {
-                    Link(destination: emailURL) {
-                        Label("Email Invitation to \(model.recipient)", systemImage: "envelope")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                ShareLink(
-                    item: invitationURL,
-                    subject: Text("Invitation to review \(model.project.title)"),
-                    message: Text("Open this invitation in Inkstone while signed in to iCloud.")
-                ) {
-                    Label("Send Another Way", systemImage: "square.and.arrow.up")
-                }
+                InvitationLinkActions(
+                    invitationURL: invitationURL,
+                    emailURL: model.emailInvitationURL,
+                    emailTitle: "Email \(model.recipient)",
+                    shareSubject: "Invitation to review \(model.project.title)",
+                    shareTitle: "Send Another Way"
+                )
                 Text(invitationURL.absoluteString)
                     .font(.caption.monospaced())
                     .textSelection(.enabled)

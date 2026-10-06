@@ -228,6 +228,7 @@ public final class AuthorDataStore {
         storyBibleRelationships = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
         sharingGroups = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
         shareParticipants = EntityRepository(context: container.viewContext, persistentStore: loadedPrivateStore)
+        try Self.backfillLegacyRoutingIDs(context: container.viewContext, privateStore: loadedPrivateStore)
     }
 
     public static func sharedStoreURL(for privateStoreURL: URL) -> URL {
@@ -258,16 +259,33 @@ public final class AuthorDataStore {
         }
     }
 
+    /// Mirrors relationship values into the scalar routing IDs that survive CloudKit sharing.
+    /// A shared canonical document has its relationships cleared by design, so its IDs are kept;
+    /// for unshared records a nil relationship also clears the ID (for example, moving to root).
     private static func synchronizeRoutingIDs(in objects: Set<NSManagedObject>) {
-        for object in objects {
+        func relationship(_ object: NSManagedObject, _ key: String) -> NSManagedObject? {
+            object.willAccessValue(forKey: key)
+            defer { object.didAccessValue(forKey: key) }
+            return object.primitiveValue(forKey: key) as? NSManagedObject
+        }
+        func update(_ object: NSManagedObject, _ key: String, _ value: UUID?) {
+            guard object.entity.attributesByName[key] != nil,
+                  object.value(forKey: key) as? UUID != value else { return }
+            object.setValue(value, forKey: key)
+        }
+        for object in objects where !object.isDeleted {
             if let document = object as? Document {
-                let project = document.primitiveValue(forKey: "project") as? WritingProject
-                let parent = document.primitiveValue(forKey: "parent") as? Document
-                if let project { document.projectID = project.id }
-                if let parent { document.parentID = parent.id }
-            } else if let semanticEntity = object as? SemanticEntity {
-                let project = semanticEntity.primitiveValue(forKey: "project") as? WritingProject
-                if let project { semanticEntity.projectID = project.id }
+                let isShared = document.sharingGroupID != nil
+                if let project = relationship(document, "project") as? WritingProject {
+                    update(document, "projectID", project.id)
+                }
+                let parent = relationship(document, "parent") as? Document
+                if parent != nil || !isShared {
+                    update(document, "parentID", parent?.id)
+                }
+            } else if let semanticEntity = object as? SemanticEntity,
+                      let project = relationship(semanticEntity, "project") as? WritingProject {
+                update(semanticEntity, "projectID", project.id)
             }
         }
     }
