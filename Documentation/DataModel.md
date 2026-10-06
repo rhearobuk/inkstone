@@ -169,7 +169,7 @@ relationship changes, preserving the CloudKit schema requirements. Local
 migration/reopen tests do not substitute for a signed-in cross-device sync smoke
 test.
 
-The Xcode app target (`Inkstone`) declares `com.apple.developer.icloud-container-identifiers` (`iCloud.com.robertrhea.inkstone`) and `com.apple.developer.icloud-services` (`CloudKit`) in `Sources/AuthorApp/AuthorApp.entitlements` (iOS, iPadOS, visionOS) and `Sources/AuthorApp/AuthorApp-macOS.entitlements` (macOS), wired in via `CODE_SIGN_ENTITLEMENTS`. This must match `AuthorDataStore.cloudKitContainerIdentifier`. The earlier `iCloud.com.robertrhea.scribe` container held pre-release development data only and is no longer used. It must remain registered under the signing team (already done via [developer.apple.com](https://developer.apple.com) → Certificates, Identifiers & Profiles → iCloud Containers) for sync to work on a real device/build.
+The Xcode app target (`Inkstone`) declares `com.apple.developer.icloud-container-identifiers` (`iCloud.com.robertrhea.inkstone`) and `com.apple.developer.icloud-services` (`CloudKit`) in `Sources/AuthorApp/AuthorApp.entitlements` (iOS, iPadOS, visionOS) and `Sources/AuthorApp/AuthorApp-macOS.entitlements` (macOS), wired in via `CODE_SIGN_ENTITLEMENTS`. This must match `AuthorDataStore.cloudKitContainerIdentifier`. The `inkstone` container must be registered under the signing team (already done via [developer.apple.com](https://developer.apple.com) → Certificates, Identifiers & Profiles → iCloud Containers) for sync to work on a real device/build. The earlier `iCloud.com.robertrhea.scribe` container held pre-release development data only and is no longer used.
 
 
 ## AI Editor reviews (V5)
